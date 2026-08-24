@@ -1,5 +1,7 @@
 import { Navbar } from "./components/Navbar";
 import { RunbookPreview } from "./components/RunbookPreview";
+import { LandingSections } from "./components/LandingSections";
+import Image from "next/image";
 import { ShieldCheck } from "lucide-react";
 
 export default function App() {
@@ -29,9 +31,15 @@ export default function App() {
           <Navbar />
 
           <div className="flex flex-col items-center px-4 pb-8 pt-10 text-center sm:pb-12 sm:pt-16">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-1.5 text-[13px] font-medium shadow-sm ring-1 ring-neutral-200">
-              <ShieldCheck className="h-4 w-4 text-signal" strokeWidth={1.8} />
-              RunProof
+            <div className="inline-flex items-center rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-neutral-200">
+              <Image
+                src="/brand/runproof-logo.png"
+                alt="RunProof"
+                width={112}
+                height={30}
+                priority
+                className="h-7 w-auto"
+              />
             </div>
 
             <h1
@@ -55,21 +63,22 @@ export default function App() {
             </p>
 
             <a
-              href="#demo-preview"
+              href="#product-preview"
               className="mt-6 inline-flex items-center gap-3 rounded-full bg-ink py-2 pl-6 pr-2 text-sm font-semibold text-white shadow-sm transition hover:translate-y-[-1px] active:translate-y-0 sm:mt-8 sm:py-2.5 sm:pl-7"
             >
-              View demo
+              View workflow
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/15 sm:h-7 sm:w-7">
                 <ShieldCheck className="h-4 w-4" strokeWidth={1.8} />
               </span>
             </a>
           </div>
 
-          <div id="demo-preview" className="px-3 sm:px-4">
+          <div id="product-preview" className="px-3 sm:px-4">
             <RunbookPreview />
           </div>
         </div>
       </section>
+      <LandingSections />
     </main>
   );
 }

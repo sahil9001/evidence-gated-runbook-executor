@@ -1,43 +1,55 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import {
   Activity,
   ChevronDown,
   ChevronRight,
   Menu,
-  ShieldCheck,
   X
 } from "lucide-react";
 
-const navItems = ["Home", "Runbooks", "Evidence", "Approvals"];
+const navItems = [
+  { label: "Home", href: "#" },
+  { label: "Runbooks", href: "#runbooks" },
+  { label: "Evidence", href: "#evidence" },
+  { label: "Approvals", href: "#approval" }
+];
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
 
   return (
     <nav className="flex justify-center px-3 pt-4 sm:px-4 sm:pt-6">
-      <div className="relative flex w-full max-w-[760px] items-center rounded-full border border-neutral-200 bg-white py-2 pl-2 pr-2 shadow-sm">
+      <div className="relative flex w-full max-w-[900px] items-center rounded-full border border-neutral-200 bg-white py-2 pl-2 pr-2 shadow-sm">
         <a
           href="#"
           aria-label="RunProof home"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-signal text-white sm:h-9 sm:w-9"
+          className="flex h-9 shrink-0 items-center rounded-full pl-1 pr-2 transition hover:opacity-80 sm:h-10"
         >
-          <ShieldCheck className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
+          <Image
+            src="/brand/runproof-logo.png"
+            alt="RunProof"
+            width={154}
+            height={40}
+            priority
+            className="h-9 w-auto sm:h-10"
+          />
         </a>
 
-        <div className="ml-6 hidden items-center gap-6 text-sm font-medium text-neutral-700 md:flex">
+        <div className="ml-5 hidden items-center gap-5 text-sm font-medium text-neutral-700 md:flex lg:ml-7 lg:gap-6">
           {navItems.map((item) => (
             <a
-              key={item}
-              href="#"
+              key={item.label}
+              href={item.href}
               className="flex items-center gap-2 transition hover:text-ink"
             >
-              {item === "Home" ? (
+              {item.label === "Home" ? (
                 <span className="h-1.5 w-1.5 rounded-full bg-ink" />
               ) : null}
-              {item}
-              {item === "Approvals" ? (
+              {item.label}
+              {item.label === "Approvals" ? (
                 <ChevronDown className="h-3.5 w-3.5 text-signal" />
               ) : null}
             </a>
@@ -52,10 +64,10 @@ export function Navbar() {
             <Activity className="h-4 w-4" strokeWidth={1.8} />
           </button>
           <a
-            href="#demo-preview"
+            href="#product-preview"
             className="inline-flex items-center gap-2 rounded-full bg-signal py-2 pl-4 pr-2 text-xs font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 sm:text-sm md:pl-5"
           >
-            Run demo
+            Open preview
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
               <ChevronRight className="h-3.5 w-3.5" strokeWidth={2.2} />
             </span>
@@ -79,13 +91,13 @@ export function Navbar() {
           <div className="absolute left-2 right-2 top-full z-20 mt-2 rounded-2xl border border-neutral-200 bg-white p-3 text-left text-sm font-medium text-neutral-700 shadow-lg md:hidden">
             {navItems.map((item) => (
               <a
-                key={item}
-                href="#"
+                key={item.label}
+                href={item.href}
                 className="flex items-center justify-between rounded-xl px-3 py-2.5 transition hover:bg-neutral-50"
                 onClick={() => setOpen(false)}
               >
-                {item}
-                {item === "Approvals" ? (
+                {item.label}
+                {item.label === "Approvals" ? (
                   <ChevronDown className="h-3.5 w-3.5 text-signal" />
                 ) : null}
               </a>

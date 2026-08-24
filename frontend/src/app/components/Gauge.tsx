@@ -8,7 +8,7 @@ type GaugeProps = {
 
 export function Gauge({
   value,
-  color = "#ef4d23",
+  color = "#0284c7",
   showLabels = false,
   min = "0",
   max = "100"

@@ -27,6 +27,135 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+.rp-rise {
+  animation: rp-rise 820ms ease both;
+}
+
+.rp-rise-1 {
+  animation-delay: 80ms;
+}
+
+.rp-rise-2 {
+  animation-delay: 180ms;
+}
+
+.rp-rise-3 {
+  animation-delay: 280ms;
+}
+
+.rp-rise-4 {
+  animation-delay: 380ms;
+}
+
+.rp-rise-5 {
+  animation-delay: 480ms;
+}
+
+.rp-float {
+  animation: rp-float 4.8s ease-in-out infinite;
+}
+
+.rp-scan {
+  animation: rp-scan 3.8s ease-in-out infinite;
+}
+
+.rp-pulse {
+  animation: rp-pulse 1.8s ease-in-out infinite;
+}
+
+.rp-terminal-line {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  width: 0;
+  animation: rp-type 980ms steps(44, end) forwards;
+}
+
+.rp-terminal-1 {
+  animation-delay: 120ms;
+}
+
+.rp-terminal-2 {
+  animation-delay: 720ms;
+}
+
+.rp-terminal-3 {
+  animation-delay: 1320ms;
+}
+
+.rp-terminal-4 {
+  animation-delay: 1920ms;
+}
+
+.rp-terminal-5 {
+  animation-delay: 2520ms;
+}
+
+.rp-terminal-6 {
+  animation-delay: 3120ms;
+}
+
+@keyframes rp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes rp-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes rp-scan {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+
+  18%,
+  72% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(280%);
+    opacity: 0;
+  }
+}
+
+@keyframes rp-pulse {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes rp-type {
+  from {
+    width: 0;
+  }
+
+  to {
+    width: 100%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

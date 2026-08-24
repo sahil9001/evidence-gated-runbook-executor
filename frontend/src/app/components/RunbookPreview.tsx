@@ -35,8 +35,8 @@ const timeline = [
 
 export function RunbookPreview() {
   return (
-    <div className="mx-auto w-full max-w-[940px] rounded-3xl bg-panel p-4 shadow-soft sm:p-6">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+    <div className="mx-auto w-full max-w-[1180px] rounded-t-3xl rounded-b-none bg-panel p-4 pb-0 shadow-soft sm:p-6 sm:pb-0 lg:p-7 lg:pb-0">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 lg:gap-5">
         <section className="rounded-2xl bg-white p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -45,7 +45,7 @@ export function RunbookPreview() {
                 Checkout incident
               </p>
             </div>
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
+            <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
               <AlertTriangle className="h-3 w-3" strokeWidth={2} />
               High
             </span>
@@ -60,7 +60,7 @@ export function RunbookPreview() {
           </p>
 
           <div className="mt-4">
-            <Gauge value={82} color="#ef4d23" showLabels min="Safe" max="Risky" />
+            <Gauge value={82} color="#0284c7" showLabels min="Safe" max="Risky" />
           </div>
         </section>
 

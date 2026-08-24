@@ -4,7 +4,6 @@ import Image from "next/image";
 import { useState } from "react";
 import {
   Activity,
-  ChevronDown,
   ChevronRight,
   Menu,
   X
@@ -12,9 +11,7 @@ import {
 
 const navItems = [
   { label: "Home", href: "#" },
-  { label: "Runbooks", href: "#runbooks" },
-  { label: "Evidence", href: "#evidence" },
-  { label: "Approvals", href: "#approval" }
+  { label: "Runbooks", href: "#runbooks" }
 ];
 
 export function Navbar() {
@@ -22,23 +19,23 @@ export function Navbar() {
 
   return (
     <nav className="flex justify-center px-3 pt-4 sm:px-4 sm:pt-6">
-      <div className="relative flex w-full max-w-[900px] items-center rounded-full border border-neutral-200 bg-white py-2 pl-2 pr-2 shadow-sm">
+      <div className="relative grid w-full max-w-[980px] grid-cols-[1fr_auto] items-center rounded-full border border-neutral-200 bg-white py-2 pl-2 pr-2 shadow-sm md:grid-cols-[1fr_auto_1fr]">
         <a
           href="#"
           aria-label="RunProof home"
-          className="flex h-9 shrink-0 items-center rounded-full pl-1 pr-2 transition hover:opacity-80 sm:h-10"
+          className="flex h-9 min-w-0 shrink-0 items-center justify-self-start rounded-full pl-1 pr-2 transition hover:opacity-80 sm:h-10"
         >
           <Image
-            src="/brand/runproof-logo.png"
+            src="/brand/runproof-logo-blue.png"
             alt="RunProof"
-            width={154}
-            height={40}
+            width={188}
+            height={45}
             priority
-            className="h-9 w-auto sm:h-10"
+            className="h-8 w-auto sm:h-9"
           />
         </a>
 
-        <div className="ml-5 hidden items-center gap-5 text-sm font-medium text-neutral-700 md:flex lg:ml-7 lg:gap-6">
+        <div className="hidden items-center justify-center gap-5 text-sm font-medium text-neutral-700 md:flex lg:gap-6">
           {navItems.map((item) => (
             <a
               key={item.label}
@@ -49,14 +46,11 @@ export function Navbar() {
                 <span className="h-1.5 w-1.5 rounded-full bg-ink" />
               ) : null}
               {item.label}
-              {item.label === "Approvals" ? (
-                <ChevronDown className="h-3.5 w-3.5 text-signal" />
-              ) : null}
             </a>
           ))}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center justify-end gap-2">
           <button
             className="hidden h-9 w-9 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 transition hover:bg-neutral-50 md:flex"
             aria-label="Open live incident feed"
@@ -97,9 +91,6 @@ export function Navbar() {
                 onClick={() => setOpen(false)}
               >
                 {item.label}
-                {item.label === "Approvals" ? (
-                  <ChevronDown className="h-3.5 w-3.5 text-signal" />
-                ) : null}
               </a>
             ))}
           </div>

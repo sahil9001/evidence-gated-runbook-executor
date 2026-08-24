@@ -1,405 +1,388 @@
-import Image from "next/image";
+import type { ReactNode } from "react";
 import {
   CheckCircle2,
-  ClipboardCheck,
-  Clock3,
-  FileSearch,
-  FlaskConical,
-  GitPullRequest,
-  LockKeyhole,
-  ServerCog,
+  Play,
+  Radio,
   ShieldCheck,
   Terminal
 } from "lucide-react";
 
-const evidenceItems = [
-  "Recent deploy metadata",
-  "Error-rate spike window",
-  "Runbook step coverage",
-  "Sandbox reproduction output"
+const terminalLines = [
+  "$ runproof replay checkout-failure",
+  "loading logs: payment-service, api-gateway",
+  "matched deploy: retry-window-config",
+  "sandbox.exec diagnostic_timeout_check.js",
+  "result: reproduced timeout in 2.9s",
+  "recommendation: rollback config after approval"
 ];
 
-const flowSteps = [
-  {
-    title: "Read the runbook",
-    body: "The agent starts from a Markdown or YAML checklist, not a vague prompt.",
-    icon: ClipboardCheck
-  },
-  {
-    title: "Collect signals",
-    body: "It pulls logs, metrics, commits, and service context into one evidence packet.",
-    icon: FileSearch
-  },
-  {
-    title: "Run diagnostics",
-    body: "Generated scripts execute in isolation before any production action is suggested.",
-    icon: FlaskConical
-  },
-  {
-    title: "Ask for approval",
-    body: "Risky actions remain locked until the engineer reviews the proof.",
-    icon: LockKeyhole
-  }
-];
-
-const workflowMoments = [
-  "Checkout alert arrives",
-  "Runbook is selected",
-  "Logs and deploys are checked",
-  "Diagnostic script runs",
-  "Rollback is recommended",
-  "Approval unlocks action"
-];
-
-const controlRows = [
-  {
-    label: "Allowed automatically",
-    value: "Read logs, inspect metrics, search commits"
-  },
-  {
-    label: "Sandbox only",
-    value: "Generate scripts, test theories, parse evidence"
-  },
-  {
-    label: "Approval required",
-    value: "Rollback, restart, open PR, change config"
-  }
-];
-
-const executionSignals = [
-  "Tool call starts from a scoped runbook",
-  "Sandbox output is shown before recommendation",
-  "Approval gate blocks production actions"
+const workflowRows = [
+  ["Fetching logs", "10s", "complete"],
+  ["Processing traces", "20s", "complete"],
+  ["Running sandbox", "30s", "complete"],
+  ["Writing proof packet", "40s", "complete"],
+  ["Waiting for approval", "50s", "pending"]
 ];
 
 const footerLinks = [
   {
-    title: "Product",
-    links: ["Runbooks", "Evidence packets", "Sandbox checks"]
+    label: "Privacy Policy",
+    href: "#"
   },
   {
-    title: "Workflow",
-    links: ["Incident preview", "Controlled execution", "Approval gate"]
+    label: "Terms of Service",
+    href: "#"
   },
   {
-    title: "Platform",
-    links: ["Runbook library", "Cloudflare-ready", "Private deployment"]
+    label: "Security",
+    href: "#"
   }
 ];
+
+function SectionShell({
+  children,
+  id,
+  className = ""
+}: {
+  children: ReactNode;
+  id?: string;
+  className?: string;
+}) {
+  return (
+    <section
+      id={id}
+      className={`overflow-hidden rounded-2xl bg-white shadow-sm sm:rounded-3xl ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
+
+function FeatureTile({
+  children,
+  className = "",
+  title,
+  body
+}: {
+  children: ReactNode;
+  className?: string;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div
+      className={`relative overflow-hidden border-sky-100 bg-white ${className}`}
+    >
+      <div className="px-4 pt-5 md:px-8 md:pt-8">
+        <h3 className="text-left text-xl font-semibold tracking-[-0.015em] text-ink md:text-2xl md:leading-snug">
+          {title}
+        </h3>
+        <p className="mx-0 mt-2 max-w-sm text-left text-sm leading-6 text-neutral-500">
+          {body}
+        </p>
+      </div>
+      <div className="h-full max-h-[390px] w-full pt-3 md:pt-5">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function TimeBadge({
+  time,
+  tone
+}: {
+  time: string;
+  tone: "green" | "yellow" | "red";
+}) {
+  const toneClass = {
+    green: "border-emerald-300 bg-emerald-300/10 text-emerald-600",
+    red: "border-red-300 bg-red-300/10 text-red-500",
+    yellow: "border-amber-300 bg-amber-300/10 text-amber-600"
+  }[tone];
+
+  return (
+    <div
+      className={`flex w-fit items-center gap-1 rounded-full border px-1.5 py-1 ${toneClass}`}
+    >
+      <Radio className="h-3 w-3" strokeWidth={1.8} />
+      <p className="text-[10px] font-bold uppercase">{time}</p>
+    </div>
+  );
+}
+
+function TiltedAgentCard({
+  className,
+  description,
+  tags,
+  time,
+  title,
+  tone
+}: {
+  className: string;
+  description: string;
+  tags: string[];
+  time: string;
+  title: string;
+  tone: "green" | "yellow" | "red";
+}) {
+  return (
+    <div
+      className={`absolute h-fit w-full rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-2xl ${className}`}
+    >
+      <div className="flex items-center gap-3">
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-signal" strokeWidth={1.8} />
+        <p className="text-sm font-semibold text-ink">{title}</p>
+        <TimeBadge tone={tone} time={time} />
+      </div>
+      <p className="mt-3 text-sm leading-5 text-neutral-500">{description}</p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {tags.map((tag) => (
+          <div
+            key={tag}
+            className="rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700"
+          >
+            {tag}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function IssueTrackerBoard() {
+  return (
+    <div className="relative h-[410px] overflow-hidden bg-[#f7fbff] [perspective:900px]">
+      <div className="absolute inset-x-0 bottom-0 z-20 h-32 bg-gradient-to-b from-transparent to-white" />
+      <div className="rp-rise absolute inset-0">
+        <div
+          className="absolute inset-0"
+          style={{
+            transform: "translateY(-40px) scale(1.2) rotateX(30deg) rotateY(-20deg) rotateZ(15deg)",
+            transformStyle: "preserve-3d"
+          }}
+        >
+          <TiltedAgentCard
+            className="bottom-8 left-16 z-30 max-w-[78%]"
+            title="Evidence packet"
+            description="Collects deploy diffs, logs, metrics, and runbook rules before any action is suggested."
+            tags={["deploy", "logs", "metrics"]}
+            tone="green"
+            time="10s"
+          />
+          <TiltedAgentCard
+            className="bottom-24 left-10 z-20 max-w-[72%]"
+            title="Incident tracker"
+            description="Keeps the checkout failure, likely cause, and operator decision in one visible place."
+            tags={["checkout", "timeout", "p95"]}
+            tone="yellow"
+            time="40s"
+          />
+          <TiltedAgentCard
+            className="bottom-40 left-4 z-10 max-w-[66%]"
+            title="Risk analysis"
+            description="Shows why rollback is useful, what it touches, and why approval is required."
+            tags={["rollback", "risk", "gate"]}
+            tone="red"
+            time="120s"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EvidenceCardStack() {
+  return (
+    <div className="relative h-[350px] overflow-hidden bg-[#f7fbff] [perspective:900px]">
+      <div className="absolute inset-x-0 bottom-0 z-20 h-28 bg-gradient-to-b from-transparent to-white" />
+      <div className="rp-rise h-full w-full">
+        <div
+          className="group mx-auto flex h-full w-full max-w-[86%] flex-col rounded-2xl border border-sky-100 bg-white p-3 shadow-2xl"
+          style={{
+            transform: "translateX(40px) rotateY(20deg) rotateX(20deg) rotateZ(-20deg)",
+            transformStyle: "preserve-3d"
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="h-4 w-4 text-signal" strokeWidth={1.8} />
+            <p className="text-sm font-semibold text-ink">Evidence capture</p>
+          </div>
+          <div className="relative mt-4 flex-1 overflow-visible rounded-2xl border border-sky-100 bg-sky-50">
+            <div className="absolute inset-0 bg-[repeating-linear-gradient(315deg,rgba(2,132,199,0.12)_0,rgba(2,132,199,0.12)_1px,transparent_0,transparent_50%)] bg-[length:10px_10px]" />
+            <div className="absolute inset-0 translate-x-4 -translate-y-4 rounded-2xl bg-white transition duration-300 group-hover:translate-x-0 group-hover:translate-y-0">
+              {workflowRows.map(([label, time, state], index) => (
+                <div key={label}>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`flex h-4 w-4 items-center justify-center rounded-full ${
+                          state === "pending" ? "bg-amber-500" : "bg-emerald-500"
+                        }`}
+                      >
+                        <CheckCircle2
+                          className={`h-3 w-3 text-white ${
+                            state === "pending" ? "rp-pulse" : ""
+                          }`}
+                          strokeWidth={2.2}
+                        />
+                      </div>
+                      <p className="text-sm font-medium text-neutral-500">{label}</p>
+                    </div>
+                    <div className="flex items-center gap-1 text-neutral-400">
+                      <Radio className="h-3 w-3" strokeWidth={1.8} />
+                      <p className="text-[10px] font-bold">{time}</p>
+                    </div>
+                  </div>
+                  {index < workflowRows.length - 1 ? (
+                    <div className="h-px w-full bg-gradient-to-r from-transparent via-sky-100 to-transparent" />
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReplayPreview() {
+  return (
+    <div className="relative h-[330px] overflow-hidden bg-[#f7fbff] [perspective:900px]">
+      <div className="absolute inset-x-0 bottom-0 z-20 h-24 bg-gradient-to-b from-transparent to-white" />
+      <div className="rp-rise absolute inset-x-7 top-4 rounded-2xl border border-sky-100 bg-white p-3 shadow-2xl">
+        <div className="flex items-center gap-3">
+          <Terminal className="h-4 w-4 text-signal" strokeWidth={1.8} />
+          <p className="text-sm font-semibold text-ink">Sandbox replay</p>
+          <TimeBadge tone="green" time="30s" />
+        </div>
+        <div className="relative mt-4 overflow-hidden rounded-2xl bg-ink p-4 text-white">
+          <div className="rp-scan absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-sky-300/20 to-transparent" />
+          <div className="relative space-y-2 font-mono text-[12px] leading-6 text-white/72">
+            {terminalLines.slice(0, 5).map((line, index) => (
+              <p key={line} className={`rp-terminal-line rp-terminal-${index + 1}`}>
+                {line}
+              </p>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="rp-float absolute bottom-12 right-9 z-30 rounded-2xl border border-sky-100 bg-white p-3 shadow-xl">
+        <div className="flex items-center gap-2">
+          <Play className="h-4 w-4 fill-current text-signal" strokeWidth={1.8} />
+          <p className="text-xs font-semibold text-ink">reproduced safely</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeployGuardVisual() {
+  return (
+    <div className="relative h-[330px] overflow-hidden bg-[#f7fbff]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.22),transparent_32%),repeating-linear-gradient(90deg,rgba(14,165,233,0.12)_0,rgba(14,165,233,0.12)_1px,transparent_1px,transparent_22px)] [mask-image:radial-gradient(circle_at_center,black_0%,transparent_72%)]" />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="relative flex h-36 w-36 items-center justify-center rounded-full border border-sky-100 bg-white shadow-2xl md:h-44 md:w-44">
+          <div className="absolute inset-4 rounded-full border border-dashed border-sky-200" />
+          <div className="rp-float relative z-10 flex h-20 w-20 items-center justify-center rounded-full bg-signal text-white shadow-[0_22px_70px_rgba(2,132,199,0.35)] md:h-24 md:w-24">
+            <ShieldCheck className="h-10 w-10" strokeWidth={1.8} />
+          </div>
+        </div>
+      </div>
+      <div className="absolute left-6 top-8 rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-xl">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+          approval
+        </p>
+        <p className="mt-2 text-sm font-semibold text-ink">required</p>
+      </div>
+      <div className="absolute bottom-10 right-6 rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-xl">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+          audit
+        </p>
+        <p className="mt-2 text-sm font-semibold text-ink">recorded</p>
+      </div>
+    </div>
+  );
+}
+
+function FeatureGridSection() {
+  return (
+    <SectionShell id="runbooks" className="rounded-2xl bg-white sm:rounded-3xl">
+      <div className="relative z-20 mx-auto max-w-5xl py-10 lg:py-20">
+        <div className="px-6">
+          <h2 className="mx-auto max-w-5xl text-center text-3xl font-semibold tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl lg:leading-tight">
+            Packed with proof-first{" "}
+            <span className="font-serif italic font-normal leading-[1.1]">
+              features
+            </span>
+          </h2>
+          <p className="mx-auto my-4 max-w-2xl text-center text-sm leading-6 text-neutral-500 lg:text-base">
+            RunProof connects the parts of an incident that usually stay
+            scattered: issue context, logs, runbooks, sandbox output, and the
+            final approval gate.
+          </p>
+        </div>
+
+        <div className="relative px-2 sm:px-6">
+          <div className="mt-12 grid grid-cols-1 overflow-hidden rounded-lg border border-sky-100 lg:grid-cols-6">
+            <FeatureTile
+              className="col-span-1 border-b lg:col-span-4 lg:border-r"
+              title="Track incidents with evidence"
+              body="Every alert becomes a structured workspace with the exact deploys, logs, metrics, and runbook rules needed to reason about the fix."
+            >
+              <IssueTrackerBoard />
+            </FeatureTile>
+
+            <FeatureTile
+              className="col-span-1 border-b lg:col-span-2"
+              title="Capture proof automatically"
+              body="Evidence cards move into the packet as the agent checks each safe source."
+            >
+              <EvidenceCardStack />
+            </FeatureTile>
+
+            <FeatureTile
+              className="col-span-1 border-b lg:col-span-3 lg:border-r lg:border-b-0"
+              title="Replay the failure safely"
+              body="Diagnostics run in a sandbox first, so the recommendation is backed by visible output."
+            >
+              <ReplayPreview />
+            </FeatureTile>
+
+            <FeatureTile
+              className="col-span-1 lg:col-span-3"
+              title="Deploy only after approval"
+              body="Production actions stay blocked until a human reviews the proof packet and approves the runbook step."
+            >
+              <DeployGuardVisual />
+            </FeatureTile>
+          </div>
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
 
 export function LandingSections() {
   return (
     <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 pt-4 sm:gap-5 sm:pt-5">
-      <section
-        id="runbooks"
-        className="overflow-hidden rounded-2xl bg-white shadow-sm sm:rounded-3xl"
-      >
-        <div className="grid grid-cols-1 lg:grid-cols-[0.92fr_1.08fr]">
-          <div className="flex flex-col justify-center px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-signal text-white">
-              <ClipboardCheck className="h-5 w-5" strokeWidth={1.8} />
-            </div>
-            <h2 className="mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl">
-              A runbook executor that behaves like a careful{" "}
-              <span className="font-serif italic font-normal leading-[1.1]">
-                operator
-              </span>
-            </h2>
-            <p className="mt-5 max-w-xl text-sm leading-6 text-neutral-600 sm:text-base">
-              RunProof gives the agent a narrow incident path: follow the
-              checklist, collect proof, run diagnostics, and pause before the
-              risky part.
-            </p>
+      <FeatureGridSection />
 
-            <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {flowSteps.map((step) => {
-                const Icon = step.icon;
+      <footer className="relative left-1/2 w-screen -translate-x-1/2 border-t border-neutral-200 bg-white">
+        <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-5 py-7 text-sm font-medium text-neutral-700 sm:px-8 lg:flex-row lg:items-center lg:justify-between lg:px-12">
+          <p>© 2026 RunProof Labs. All rights reserved.</p>
 
-                return (
-                  <div
-                    key={step.title}
-                    className="rounded-2xl border border-neutral-200 bg-[#fbfaf8] p-4"
-                  >
-                    <Icon className="h-5 w-5 text-signal" strokeWidth={1.8} />
-                    <h3 className="mt-3 text-sm font-semibold text-ink">
-                      {step.title}
-                    </h3>
-                    <p className="mt-1.5 text-xs leading-5 text-neutral-600">
-                      {step.body}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="relative min-h-[460px] bg-panel p-4 sm:p-6 lg:p-8">
-            <div className="relative h-full min-h-[420px] overflow-hidden rounded-3xl bg-white">
-              <Image
-                src="/illustrations/evidence-gathering.png"
-                alt="Soft illustration of logs, metrics, and runbook pages converging into evidence"
-                fill
-                sizes="(min-width: 1024px) 560px, 100vw"
-                className="object-cover"
-              />
-              <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-md sm:inset-x-6 sm:bottom-6">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-semibold text-ink">
-                      Evidence packet
-                    </p>
-                    <p className="mt-1 text-xs text-neutral-600">
-                      Generated from the current incident session.
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-signal px-3 py-1 text-xs font-semibold text-white">
-                    Ready
-                  </span>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {evidenceItems.map((item) => (
-                    <div
-                      key={item}
-                      className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-medium text-neutral-700"
-                    >
-                      <CheckCircle2
-                        className="h-4 w-4 shrink-0 text-signal"
-                        strokeWidth={1.8}
-                      />
-                      {item}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section
-        id="evidence"
-        className="overflow-hidden rounded-2xl bg-white shadow-sm sm:rounded-3xl"
-      >
-        <div className="grid grid-cols-1 lg:grid-cols-[0.92fr_1.08fr]">
-          <div className="px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
-            <article>
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-signal text-white">
-                <ServerCog className="h-5 w-5" strokeWidth={1.8} />
-              </div>
-              <h2 className="mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl">
-                Show the governed execution path
-              </h2>
-              <p className="mt-4 max-w-xl text-sm leading-6 text-neutral-600 sm:text-base">
-                RunProof makes every step inspectable: scoped tool access,
-                sandbox diagnostics, evidence-backed recommendations, and a
-                locked production action.
-              </p>
-
-              <div className="mt-7 space-y-3">
-                {executionSignals.map((signal) => (
-                  <div
-                    key={signal}
-                    className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-[#fbfaf8] p-4"
-                  >
-                    <CheckCircle2
-                      className="h-5 w-5 shrink-0 text-signal"
-                      strokeWidth={1.8}
-                    />
-                    <p className="text-sm font-semibold text-neutral-800">
-                      {signal}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </article>
-
-            <article
-              id="sandbox"
-              className="mt-5 rounded-2xl bg-ink p-5 text-white sm:p-6"
-            >
-              <div className="flex items-center gap-3">
-                <Terminal className="h-5 w-5 text-signal" strokeWidth={1.8} />
-                <h3 className="text-base font-semibold">
-                  Execution trace
-                </h3>
-              </div>
-              <pre className="mt-4 overflow-hidden rounded-2xl bg-white/8 p-4 text-[12px] leading-6 text-white/75 ring-1 ring-white/10">
-{`runbook: checkout-failure
-tool: sandbox.exec
-result: reproduced timeout
-next: request rollback approval`}
-              </pre>
-            </article>
-          </div>
-
-          <div className="bg-panel p-4 sm:p-6 lg:p-8">
-            <div className="relative min-h-[520px] overflow-hidden rounded-3xl bg-[#f7f4ef]">
-              <Image
-                src="/illustrations/sandbox-diagnostics.png"
-                alt="Soft illustration of diagnostics running inside a protected sandbox"
-                fill
-                sizes="(min-width: 1024px) 620px, 100vw"
-                className="object-contain p-6 sm:p-8 lg:p-10"
-              />
-              <div className="absolute left-4 top-4 rounded-2xl border border-white/80 bg-white/85 px-4 py-3 shadow-sm backdrop-blur-md sm:left-6 sm:top-6">
-                <p className="text-xs font-semibold text-signal">
-                  Governed workflow
-                </p>
-                <p className="mt-1 text-sm font-semibold text-ink">
-                  Evidence before execution
-                </p>
-              </div>
-              <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-white/80 bg-white/85 p-4 shadow-sm backdrop-blur-md sm:inset-x-6 sm:bottom-6">
-                <h3 className="text-sm font-semibold text-ink">
-                  What runs where
-                </h3>
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {controlRows.map((row) => (
-                    <div
-                      key={row.label}
-                      className="rounded-xl bg-white px-3 py-3 ring-1 ring-neutral-200"
-                    >
-                      <p className="text-[11px] font-semibold text-signal">
-                        {row.label}
-                      </p>
-                      <p className="mt-1 text-xs leading-4 text-neutral-700">
-                        {row.value}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section
-        id="approval"
-        className="overflow-hidden rounded-2xl bg-white shadow-sm sm:rounded-3xl"
-      >
-        <div className="grid grid-cols-1 lg:grid-cols-[0.86fr_1.14fr]">
-          <div className="relative min-h-[420px] bg-panel">
-            <Image
-              src="/illustrations/approval-control.png"
-              alt="Soft illustration of an approval gate protecting a production action"
-              fill
-              sizes="(min-width: 1024px) 480px, 100vw"
-              className="object-cover"
-            />
-          </div>
-
-          <div className="px-5 py-10 sm:px-8 sm:py-14 lg:px-12">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-signal text-white">
-              <ShieldCheck className="h-5 w-5" strokeWidth={1.8} />
-            </div>
-            <h2 className="mt-5 max-w-2xl text-3xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-4xl">
-              Human approval is the final proof point
-            </h2>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-neutral-600 sm:text-base">
-              RunProof keeps risky actions locked until the operator can review
-              the evidence packet, sandbox output, and recommended change.
-            </p>
-
-            <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {workflowMoments.map((moment, index) => (
-                <div
-                  key={moment}
-                  className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-[#fbfaf8] p-4"
-                >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-signal shadow-sm">
-                    {index + 1}
-                  </span>
-                  <p className="text-sm font-semibold text-neutral-800">
-                    {moment}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-8 rounded-2xl bg-ink p-5 text-white">
-              <div className="flex flex-wrap items-center gap-3">
-                <LockKeyhole className="h-5 w-5 text-signal" strokeWidth={1.8} />
-                <p className="text-sm font-semibold">
-                  Approval request: rollback payment-service
-                </p>
-                <span className="ml-auto rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
-                  Waiting
-                </span>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-white/65">
-                The action button stays locked until the evidence packet and
-                sandbox output are reviewed.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="relative overflow-hidden rounded-2xl bg-panel px-5 py-10 text-center sm:rounded-3xl sm:px-8 sm:py-14">
-        <div className="mx-auto max-w-3xl">
-          <Clock3 className="mx-auto h-7 w-7 text-signal" strokeWidth={1.8} />
-          <h2 className="mt-5 text-3xl font-semibold tracking-[-0.02em] text-ink sm:text-4xl">
-            A clear path from alert to action
-          </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-neutral-600 sm:text-base">
-            Start with an alert, gather evidence, run a sandbox check, explain
-            the recommendation, then unlock the approved action.
-          </p>
-          <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <a
-              href="#product-preview"
-              className="inline-flex items-center justify-center rounded-full bg-signal px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:translate-y-[-1px] active:translate-y-0"
-            >
-              Open product preview
-            </a>
-            <a
-              href="#runbooks"
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-ink shadow-sm ring-1 ring-neutral-200 transition hover:translate-y-[-1px] active:translate-y-0"
-            >
-              <GitPullRequest className="h-4 w-4 text-signal" strokeWidth={1.8} />
-              Review flow
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <footer className="overflow-hidden rounded-2xl bg-ink text-white sm:rounded-3xl">
-        <div className="px-5 py-9 sm:px-8 sm:py-12 lg:px-12">
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-            <div>
-              <p className="text-sm font-semibold text-white/65">
-                Evidence-gated runbooks for safer agentic operations.
-              </p>
-              <h2 className="mt-5 text-6xl font-bold leading-none text-white sm:text-8xl lg:text-9xl">
-                RunProof
-              </h2>
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-              {footerLinks.map((group) => (
-                <div key={group.title}>
-                  <h3 className="text-sm font-semibold text-white">
-                    {group.title}
-                  </h3>
-                  <ul className="mt-4 space-y-2 text-sm text-white/60">
-                    {group.links.map((link) => (
-                      <li key={link}>{link}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-10 flex flex-col gap-3 border-t border-white/10 pt-5 text-sm text-white/50 sm:flex-row sm:items-center sm:justify-between">
-            <p>Built for incident teams that need proof before action.</p>
-            <a
-              href="#product-preview"
-              className="inline-flex w-fit items-center justify-center rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-ink transition hover:translate-y-[-1px] active:translate-y-0"
-            >
-              Explore product
-            </a>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-8">
+            {footerLinks.map((link) => (
+              <a key={link.label} href={link.href} className="hover:text-signal">
+                {link.label}
+              </a>
+            ))}
+            <button className="inline-flex w-fit items-center gap-1 hover:text-signal">
+              English
+              <span aria-hidden="true">⌄</span>
+            </button>
           </div>
         </div>
       </footer>

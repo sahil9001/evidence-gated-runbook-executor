@@ -8,42 +8,26 @@ export default function App() {
   return (
     <main className="min-h-[100dvh] w-full bg-paper p-3 font-sans sm:p-4">
       <section className="relative min-h-[calc(100dvh-24px)] w-full overflow-hidden rounded-2xl bg-[#d9d9d9] sm:min-h-[calc(100dvh-32px)] sm:rounded-3xl">
-        <video
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="auto"
-          disableRemotePlayback
-          poster="https://images.unsplash.com/photo-1557683316-973673baf926?w=1600&q=60"
+        <Image
+          src="/hero/runproof-hero-8bit.png"
+          alt=""
           aria-hidden="true"
-        >
-          <source
-            src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260424_064411_9e9d7f84-9277-41f4-ab10-59172d89e6be.mp4"
-            type="video/mp4"
-          />
-        </video>
-        <div className="absolute inset-0 bg-white/35 backdrop-blur-[1px]" />
+          fill
+          priority
+          unoptimized
+          sizes="100vw"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+          style={{ imageRendering: "pixelated" }}
+        />
+        <div className="absolute inset-0 bg-white/42" />
         <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-white/80 via-white/25 to-transparent" />
 
         <div className="relative z-10">
           <Navbar />
 
-          <div className="flex flex-col items-center px-4 pb-8 pt-10 text-center sm:pb-12 sm:pt-16">
-            <div className="inline-flex items-center rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-neutral-200">
-              <Image
-                src="/brand/runproof-logo.png"
-                alt="RunProof"
-                width={112}
-                height={30}
-                priority
-                className="h-7 w-auto"
-              />
-            </div>
-
+          <div className="flex flex-col items-center px-4 pb-4 pt-10 text-center sm:pb-6 sm:pt-16">
             <h1
-              className="mt-5 max-w-4xl font-medium text-ink sm:mt-6"
+              className="max-w-4xl font-medium text-ink"
               style={{
                 fontSize: "clamp(38px, 7.4vw, 76px)",
                 lineHeight: 1.04,
@@ -73,7 +57,7 @@ export default function App() {
             </a>
           </div>
 
-          <div id="product-preview" className="px-3 sm:px-4">
+          <div id="product-preview" className="px-2 sm:px-4">
             <RunbookPreview />
           </div>
         </div>

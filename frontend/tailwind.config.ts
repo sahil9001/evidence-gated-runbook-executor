@@ -13,10 +13,10 @@ const config: Config = {
         serif: ["var(--font-instrument-serif)", "Georgia", "serif"]
       },
       colors: {
-        signal: "#ef4d23",
+        signal: "#0284c7",
         ink: "#0b0f1a",
         paper: "#ededed",
-        panel: "#f5f2ee"
+        panel: "#eef7ff"
       },
       boxShadow: {
         soft: "0 18px 60px rgb(11 15 26 / 0.12)"

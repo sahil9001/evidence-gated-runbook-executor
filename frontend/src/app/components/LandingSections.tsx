@@ -158,7 +158,7 @@ function IssueTrackerBoard() {
         <div
           className="absolute inset-0"
           style={{
-            transform: "translateY(-40px) scale(1.2) rotateX(30deg) rotateY(-20deg) rotateZ(15deg)",
+            transform: "translateY(-85px) translateX(83px) scale(1.2) rotateX(4deg) rotateY(5deg) rotateZ(-15deg)",
             transformStyle: "preserve-3d"
           }}
         >

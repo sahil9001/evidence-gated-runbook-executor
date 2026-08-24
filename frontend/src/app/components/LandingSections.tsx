@@ -7,15 +7,6 @@ import {
   Terminal
 } from "lucide-react";
 
-const terminalLines = [
-  "$ runproof replay checkout-failure",
-  "loading logs: payment-service, api-gateway",
-  "matched deploy: retry-window-config",
-  "sandbox.exec diagnostic_timeout_check.js",
-  "result: reproduced timeout in 2.9s",
-  "recommendation: rollback config after approval"
-];
-
 const workflowRows = [
   ["Fetching logs", "10s", "complete"],
   ["Processing traces", "20s", "complete"],
@@ -248,30 +239,85 @@ function EvidenceCardStack() {
 }
 
 function ReplayPreview() {
+  const replayFindings = [
+    {
+      count: "(12)",
+      detail: "4 affected log lines",
+      icon: Terminal,
+      label: "LOG",
+      progress: "border-sky-500 after:bg-sky-500",
+      title: "Checkout timeout reproduced in sandbox"
+    },
+    {
+      count: "(08)",
+      detail: "2 matching traces",
+      icon: Radio,
+      label: "TRACE",
+      progress: "border-indigo-500 after:bg-indigo-500",
+      title: "Retry fanout matches production failure"
+    },
+    {
+      count: "(03)",
+      detail: "1 deploy candidate",
+      icon: CheckCircle2,
+      label: "RUN",
+      progress: "border-cyan-500",
+      title: "Rollback path is safe to recommend"
+    },
+    {
+      count: "(01)",
+      detail: "approval still required",
+      icon: ShieldCheck,
+      label: "GATE",
+      progress: "border-emerald-500 after:bg-emerald-500",
+      title: "Production action remains locked"
+    }
+  ];
+
   return (
-    <div className="relative h-[330px] overflow-hidden bg-[#f7fbff] [perspective:900px]">
-      <div className="absolute inset-x-0 bottom-0 z-20 h-24 bg-gradient-to-b from-transparent to-white" />
-      <div className="rp-rise absolute inset-x-7 top-4 rounded-2xl border border-sky-100 bg-white p-3 shadow-2xl">
-        <div className="flex items-center gap-3">
-          <Terminal className="h-4 w-4 text-signal" strokeWidth={1.8} />
-          <p className="text-sm font-semibold text-ink">Sandbox replay</p>
-          <TimeBadge tone="green" time="30s" />
-        </div>
-        <div className="relative mt-4 overflow-hidden rounded-2xl bg-ink p-4 text-white">
-          <div className="rp-scan absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-sky-300/20 to-transparent" />
-          <div className="relative space-y-2 font-mono text-[12px] leading-6 text-white/72">
-            {terminalLines.slice(0, 5).map((line, index) => (
-              <p key={line} className={`rp-terminal-line rp-terminal-${index + 1}`}>
-                {line}
-              </p>
-            ))}
-          </div>
-        </div>
+    <div className="relative h-[330px] overflow-hidden bg-[#f7fbff] px-4 pt-5">
+      <div className="rp-rise relative rounded-2xl border-2 border-sky-100 bg-white py-2 shadow-2xl">
+        {replayFindings.map((finding, index) => {
+          const Icon = finding.icon;
+
+          return (
+            <div
+              key={finding.title}
+              className={`group flex items-center gap-4 px-4 py-3 ${
+                index > 0 ? "border-t border-sky-50" : ""
+              }`}
+            >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-signal">
+                <Icon className="h-3.5 w-3.5" strokeWidth={2} />
+              </div>
+              <div className="w-12 shrink-0 text-xs font-semibold text-neutral-400">
+                {finding.label}
+              </div>
+              <div
+                className={`relative h-4 w-4 shrink-0 rounded-full border-[5px] ${finding.progress} after:absolute after:inset-y-[-5px] after:right-[-5px] after:w-2 after:rounded-r-full after:content-['']`}
+              />
+              <div className="flex min-w-0 flex-1 flex-col text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium text-ink">
+                    {finding.title}
+                  </span>
+                  <span className="text-neutral-400">{finding.count}</span>
+                </div>
+                <div className="mt-0.5 flex items-center gap-4 text-xs text-neutral-400">
+                  <span>{finding.detail}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-white via-white to-transparent lg:w-44" />
+        <div className="pointer-events-none absolute -right-2 -top-4 z-20 h-[110%] w-20 bg-gradient-to-l from-[#f7fbff] to-transparent md:w-32" />
       </div>
-      <div className="rp-float absolute bottom-12 right-9 z-30 rounded-2xl border border-sky-100 bg-white p-3 shadow-xl">
+      <div className="rp-float absolute bottom-10 right-8 z-30 rounded-2xl border border-sky-100 bg-white p-3 shadow-xl">
         <div className="flex items-center gap-2">
           <Play className="h-4 w-4 fill-current text-signal" strokeWidth={1.8} />
-          <p className="text-xs font-semibold text-ink">reproduced safely</p>
+          <p className="text-xs font-semibold text-ink">replay complete</p>
         </div>
       </div>
     </div>

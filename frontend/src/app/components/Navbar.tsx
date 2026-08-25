@@ -1,17 +1,20 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 import {
   Activity,
   ChevronRight,
+  LayoutDashboard,
   Menu,
   X
 } from "lucide-react";
 
 const navItems = [
   { label: "Home", href: "#" },
-  { label: "Runbooks", href: "#runbooks" }
+  { label: "Runbooks", href: "#runbooks" },
+  { label: "Dashboard", href: "/app" }
 ];
 
 export function Navbar() {
@@ -57,6 +60,13 @@ export function Navbar() {
           >
             <Activity className="h-4 w-4" strokeWidth={1.8} />
           </button>
+          <Link
+            href="/app"
+            aria-label="Open dashboard"
+            className="hidden h-9 w-9 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 transition hover:bg-neutral-50 md:flex"
+          >
+            <LayoutDashboard className="h-4 w-4" strokeWidth={1.8} />
+          </Link>
           <a
             href="#product-preview"
             className="inline-flex items-center gap-2 rounded-full bg-signal py-2 pl-4 pr-2 text-xs font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 sm:text-sm md:pl-5"

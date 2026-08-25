@@ -1,11 +1,14 @@
 import { defineConfig } from "vitest/config";
 
-// This slice's frontend tests are pure logic over a mocked global `fetch`,
-// so the Node environment is sufficient — no jsdom/React Testing Library
-// dependency is added until a test genuinely needs a DOM.
+// Pure-logic tests (e.g. the api client) run over a mocked global `fetch`
+// and stay on the Node environment (the default below). Component tests
+// need a DOM; those files opt in individually with a
+// `// @vitest-environment jsdom` docblock instead of paying the jsdom cost
+// for every test file.
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"]
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    setupFiles: ["./vitest.setup.ts"]
   }
 });

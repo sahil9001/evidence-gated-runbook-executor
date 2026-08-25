@@ -1,3 +1,5 @@
+"use client";
+
 import {
   AlertTriangle,
   CheckCircle2,
@@ -6,34 +8,94 @@ import {
   GitPullRequest,
   LockKeyhole,
   ServerCog,
-  Terminal
+  Terminal,
+  XCircle
 } from "lucide-react";
 import { Gauge } from "./Gauge";
 
-const timeline = [
-  {
-    label: "Alert received",
-    detail: "Checkout error rate increased on payment-service.",
-    state: "done"
-  },
-  {
-    label: "Evidence gathered",
-    detail: "Logs, deploy history, and metrics agree on one likely cause.",
-    state: "done"
-  },
-  {
-    label: "Sandbox check",
-    detail: "Diagnostic script reproduced timeout failure in isolation.",
-    state: "done"
-  },
-  {
-    label: "Approval required",
-    detail: "Rollback stays locked until an engineer approves it.",
-    state: "pending"
-  }
-];
+export type TimelineEntry = {
+  label: string;
+  detail: string;
+  state: "done" | "pending";
+};
 
-export function RunbookPreview() {
+export type RunbookPreviewData = {
+  riskScore: number;
+  riskLabel: "High" | "Medium" | "Low";
+  incidentTitle: string;
+  runbookId: string;
+  timeline: TimelineEntry[];
+  sandboxOutput: string;
+  actionDescription: string;
+  gateState: "locked" | "approved" | "rejected";
+  onApprove?: () => void;
+  onReject?: () => void;
+  isDeciding?: boolean;
+};
+
+export const DEMO_PREVIEW: RunbookPreviewData = {
+  riskScore: 82,
+  riskLabel: "High",
+  incidentTitle: "Checkout incident",
+  runbookId: "checkout-failure",
+  timeline: [
+    {
+      label: "Alert received",
+      detail: "Checkout error rate increased on payment-service.",
+      state: "done"
+    },
+    {
+      label: "Evidence gathered",
+      detail: "Logs, deploy history, and metrics agree on one likely cause.",
+      state: "done"
+    },
+    {
+      label: "Sandbox check",
+      detail: "Diagnostic script reproduced timeout failure in isolation.",
+      state: "done"
+    },
+    {
+      label: "Approval required",
+      detail: "Rollback stays locked until an engineer approves it.",
+      state: "pending"
+    }
+  ],
+  sandboxOutput: `timeout_ms=3000
+failed_requests=47
+likely_commit=8f31c2b
+recommendation=rollback`,
+  actionDescription: "rollback payment-service",
+  gateState: "locked",
+  onApprove: () => {},
+  onReject: () => {},
+  isDeciding: false
+};
+
+type RunbookPreviewProps = {
+  data?: RunbookPreviewData;
+};
+
+function sandboxPanelLabel(gateState: RunbookPreviewData["gateState"]): string {
+  if (gateState === "approved") return "Execution output";
+  if (gateState === "rejected") return "Rejection reason";
+  return "Sandbox output";
+}
+
+function gateIcon(gateState: RunbookPreviewData["gateState"]) {
+  if (gateState === "approved") {
+    return <CheckCircle2 className="h-5 w-5 text-emerald-600" strokeWidth={1.8} />;
+  }
+  if (gateState === "rejected") {
+    return <XCircle className="h-5 w-5 text-rose-600" strokeWidth={1.8} />;
+  }
+  return <LockKeyhole className="h-5 w-5 text-neutral-500" strokeWidth={1.8} />;
+}
+
+export function RunbookPreview({ data = DEMO_PREVIEW }: RunbookPreviewProps) {
+  const isLocked = data.gateState === "locked";
+  const approveDisabled = !isLocked || data.isDeciding === true || !data.onApprove;
+  const reviewDisabled = !isLocked || data.isDeciding === true || !data.onReject;
+
   return (
     <div className="mx-auto w-full max-w-[1180px] rounded-t-3xl rounded-b-none bg-panel p-4 pb-0 shadow-soft sm:p-6 sm:pb-0 lg:p-7 lg:pb-0">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 lg:gap-5">
@@ -42,17 +104,17 @@ export function RunbookPreview() {
             <div>
               <p className="text-sm font-semibold text-signal">Risk score</p>
               <p className="mt-1 text-xs font-medium text-neutral-500">
-                Checkout incident
+                {data.incidentTitle}
               </p>
             </div>
             <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
               <AlertTriangle className="h-3 w-3" strokeWidth={2} />
-              High
+              {data.riskLabel}
             </span>
           </div>
 
           <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-semibold text-ink">82</span>
+            <span className="text-3xl font-semibold text-ink">{data.riskScore}</span>
             <span className="text-sm font-medium text-neutral-500">/ 100</span>
           </div>
           <p className="mt-1 text-xs text-neutral-500">
@@ -60,7 +122,7 @@ export function RunbookPreview() {
           </p>
 
           <div className="mt-4">
-            <Gauge value={82} color="#0284c7" showLabels min="Safe" max="Risky" />
+            <Gauge value={data.riskScore} color="#0284c7" showLabels min="Safe" max="Risky" />
           </div>
         </section>
 
@@ -69,14 +131,14 @@ export function RunbookPreview() {
             <div>
               <p className="text-sm font-semibold text-signal">Evidence trail</p>
               <p className="mt-1 text-xs font-medium text-neutral-500">
-                Runbook: checkout-failure
+                Runbook: {data.runbookId}
               </p>
             </div>
             <ServerCog className="h-5 w-5 text-neutral-500" strokeWidth={1.8} />
           </div>
 
           <div className="mt-4 space-y-3">
-            {timeline.map((item) => (
+            {data.timeline.map((item) => (
               <div key={item.label} className="grid grid-cols-[20px_1fr] gap-3">
                 <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-neutral-100">
                   {item.state === "done" ? (
@@ -107,35 +169,50 @@ export function RunbookPreview() {
             <div>
               <p className="text-sm font-semibold text-signal">Approval gate</p>
               <p className="mt-1 text-xs font-medium text-neutral-500">
-                Action: rollback payment-service
+                Action: {data.actionDescription}
               </p>
+              {!isLocked ? (
+                <p className="mt-1 text-xs font-semibold text-neutral-700">
+                  Decision: {data.gateState}
+                </p>
+              ) : null}
             </div>
-            <LockKeyhole className="h-5 w-5 text-neutral-500" strokeWidth={1.8} />
+            {gateIcon(data.gateState)}
           </div>
 
           <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
               <Terminal className="h-3.5 w-3.5" strokeWidth={2} />
-              Sandbox output
+              {sandboxPanelLabel(data.gateState)}
             </div>
             <pre className="mt-3 whitespace-pre-wrap text-[11px] leading-relaxed text-neutral-600">
-{`timeout_ms=3000
-failed_requests=47
-likely_commit=8f31c2b
-recommendation=rollback`}
+              {data.sandboxOutput}
             </pre>
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button className="inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0">
+            <button
+              type="button"
+              onClick={data.onApprove}
+              disabled={approveDisabled}
+              className="inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+            >
               <CheckCircle2 className="h-4 w-4" strokeWidth={2} />
-              Approve
+              {data.isDeciding ? "Approving…" : "Approve"}
             </button>
-            <button className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50">
+            <button
+              type="button"
+              onClick={data.onReject}
+              disabled={reviewDisabled}
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+            >
               <FileCode2 className="h-4 w-4" strokeWidth={1.8} />
               Review
             </button>
-            <button className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-600 transition hover:bg-neutral-50">
+            <button
+              type="button"
+              className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-600 transition hover:bg-neutral-50"
+            >
               <GitPullRequest className="h-4 w-4" strokeWidth={1.8} />
             </button>
           </div>

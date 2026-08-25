@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - Node 22+ (local dev is on v25.5.0). Cloudflare builds pin `NODE_VERSION=22`.
-- `compatibility_date: "2026-08-24"` and `compatibility_flags: ["nodejs_compat"]` on every Worker.
+- `compatibility_flags: ["nodejs_compat"]` on every Worker. `compatibility_date` is **2026-08-15** for `backend/` (the local workerd will not start on a later date) and stays **2026-08-24** for `frontend/`.
 - Runbooks and fixtures are **JSON, not YAML** — Workers have no filesystem, so both are bundled via native `import ... with { type: "json" }`. This avoids shipping a YAML parser into the Worker bundle.
 - Every domain module is pure: no `fetch`, no bindings, no `Date.now()` called internally. Clocks and IO are injected. This is what makes the domain unit-testable without a Worker runtime.
 - All validation is Zod at the boundary. Types are inferred from schemas via `z.infer`, never hand-declared alongside a schema.
@@ -30,7 +30,7 @@
 backend/
 ├── package.json                       hono, zod, vitest, wrangler
 ├── tsconfig.json
-├── vitest.config.ts                   defineWorkersConfig
+├── vitest.config.ts                   cloudflareTest plugin
 ├── wrangler.jsonc                     name: runproof-api, D1 binding DB
 ├── migrations/
 │   └── 0001_init.sql                  runs, packets, gates tables
@@ -167,7 +167,7 @@ cd backend && rm -f .gitkeep src/.gitkeep
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "runproof-api",
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-24",
+  "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "d1_databases": [
@@ -184,19 +184,24 @@ cd backend && rm -f .gitkeep src/.gitkeep
 > `database_id` is a placeholder because this plan never touches remote D1. A human runs `wrangler d1 create runproof-db` and pastes the real id before the first deploy.
 
 `backend/vitest.config.ts`:
-```typescript
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
 
-export default defineWorkersConfig({
+> **Verified against the installed package:** `@cloudflare/vitest-pool-workers@0.22.0`
+> exports only `.`, `./types`, and `./codemods/vitest-v3-to-v4`. There is **no
+> `./config` subpath** and no `defineWorkersConfig`. Use the `cloudflareTest`
+> plugin form below.
+
+```typescript
+import { defineConfig } from "vitest/config";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: "./wrangler.jsonc" },
+      miniflare: { d1Databases: ["DB"] }
+    })
+  ],
   test: {
-    poolOptions: {
-      workers: {
-        wrangler: { configPath: "./wrangler.jsonc" },
-        miniflare: {
-          d1Databases: ["DB"]
-        }
-      }
-    },
     coverage: {
       provider: "istanbul",
       include: ["src/domain/**"],
@@ -205,6 +210,12 @@ export default defineWorkersConfig({
   }
 });
 ```
+
+> `compatibility_date` is **2026-08-15**, not 2026-08-24. The workerd shipped with
+> this vitest-pool-workers release refuses to start a Worker dated later, and
+> lowering the date is cleaner than pinning a prerelease miniflare through
+> `overrides`. The frontend Worker keeps 2026-08-24 — it has no local Workers test
+> runtime, so nothing constrains it.
 
 `backend/.gitignore`:
 ```text
@@ -1097,7 +1108,7 @@ beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 ```
-Add `TEST_MIGRATIONS` to `vitest.config.ts` via `miniflare.bindings` using `readD1Migrations` from `@cloudflare/vitest-pool-workers/config`. Cover: round-trip each entity; `getX` returns `null` for a missing id; a packet survives round-trip through `evidencePacketSchema.parse`; duplicate audit id rejects.
+Add `TEST_MIGRATIONS` to `vitest.config.ts` via `miniflare.bindings` using `readD1Migrations`, imported from the package **root** (`@cloudflare/vitest-pool-workers`) — verified: there is no `/config` subpath in 0.22.0. Cover: round-trip each entity; `getX` returns `null` for a missing id; a packet survives round-trip through `evidencePacketSchema.parse`; duplicate audit id rejects.
 
 - [ ] **Step 3: Run and watch fail**
 

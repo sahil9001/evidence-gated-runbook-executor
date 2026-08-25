@@ -5,7 +5,7 @@
 - **Plan:** [`docs/superpowers/plans/2026-08-25-approval-gate-vertical-slice.md`](superpowers/plans/2026-08-25-approval-gate-vertical-slice.md)
 - **Spec:** [`docs/roadmap.md`](roadmap.md)
 - **Started:** 2026-08-25
-- **Last updated:** 2026-08-25 — orchestrator, plan written, no code yet
+- **Last updated:** 2026-08-25 — T1 implemented (c01f75b, 8d6db39), in review
 
 ## Protocol for Agents
 
@@ -23,14 +23,14 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 
 | # | Task | Wave | Depends on | Status | Agent | Verified by |
 |---|---|---|---|---|---|---|
-| T1 | Backend scaffold (Hono + Vitest + wrangler + D1 binding) | 1 | — | ⬜ not started | — | — |
+| T1 | Backend scaffold (Hono + Vitest + wrangler + D1 binding) | 1 | — | 🔨 in review | impl-t1 | `npm test` 2/2 passed; `typecheck` exit 0 |
 | T2 | Evidence domain types (`EvidenceCard`, `EvidencePacket`) | 2 | T1 | ⬜ not started | — | — |
 | T3 | Action model + non-forgeable `ApprovalToken` | 2 | T1 | ⬜ not started | — | — |
-| T4 | Runbook schema, loader, matcher + `checkout-failure.json` | 3 | T2 | ⬜ not started | — | — |
+| T4 | Runbook schema, loader, matcher + `checkout-failure.json` | 3 | T2, T3 | ⬜ not started | — | — |
 | T5 | Fixture-backed evidence collectors + fixtures | 3 | T2 | ⬜ not started | — | — |
 | T6 | Packet builder with scope enforcement | 4 | T4, T5 | ⬜ not started | — | — |
 | T7 | D1 migration + repository layer | 3 | T2, T3 | ⬜ not started | — | — |
-| T8 | Token-gated executor + safety bypass suite | 4 | T3, T7 | ⬜ not started | — | — |
+| T8 | Token-gated executor + safety bypass suite | 4 | T3 | ⬜ not started | — | — |
 | T9 | API routes (`run`, `packet`, `approve`, `reject`) | 5 | T6, T8 | ⬜ not started | — | — |
 | T10 | Frontend typed API client + frontend Vitest | 6 | T9 | ⬜ not started | — | — |
 | T11 | `/app` dashboard route wired to live data | 6 | T10 | ⬜ not started | — | — |
@@ -40,9 +40,12 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 
 ## Wave Schedule
 
-Tasks in the same wave touch disjoint files and are dispatched in parallel.
+Waves record the dependency graph. **Execution is sequential**, one implementer at a
+time — every task commits into the same worktree and all of them write this file, so
+concurrent agents would interleave each other's staged files. See the pre-flight
+ruling in the ledger.
 
-| Wave | Tasks | Can run in parallel |
+| Wave | Tasks | Dependency-parallel |
 |---|---|---|
 | 1 | T1 | no — everything depends on it |
 | 2 | T2, T3 | yes |
@@ -71,6 +74,8 @@ Additional decisions made while writing the plan:
 
 | Decision | Rationale |
 |---|---|
+| `compatibility_date` is **2026-08-15** in `backend/`, 2026-08-24 in `frontend/` | The workerd shipped with vitest-pool-workers 0.22.0 refuses to start a Worker dated later. Lowering the date beats pinning a prerelease miniflare through npm `overrides`. The frontend has no local Workers test runtime, so nothing constrains it |
+| `defineWorkersConfig` does **not** exist | `@cloudflare/vitest-pool-workers@0.22.0` exports only `.`, `./types`, `./codemods/…`. Use the `cloudflareTest` plugin form. `readD1Migrations` is a **root** export — Task 7 needs this |
 | Runbooks and fixtures are **JSON, not YAML** | Workers have no filesystem; JSON imports natively via `import … with { type: "json" }` and avoids bundling a YAML parser |
 | `ApprovalToken` is a **branded type** | Makes "execute without approval" a compile error rather than a runtime check. The brand symbol is not exported, so `approveGate` is the only mint |
 | **No** `execute(action, token?)` wrapper | Two functions with different arities is what makes the bypass a type error. Adding a convenience wrapper would silently destroy the guarantee |

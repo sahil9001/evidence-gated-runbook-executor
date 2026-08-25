@@ -5,7 +5,7 @@
 - **Plan:** [`docs/superpowers/plans/2026-08-25-approval-gate-vertical-slice.md`](superpowers/plans/2026-08-25-approval-gate-vertical-slice.md)
 - **Spec:** [`docs/roadmap.md`](roadmap.md)
 - **Started:** 2026-08-25
-- **Last updated:** 2026-08-25 — T1–T11 ✅ complete; T12 (verification) in progress
+- **Last updated:** 2026-08-25 — T1–T12 ✅ complete. All 12 tasks done.
 
 ## Protocol for Agents
 
@@ -34,9 +34,9 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 | T9 | API routes (`run`, `packet`, `approve`, `reject`) | 5 | T6, T8 | ✅ done | impl-t9b | suite 114/114; `/run` execution-free; gate decisions persist; audit_log still append-only |
 | T10 | Frontend typed API client + frontend Vitest | 6 | T9 | ✅ done | impl-t10 | frontend 9/9; build+lint+typecheck clean; backend diff empty |
 | T11 | `/app` dashboard route wired to live data | 6 | T10 | ✅ done | impl-t11 | frontend 14/14; build ok; RunbookPreview prop-extracted without restyle |
-| T12 | End-to-end verification + docs | 7 | T11 | 🔨 in progress | impl-t12 | — |
+| T12 | End-to-end verification + docs | 7 | T11 | ✅ done | impl-t12 | `npm ci` clean checkout both sides; backend `npm test` 114/114, `typecheck` clean; frontend `npm test` 14/14, `typecheck`/`lint`/`build` clean. Live curl flow against real dev servers: run→16 cards, gate locked, no execution field; packet GET ok; approve→200 approved+execution; gate state confirmed persisted via direct D1 query (`state: "approved"`); second approve→409 `gate_already_decided`. `/` and `/app` confirmed rendering correctly via real headless-browser screenshots. Both dev servers killed after. |
 
-**Progress: 11 / 12 complete.**
+**Progress: 12 / 12 complete.**
 
 ## Wave Schedule
 
@@ -126,3 +126,23 @@ Locked D1/D2/D6 with the project owner. Wrote the 12-task plan and this status f
 Verified package versions against npm before writing them into the plan: hono 4.13.4, vitest 4.1.11, `@cloudflare/vitest-pool-workers` 0.22.0, wrangler 4.125.0, zod 4.4.3. Local Node is v25.5.0.
 
 Next agent: start T1. It is the only wave-1 task and everything else is blocked on it.
+
+### 2026-08-25 — T12 complete — impl-t12
+
+Ran the full verification pass from a clean `npm ci` on both packages, then drove
+the real API by hand against live `wrangler dev` (:8787) and `next dev` (:3000)
+servers with curl — not mocks. Confirmed: run returns 16 evidence cards and a
+`locked` gate with no `execution` field; the packet is independently fetchable;
+approve returns `approved` plus a simulated execution result; the decided state
+is actually persisted in D1 (checked directly with `wrangler d1 execute --local`,
+not inferred) — this specifically re-verifies commit `7d34fef`'s gate-upsert fix
+is still in effect; a second approve on the same gate correctly 409s with
+`gate_already_decided`. Also loaded `/` and `/app` in a real headless Chromium via
+the playwright-skill and captured screenshots — both render correctly, `/app`
+shows live evidence, a locked gate, and an enabled Approve button. No bugs found.
+No source code touched, per task scope. Wrote `docs/local-development.md`,
+updated `docs/roadmap.md` (Part 2/3/4 — resolved D1/D2/D6, marked Phase 0–3,
+6–7, 9 task status honestly, including partial/open items), and updated
+`README.md` to describe the real backend and `/app` instead of claiming a
+frontend-only repo. Both dev servers killed at the end. Full evidence trail is
+in `.superpowers/sdd/2026-08-25-approval-gate-vertical-slice/task-12-report.md`.

@@ -1,0 +1,39 @@
+{
+  "id": "checkout-failure",
+  "title": "Checkout payment-service failure",
+  "trigger": {
+    "service": "payment-service",
+    "signals": ["timeout", "error_rate"]
+  },
+  "allowedSources": ["logs", "metrics", "deploys"],
+  "steps": [
+    {
+      "id": "alert-received",
+      "label": "Alert received",
+      "detail": "Checkout error rate increased on payment-service."
+    },
+    {
+      "id": "evidence-gathered",
+      "label": "Evidence gathered",
+      "detail": "Logs, deploy history, and metrics agree on one likely cause.",
+      "source": "logs"
+    },
+    {
+      "id": "sandbox-check",
+      "label": "Sandbox check",
+      "detail": "Diagnostic script reproduced timeout failure in isolation."
+    },
+    {
+      "id": "approval-required",
+      "label": "Approval required",
+      "detail": "Rollback stays locked until an engineer approves it."
+    }
+  ],
+  "proposedAction": {
+    "kind": "rollback",
+    "target": "payment-service",
+    "params": { "commit": "8f31c2b" },
+    "reversible": true,
+    "description": "Roll back payment-service to 8f31c2b"
+  }
+}

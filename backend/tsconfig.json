@@ -5,6 +5,10 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2022"],
     "types": ["@cloudflare/vitest-pool-workers/types"],
+    "baseUrl": ".",
+    "paths": {
+      "vitest": ["./node_modules/vitest"]
+    },
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
@@ -13,5 +17,5 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*.ts", "vitest.config.ts", "worker-configuration.d.ts"]
+  "include": ["src/**/*.ts", "vitest.config.ts", "worker-configuration.d.ts", "../testing/tests/**/*.ts"]
 }

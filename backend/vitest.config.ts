@@ -14,6 +14,7 @@ export default defineConfig({
     })
   ],
   test: {
+    include: ["src/**/*.{test,spec}.ts", "../testing/tests/**/*.{test,spec}.ts"],
     coverage: {
       provider: "istanbul",
       include: ["src/domain/**"],

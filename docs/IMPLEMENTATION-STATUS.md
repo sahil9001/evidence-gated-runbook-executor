@@ -5,7 +5,7 @@
 - **Plan:** [`docs/superpowers/plans/2026-08-25-approval-gate-vertical-slice.md`](superpowers/plans/2026-08-25-approval-gate-vertical-slice.md)
 - **Spec:** [`docs/roadmap.md`](roadmap.md)
 - **Started:** 2026-08-25
-- **Last updated:** 2026-08-25 — T1 ✅ complete (c01f75b..41aacea); T2 dispatched
+- **Last updated:** 2026-08-25 — T1, T2 ✅ complete; T3 in review; T4 dispatched
 
 ## Protocol for Agents
 
@@ -24,9 +24,9 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 | # | Task | Wave | Depends on | Status | Agent | Verified by |
 |---|---|---|---|---|---|---|
 | T1 | Backend scaffold (Hono + Vitest + wrangler + D1 binding) | 1 | — | ✅ done | impl-t1 | `npm test` 2/2 passed; cold `typecheck` exit 0 after deleting generated types |
-| T2 | Evidence domain types (`EvidenceCard`, `EvidencePacket`) | 2 | T1 | 🔨 in progress | impl-t2 | — |
-| T3 | Action model + non-forgeable `ApprovalToken` | 2 | T1 | ⬜ not started | — | — |
-| T4 | Runbook schema, loader, matcher + `checkout-failure.json` | 3 | T2, T3 | ⬜ not started | — | — |
+| T2 | Evidence domain types (`EvidenceCard`, `EvidencePacket`) | 2 | T1 | ✅ done | impl-t2 | suite 28/28; weakest-card test proven to fail against a last-card-wins bug |
+| T3 | Action model + non-forgeable `ApprovalToken` | 2 | T1 | 🔨 in review | impl-t3 | suite 27/27; brand verified — outside module cannot mint a token (TS2741) |
+| T4 | Runbook schema, loader, matcher + `checkout-failure.json` | 3 | T2, T3 | 🔨 in progress | impl-t4 | — |
 | T5 | Fixture-backed evidence collectors + fixtures | 3 | T2 | ⬜ not started | — | — |
 | T6 | Packet builder with scope enforcement | 4 | T4, T5 | ⬜ not started | — | — |
 | T7 | D1 migration + repository layer | 3 | T2, T3 | ⬜ not started | — | — |
@@ -36,7 +36,7 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 | T11 | `/app` dashboard route wired to live data | 6 | T10 | ⬜ not started | — | — |
 | T12 | End-to-end verification + docs | 7 | T11 | ⬜ not started | — | — |
 
-**Progress: 1 / 12 complete.**
+**Progress: 2 / 12 complete.**
 
 ## Wave Schedule
 

@@ -68,6 +68,15 @@ describe("packetConfidence", () => {
     expect(packetConfidence(packet)).toBe("low");
   });
 
+  it("takes the weakest card regardless of its position", () => {
+    const packet = buildPacket({
+      id: "p", incidentId: "i", runbookId: "r",
+      cards: [card({ confidence: "low" }), card({ id: "c2", confidence: "high" })],
+      builtAt: "2026-08-25T02:01:00.000Z"
+    });
+    expect(packetConfidence(packet)).toBe("low");
+  });
+
   it("treats an empty packet as low confidence, never high", () => {
     const packet = buildPacket({
       id: "p", incidentId: "i", runbookId: "r", cards: [],

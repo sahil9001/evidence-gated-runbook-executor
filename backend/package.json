@@ -23,10 +23,5 @@
     "typescript": "^5.7.2",
     "vitest": "^4.1.11",
     "wrangler": "^4.125.0"
-  },
-  "overrides": {
-    "@cloudflare/vitest-pool-workers": {
-      "miniflare": "5.20260820.0-alpha"
-    }
   }
 }

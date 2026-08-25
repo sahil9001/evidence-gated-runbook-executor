@@ -5,7 +5,7 @@
 - **Plan:** [`docs/superpowers/plans/2026-08-25-approval-gate-vertical-slice.md`](superpowers/plans/2026-08-25-approval-gate-vertical-slice.md)
 - **Spec:** [`docs/roadmap.md`](roadmap.md)
 - **Started:** 2026-08-25
-- **Last updated:** 2026-08-25 — T1–T7 ✅ complete; T8 in progress
+- **Last updated:** 2026-08-25 — T1–T8 ✅ complete; T9 in progress
 
 ## Protocol for Agents
 
@@ -30,13 +30,13 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 | T5 | Fixture-backed evidence collectors + fixtures | 3 | T2 | ✅ done | impl-t5 | suite 63/63; 47 and 8f31c2b derived from fixtures, absent from collector source |
 | T6 | Packet builder with scope enforcement | 4 | T4, T5 | ✅ done | impl-t6 | suite 71/71; scope validated before any collect() — verified by line ordering + dual spy |
 | T7 | D1 migration + repository layer | 3 | T2, T3 | ✅ done | impl-t7 | suite 83/83; audit_log append-only (no UPDATE/DELETE exists); SQL fully parameterized |
-| T8 | Token-gated executor + safety bypass suite | 4 | T3 | 🔨 in progress | impl-t8 | — |
-| T9 | API routes (`run`, `packet`, `approve`, `reject`) | 5 | T6, T8 | ⬜ not started | — | — |
+| T8 | Token-gated executor + safety bypass suite | 4 | T3 | ✅ done | impl-t8 | suite 98/98; all 3 bypass routes proven compile errors (TS2554, TS2345 ×2) |
+| T9 | API routes (`run`, `packet`, `approve`, `reject`) | 5 | T6, T8 | 🔨 in progress | impl-t9 | — |
 | T10 | Frontend typed API client + frontend Vitest | 6 | T9 | ⬜ not started | — | — |
 | T11 | `/app` dashboard route wired to live data | 6 | T10 | ⬜ not started | — | — |
 | T12 | End-to-end verification + docs | 7 | T11 | ⬜ not started | — | — |
 
-**Progress: 7 / 12 complete.**
+**Progress: 8 / 12 complete.**
 
 ## Wave Schedule
 

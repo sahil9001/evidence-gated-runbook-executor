@@ -122,6 +122,20 @@ describe("approval flow", () => {
     expect(body.data.execution.executed).toBe(true);
   });
 
+  it("persists the approved gate in the store, not just in the response", async () => {
+    const gateId = await runAndGetGateId("inc-approve-persist");
+
+    const { status } = await post(`/approvals/${gateId}/approve`, { by: "sahil", reason: "looks good" });
+    expect(status).toBe(200);
+
+    const store = createD1Store(env.DB);
+    const persisted = await store.getGate(gateId);
+    expect(persisted?.state).not.toBe("locked");
+    expect(persisted?.state).toBe("approved");
+    if (persisted?.state !== "approved") throw new Error("expected approved gate");
+    expect(persisted.decidedBy).toBe("sahil");
+  });
+
   it("approving twice returns 409 gate_already_decided", async () => {
     const gateId = await runAndGetGateId("inc-approve-twice");
     await post(`/approvals/${gateId}/approve`, { by: "sahil" });

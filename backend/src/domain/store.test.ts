@@ -143,6 +143,25 @@ describe("createD1Store", () => {
     expect(loaded.decidedAt).toBe(T5);
   });
 
+  it("upserts a gate: approving after the locked row was saved replaces it in place", async () => {
+    const store = createD1Store(env.DB);
+    const run = makeRun("run-10");
+    await store.createRun(run);
+    const locked = createGate({ id: "gate-3", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+
+    await store.saveGate(locked, run.id);
+    expect((await store.getGate("gate-3"))?.state).toBe("locked");
+
+    const { gate: approved } = approveGate(locked, { by: "sahil", at: T5 });
+    await store.saveGate(approved, run.id);
+
+    const loaded = await store.getGate("gate-3");
+    expect(loaded).toEqual(approved);
+    if (loaded?.state !== "approved") throw new Error("expected approved gate");
+    expect(loaded.state).toBe("approved");
+    expect(loaded.decidedBy).toBe("sahil");
+  });
+
   it("returns null for a missing gate", async () => {
     const store = createD1Store(env.DB);
     expect(await store.getGate("no-such-gate")).toBeNull();

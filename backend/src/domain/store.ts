@@ -138,8 +138,15 @@ export function createD1Store(db: D1Database): Store {
     },
 
     async saveGate(gate: ApprovalGate, runId: string): Promise<void> {
+      // Gates hold current state (unlike audit_log, which holds immutable
+      // history) — a gate is created locked, then decided exactly once, and
+      // the decided variant must replace the locked row so `getGate` agrees
+      // with `RunRow.state` across requests. Upsert on the `id` PRIMARY KEY.
       await db
-        .prepare(`INSERT INTO gates (id, run_id, data) VALUES (?, ?, ?)`)
+        .prepare(
+          `INSERT INTO gates (id, run_id, data) VALUES (?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET data = excluded.data`
+        )
         .bind(gate.id, runId, JSON.stringify(gate))
         .run();
     },

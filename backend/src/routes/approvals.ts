@@ -77,6 +77,7 @@ approvalRoutes.post("/approvals/:id/approve", async (c) => {
     ...(reason === undefined ? {} : { reason })
   });
 
+  await store.saveGate(approvedGate, id);
   await store.updateRunState(id, "approved", nowIso);
   await store.appendAudit({
     id: crypto.randomUUID(),
@@ -135,6 +136,7 @@ approvalRoutes.post("/approvals/:id/reject", async (c) => {
 
   const rejectedGate = rejectGate(gate, { by, at: nowIso, reason });
 
+  await store.saveGate(rejectedGate, id);
   await store.updateRunState(id, "rejected", nowIso);
   await store.appendAudit({
     id: crypto.randomUUID(),

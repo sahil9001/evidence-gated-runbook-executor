@@ -5,7 +5,7 @@
 - **Plan:** [`docs/superpowers/plans/2026-08-25-approval-gate-vertical-slice.md`](superpowers/plans/2026-08-25-approval-gate-vertical-slice.md)
 - **Spec:** [`docs/roadmap.md`](roadmap.md)
 - **Started:** 2026-08-25
-- **Last updated:** 2026-08-25 — T1–T6 ✅ complete; T7 in progress
+- **Last updated:** 2026-08-25 — T1–T7 ✅ complete; T8 in progress
 
 ## Protocol for Agents
 
@@ -29,14 +29,14 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 | T4 | Runbook schema, loader, matcher + `checkout-failure.json` | 3 | T2, T3 | ✅ done | impl-t4 | suite 40/40; runbook labels verified identical to RunbookPreview.tsx; tie→null |
 | T5 | Fixture-backed evidence collectors + fixtures | 3 | T2 | ✅ done | impl-t5 | suite 63/63; 47 and 8f31c2b derived from fixtures, absent from collector source |
 | T6 | Packet builder with scope enforcement | 4 | T4, T5 | ✅ done | impl-t6 | suite 71/71; scope validated before any collect() — verified by line ordering + dual spy |
-| T7 | D1 migration + repository layer | 3 | T2, T3 | 🔨 in progress | impl-t7 | — |
-| T8 | Token-gated executor + safety bypass suite | 4 | T3 | ⬜ not started | — | — |
+| T7 | D1 migration + repository layer | 3 | T2, T3 | ✅ done | impl-t7 | suite 83/83; audit_log append-only (no UPDATE/DELETE exists); SQL fully parameterized |
+| T8 | Token-gated executor + safety bypass suite | 4 | T3 | 🔨 in progress | impl-t8 | — |
 | T9 | API routes (`run`, `packet`, `approve`, `reject`) | 5 | T6, T8 | ⬜ not started | — | — |
 | T10 | Frontend typed API client + frontend Vitest | 6 | T9 | ⬜ not started | — | — |
 | T11 | `/app` dashboard route wired to live data | 6 | T10 | ⬜ not started | — | — |
 | T12 | End-to-end verification + docs | 7 | T11 | ⬜ not started | — | — |
 
-**Progress: 6 / 12 complete.**
+**Progress: 7 / 12 complete.**
 
 ## Wave Schedule
 
@@ -75,6 +75,7 @@ Additional decisions made while writing the plan:
 | Decision | Rationale |
 |---|---|
 | `compatibility_date` is **2026-08-15** in `backend/`, 2026-08-24 in `frontend/` | The workerd shipped with vitest-pool-workers 0.22.0 refuses to start a Worker dated later. Lowering the date beats pinning a prerelease miniflare through npm `overrides`. The frontend has no local Workers test runtime, so nothing constrains it |
+| `TEST_MIGRATIONS` needs `backend/src/test-env.d.ts` | `wrangler types` regenerates `worker-configuration.d.ts` from `wrangler.jsonc` only, so test-only bindings must be declared in a separate additive `declare global` file that regeneration cannot clobber |
 | `defineWorkersConfig` does **not** exist | `@cloudflare/vitest-pool-workers@0.22.0` exports only `.`, `./types`, `./codemods/…`. Use the `cloudflareTest` plugin form. `readD1Migrations` is a **root** export — Task 7 needs this |
 | Runbooks and fixtures are **JSON, not YAML** | Workers have no filesystem; JSON imports natively via `import … with { type: "json" }` and avoids bundling a YAML parser |
 | `ApprovalToken` is a **branded type** | Makes "execute without approval" a compile error rather than a runtime check. The brand symbol is not exported, so `approveGate` is the only mint |

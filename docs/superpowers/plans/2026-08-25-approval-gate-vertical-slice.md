@@ -101,7 +101,9 @@ Wave 7          T12           end-to-end verification
 
 **Interfaces:**
 - Consumes: nothing (first task)
-- Produces: a Hono `app` default-exported from `src/index.ts`; `Env` type with `DB: D1Database`; working `npm test` / `npm run typecheck` / `npm run lint` in `backend/`
+- Produces: a Hono `app` default-exported from `src/index.ts`; `Env` type with `DB: D1Database`; `apiError(code, message, details?)` returning `{ ok: false, error: { code, message, details? } }`; working `npm test` and `npm run typecheck` in `backend/`
+
+> **No lint in `backend/`.** The frontend has ESLint; the backend relies on strict TypeScript plus tests. Adding ESLint here would expand every later task's verification for no correctness gain in this slice. Tracked as a follow-on beside the CI gap.
 
 - [ ] **Step 1: Create the package**
 
@@ -121,6 +123,7 @@ cd backend && rm -f .gitkeep src/.gitkeep
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "pretypecheck": "wrangler types",
     "typecheck": "tsc --noEmit",
     "cf-typegen": "wrangler types",
     "db:migrate": "wrangler d1 migrations apply runproof-db --local",
@@ -1457,6 +1460,7 @@ git commit -m "docs: record vertical slice completion and local dev setup"
 **Spec coverage.** Roadmap Phase 0 → T1, T10 (F1/F2; F3 CI is *not* covered — see gap below). Phase 1 → T2, T3 (D1.1 `Incident` and D1.7 `RunRecord` deliberately reduced to `RunRow` in T7 for this slice). Phase 2 → T4. Phase 3 → T5, T6. Phase 6 → T3, T8. Phase 7 → T9. Phase 9 → T10, T11. Phase 10 → T8 (safety suite), T12.
 
 **Known gaps, accepted for this slice:**
+- **Backend ESLint has no task.** `backend/` verifies with strict TypeScript and tests only. Add it with the CI workflow below, not inside this slice.
 - **F3 (CI workflow) has no task.** It needs a repository decision about GitHub Actions vs Cloudflare build hooks, and there is nothing to gate until the suite exists. Add it immediately after T12.
 - **T4's runbook matcher returns `null` on ties.** Correct and safe, but it means two overlapping runbooks silently produce a 404. Acceptable while three runbooks exist; revisit before there are thirty.
 - **Execution in T8 is simulated.** No real rollback happens. This is intentional — wiring production credentials is a separate decision (roadmap D6) and out of scope.

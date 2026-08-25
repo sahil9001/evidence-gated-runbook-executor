@@ -5,7 +5,7 @@
 - **Plan:** [`docs/superpowers/plans/2026-08-25-approval-gate-vertical-slice.md`](superpowers/plans/2026-08-25-approval-gate-vertical-slice.md)
 - **Spec:** [`docs/roadmap.md`](roadmap.md)
 - **Started:** 2026-08-25
-- **Last updated:** 2026-08-25 — T1–T10 ✅ complete; T11 in progress
+- **Last updated:** 2026-08-25 — T1–T11 ✅ complete; T12 (verification) in progress
 
 ## Protocol for Agents
 
@@ -33,10 +33,10 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 | T8 | Token-gated executor + safety bypass suite | 4 | T3 | ✅ done | impl-t8 | suite 98/98; all 3 bypass routes proven compile errors (TS2554, TS2345 ×2) |
 | T9 | API routes (`run`, `packet`, `approve`, `reject`) | 5 | T6, T8 | ✅ done | impl-t9b | suite 114/114; `/run` execution-free; gate decisions persist; audit_log still append-only |
 | T10 | Frontend typed API client + frontend Vitest | 6 | T9 | ✅ done | impl-t10 | frontend 9/9; build+lint+typecheck clean; backend diff empty |
-| T11 | `/app` dashboard route wired to live data | 6 | T10 | 🔨 in progress | impl-t11 | — |
-| T12 | End-to-end verification + docs | 7 | T11 | ⬜ not started | — | — |
+| T11 | `/app` dashboard route wired to live data | 6 | T10 | ✅ done | impl-t11 | frontend 14/14; build ok; RunbookPreview prop-extracted without restyle |
+| T12 | End-to-end verification + docs | 7 | T11 | 🔨 in progress | impl-t12 | — |
 
-**Progress: 10 / 12 complete.**
+**Progress: 11 / 12 complete.**
 
 ## Wave Schedule
 

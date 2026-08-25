@@ -5,7 +5,7 @@
 - **Plan:** [`docs/superpowers/plans/2026-08-25-approval-gate-vertical-slice.md`](superpowers/plans/2026-08-25-approval-gate-vertical-slice.md)
 - **Spec:** [`docs/roadmap.md`](roadmap.md)
 - **Started:** 2026-08-25
-- **Last updated:** 2026-08-25 — T1, T2, T3 ✅ complete; T4 in progress
+- **Last updated:** 2026-08-25 — T1–T4 ✅ complete; T5 in progress
 
 ## Protocol for Agents
 
@@ -26,8 +26,8 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 | T1 | Backend scaffold (Hono + Vitest + wrangler + D1 binding) | 1 | — | ✅ done | impl-t1 | `npm test` 2/2 passed; cold `typecheck` exit 0 after deleting generated types |
 | T2 | Evidence domain types (`EvidenceCard`, `EvidencePacket`) | 2 | T1 | ✅ done | impl-t2 | suite 28/28; weakest-card test proven to fail against a last-card-wins bug |
 | T3 | Action model + non-forgeable `ApprovalToken` | 2 | T1 | ✅ done | impl-t3 | brand verified: outside module cannot mint a token (TS2741); 17 tests incl. full state machine |
-| T4 | Runbook schema, loader, matcher + `checkout-failure.json` | 3 | T2, T3 | 🔨 in progress | impl-t4 | — |
-| T5 | Fixture-backed evidence collectors + fixtures | 3 | T2 | ⬜ not started | — | — |
+| T4 | Runbook schema, loader, matcher + `checkout-failure.json` | 3 | T2, T3 | ✅ done | impl-t4 | suite 40/40; runbook labels verified identical to RunbookPreview.tsx; tie→null |
+| T5 | Fixture-backed evidence collectors + fixtures | 3 | T2 | 🔨 in progress | impl-t5 | — |
 | T6 | Packet builder with scope enforcement | 4 | T4, T5 | ⬜ not started | — | — |
 | T7 | D1 migration + repository layer | 3 | T2, T3 | ⬜ not started | — | — |
 | T8 | Token-gated executor + safety bypass suite | 4 | T3 | ⬜ not started | — | — |
@@ -36,7 +36,7 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 | T11 | `/app` dashboard route wired to live data | 6 | T10 | ⬜ not started | — | — |
 | T12 | End-to-end verification + docs | 7 | T11 | ⬜ not started | — | — |
 
-**Progress: 3 / 12 complete.**
+**Progress: 4 / 12 complete.**
 
 ## Wave Schedule
 

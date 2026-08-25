@@ -5,7 +5,7 @@
 - **Plan:** [`docs/superpowers/plans/2026-08-25-approval-gate-vertical-slice.md`](superpowers/plans/2026-08-25-approval-gate-vertical-slice.md)
 - **Spec:** [`docs/roadmap.md`](roadmap.md)
 - **Started:** 2026-08-25
-- **Last updated:** 2026-08-25 — T1 implemented (c01f75b, 8d6db39), in review
+- **Last updated:** 2026-08-25 — T1 ✅ complete (c01f75b..41aacea); T2 dispatched
 
 ## Protocol for Agents
 
@@ -23,8 +23,8 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 
 | # | Task | Wave | Depends on | Status | Agent | Verified by |
 |---|---|---|---|---|---|---|
-| T1 | Backend scaffold (Hono + Vitest + wrangler + D1 binding) | 1 | — | 🔨 in review | impl-t1 | `npm test` 2/2 passed; `typecheck` exit 0 |
-| T2 | Evidence domain types (`EvidenceCard`, `EvidencePacket`) | 2 | T1 | ⬜ not started | — | — |
+| T1 | Backend scaffold (Hono + Vitest + wrangler + D1 binding) | 1 | — | ✅ done | impl-t1 | `npm test` 2/2 passed; cold `typecheck` exit 0 after deleting generated types |
+| T2 | Evidence domain types (`EvidenceCard`, `EvidencePacket`) | 2 | T1 | 🔨 in progress | impl-t2 | — |
 | T3 | Action model + non-forgeable `ApprovalToken` | 2 | T1 | ⬜ not started | — | — |
 | T4 | Runbook schema, loader, matcher + `checkout-failure.json` | 3 | T2, T3 | ⬜ not started | — | — |
 | T5 | Fixture-backed evidence collectors + fixtures | 3 | T2 | ⬜ not started | — | — |
@@ -36,7 +36,7 @@ Status values: `⬜ not started` · `🔨 in progress` · `✅ done` · `🚧 bl
 | T11 | `/app` dashboard route wired to live data | 6 | T10 | ⬜ not started | — | — |
 | T12 | End-to-end verification + docs | 7 | T11 | ⬜ not started | — | — |
 
-**Progress: 0 / 12 complete.**
+**Progress: 1 / 12 complete.**
 
 ## Wave Schedule
 
@@ -106,6 +106,16 @@ cd frontend && npm run dev     # :3000  → http://localhost:3000/app
 ## Handoff Log
 
 Append newest at the bottom. One entry per task completion, block, or decision change.
+
+### 2026-08-25 — T1 complete — impl-t1
+
+Backend scaffold landed across three commits: `c01f75b` (scaffold), `8d6db39` (fix round 1), `41aacea` (fix round 2). Verified: `npm test` 2/2, cold `npm run typecheck` exit 0.
+
+Two plan defects found and corrected — **read these before touching backend config**:
+- `defineWorkersConfig` does not exist in `@cloudflare/vitest-pool-workers@0.22.0`. Exports are `.`, `./types`, `./codemods/vitest-v3-to-v4` only. Use the `cloudflareTest` plugin form. **`readD1Migrations` is a root export** — T7 needs this.
+- Backend `compatibility_date` is **2026-08-15**, not 2026-08-24. The shipped workerd refuses to start on a later date. Do not "fix" this by raising it or by pinning miniflare through npm `overrides`.
+
+`"pretypecheck": "wrangler types"` makes typecheck self-sufficient on a clean checkout — `worker-configuration.d.ts` is gitignored and generated. `npm test` does NOT need the same hook; vitest never reads that file.
 
 ### 2026-08-25 — orchestrator — plan written
 

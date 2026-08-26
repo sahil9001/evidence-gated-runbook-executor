@@ -64,8 +64,9 @@ export function createLogSource(fixtures: readonly unknown[] = defaultLogFixture
     kind: SOURCE_KIND,
     async collect(ctx: CollectContext): Promise<EvidenceCard[]> {
       const parsed = parseFixtures(fixtures);
-      const entryCards = parsed.map((entry) => toEntryCard(entry, ctx));
-      const summaryCard = toSummaryCard(parsed, ctx);
+      const scoped = parsed.filter((entry) => entry.service === ctx.service);
+      const entryCards = scoped.map((entry) => toEntryCard(entry, ctx));
+      const summaryCard = toSummaryCard(scoped, ctx);
       return summaryCard ? [...entryCards, summaryCard] : entryCards;
     }
   };

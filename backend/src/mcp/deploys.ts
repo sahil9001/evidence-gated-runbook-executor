@@ -66,8 +66,9 @@ export function createDeploySource(fixtures: readonly unknown[] = defaultDeployF
     kind: SOURCE_KIND,
     async collect(ctx: CollectContext): Promise<EvidenceCard[]> {
       const parsed = parseFixtures(fixtures);
-      const entryCards = parsed.map((entry) => toEntryCard(entry, ctx));
-      const suspectCard = toSuspectCard(parsed, ctx);
+      const scoped = parsed.filter((entry) => entry.service === ctx.service);
+      const entryCards = scoped.map((entry) => toEntryCard(entry, ctx));
+      const suspectCard = toSuspectCard(scoped, ctx);
       return suspectCard ? [...entryCards, suspectCard] : entryCards;
     }
   };

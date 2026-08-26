@@ -66,8 +66,9 @@ export function createMetricSource(fixtures: readonly unknown[] = defaultMetricF
     kind: SOURCE_KIND,
     async collect(ctx: CollectContext): Promise<EvidenceCard[]> {
       const parsed = parseFixtures(fixtures);
-      const pointCards = parsed.map((point) => toPointCard(point, ctx));
-      const thresholdCard = toThresholdCard(parsed, ctx);
+      const scoped = parsed.filter((point) => point.service === ctx.service);
+      const pointCards = scoped.map((point) => toPointCard(point, ctx));
+      const thresholdCard = toThresholdCard(scoped, ctx);
       return thresholdCard ? [...pointCards, thresholdCard] : pointCards;
     }
   };

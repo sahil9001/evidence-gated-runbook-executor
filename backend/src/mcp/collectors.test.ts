@@ -90,6 +90,16 @@ describe("createLogSource", () => {
     const cards = await createLogSource().collect(ctx);
     expect(cards.some((c) => c.claim.includes("53"))).toBe(false);
   });
+
+  it("never emits an entry card for a log line belonging to a different service", async () => {
+    const cards = await createLogSource([
+      validLog(),
+      validLog({ id: "log-other", service: "other-service", message: "unrelated failure" })
+    ]).collect(ctx);
+    expect(cards.some((c) => c.id.includes("log-other"))).toBe(false);
+    expect(cards.some((c) => c.claim.includes("other-service"))).toBe(false);
+    expect(cards.some((c) => JSON.stringify(c.raw).includes("other-service"))).toBe(false);
+  });
 });
 
 describe("createMetricSource", () => {
@@ -136,6 +146,16 @@ describe("createMetricSource", () => {
   it("identifies the first crossing point (3120ms), not just the peak (3480ms)", async () => {
     const cards = await createMetricSource().collect(ctx);
     expect(cards.some((c) => c.claim.includes("3120"))).toBe(true);
+  });
+
+  it("never emits an entry card for a metric point belonging to a different service", async () => {
+    const cards = await createMetricSource([
+      validMetric(),
+      validMetric({ id: "m-other", service: "other-service", value: 9999 })
+    ]).collect(ctx);
+    expect(cards.some((c) => c.id.includes("m-other"))).toBe(false);
+    expect(cards.some((c) => c.claim.includes("other-service"))).toBe(false);
+    expect(cards.some((c) => JSON.stringify(c.raw).includes("other-service"))).toBe(false);
   });
 });
 
@@ -185,6 +205,15 @@ describe("createDeploySource", () => {
     const summary = cards.find((c) => c.claim.includes("Most recent risky"));
     expect(summary).toBeDefined();
     expect(summary?.claim.includes("1204abf")).toBe(false);
+  });
+
+  it("never emits an entry card for a deploy belonging to a different service", async () => {
+    const cards = await createDeploySource([
+      validDeploy(),
+      validDeploy({ id: "d-other", service: "other-service", commit: "deadbee", risky: true })
+    ]).collect(ctx);
+    expect(cards.some((c) => c.id.includes("d-other"))).toBe(false);
+    expect(cards.some((c) => JSON.stringify(c.raw).includes("other-service"))).toBe(false);
   });
 });
 

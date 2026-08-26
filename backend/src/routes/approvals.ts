@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { apiError, type Env } from "../index";
 import { parseJsonBody } from "./http";
-import { createD1Store, type RunRow } from "../domain/store";
+import { createD1Store } from "../store/d1";
+import type { RunRow } from "../domain/store";
 import {
   approveGate,
   rejectGate,

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { apiError, type Env } from "../index";
-import { createD1Store } from "../domain/store";
+import { createD1Store } from "../store/d1";
 import { packetConfidence } from "../domain/evidence";
 
 export const packetRoutes = new Hono<{ Bindings: Env }>();

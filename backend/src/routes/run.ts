@@ -6,7 +6,7 @@ import { loadRunbook, matchRunbook } from "../domain/runbook";
 import { collectEvidence, ScopeViolationError } from "../domain/packet-builder";
 import { createAction } from "../domain/action";
 import { createGate } from "../domain/approval";
-import { createD1Store } from "../domain/store";
+import { createD1Store } from "../store/d1";
 import { ALL_SOURCES, type EvidenceSource } from "../mcp";
 import checkoutFailureRaw from "../../../testing/runbooks/checkout-failure.json";
 

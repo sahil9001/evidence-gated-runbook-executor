@@ -21,7 +21,7 @@
 |---|---|---|---|---|---|---|
 | B1 | Atomic approval (C1) + parse-on-read (C2, M9) | 0 | — | ✅ done | impl-b1 | 117/117; race reproduced [200,200] then closed [200,409] |
 | B2 | Surface `failures` (I1), server evidence gate (I3), error mapping (I2) | 0 | B1 | ✅ done | impl-b2 | 122/122 (117 baseline + 5 new); RED confirmed by stashing source fixes only |
-| B3 | Store seam + memory adapter + conformance suite | 1 | B1 | 🔨 in progress | impl-b3 | — |
+| B3 | Store seam + memory adapter + conformance suite | 1 | B1 | ✅ done | impl-b3 | 167/167 (122 baseline − 15 moved + 58 conformance ×2-adapters + 2 D1-only); typecheck clean; `db:migrate` applied 0002 cleanly (9 commands) |
 | B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | ⬜ not started | — | — |
 | B5 | Incidents entity + listing APIs | 1 | B4 | ⬜ not started | — | — |
 | B6 | Frontend auth pages + route guard | 2 | B4 | ⬜ not started | — | — |
@@ -32,7 +32,7 @@
 | B11 | Runbooks, History, Audit screens | 3 | B10 | ⬜ not started | — | — |
 | B12 | End-to-end verification + docs | 4 | B11 | ⬜ not started | — | — |
 
-**Progress: 2 / 12.**
+**Progress: 3 / 12.**
 
 ## Invariants — do not "fix" these
 
@@ -47,6 +47,18 @@
 | Domain layer is pure | No `Date.now()` inside; clocks inject at the route boundary |
 
 ## Handoff Log
+
+### 2026-08-26 — impl-b3 — B3 done
+
+Split the seam: `domain/store.ts` now holds only types (`RunRow`, `AuditEntry`, new `IncidentRow`/`UserRow`/`SessionRow`) and the `Store` interface — no D1, importable without a Worker runtime. `store/d1.ts` has `createD1Store`, moved verbatim (B1/B2's parse-on-read and `expectedState` logic untouched) plus the new methods. `store/memory.ts` has `createMemoryStore()` — plain `Map`s, `structuredClone` on every read/write so callers can never mutate internal state, explicit duplicate-id rejection in `appendAudit` (D1 gets this from `audit_log`'s PRIMARY KEY), and `getAction`/`getGate` re-derive/validate on read exactly like D1 (`createAction(...)`, `approvalGateSchema.parse(...)`) even though memory never round-trips through an untyped blob.
+
+`store/conformance.ts` exports `runStoreConformance(name, makeStore)` — 29 tests covering every method, run once against each adapter (`store/d1.test.ts`, `store/memory.test.ts`) via the identical suite. Two tests could not be replicated for memory and stayed D1-only (documented in a doc comment on `runStoreConformance`): they bypass `Store` and hand-write a corrupted `TEXT` row directly via `env.DB.prepare(...)` (C2's tampered `isStateChanging`, M9's garbage `expiresAt`) — memory has no equivalent bypass since it never serializes to an untyped blob. Ordinary round-tripping through the re-derive/validate-on-read path is still required of both adapters and is covered in the shared suite.
+
+M1 fixed: `getPacketByIncident` now orders `built_at DESC` (new column, backfilled going forward via `savePacket`) instead of the old `ORDER BY id`, which returned an arbitrary packet for any incident with more than one. Interface grew per the plan: `listIncidents`/`getIncident`/`createIncident`, `listRuns`/`listRunsByIncident`, `createUser`/`getUserByEmail`/`getUserById`, `createSession`/`getSession`/`deleteSession`/`deleteExpiredSessions` — implemented in both adapters, storage only, no hashing/routes/HTTP.
+
+Migration `0002_auth_and_incidents.sql` (created via `wrangler d1 migrations create`) adds `users`, `sessions`, `incidents`, and nullable `runs.created_by` / `packets.built_at` via `ALTER TABLE` (D1/SQLite can't add a NOT NULL column without a default to an existing table). Applied locally cleanly (9 commands).
+
+Backend 167/167 (122 baseline − 15 old store tests moved/superseded + 29 conformance tests × 2 adapters + 2 D1-only defence-in-depth tests), typecheck clean. Import sites (`routes/{approvals,packet,run}.ts`, `routes/routes.test.ts`) updated to `../store/d1`. Full report: `.superpowers/sdd/2026-08-26-operator-console/task-b3-report.md`. Next agent: B4 (auth backend) — `users`/`sessions` tables and Store methods are ready; B4 adds PBKDF2 hashing, session middleware, and routes on top.
 
 ### 2026-08-26 — impl-b2 — B2 done
 

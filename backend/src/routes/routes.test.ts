@@ -2,7 +2,7 @@ import { env, applyD1Migrations, createExecutionContext, waitOnExecutionContext 
 import { Hono } from "hono";
 import { beforeAll, describe, it, expect } from "vitest";
 import app, { type Env } from "../index";
-import { createD1Store } from "../domain/store";
+import { createD1Store } from "../store/d1";
 import { createGate } from "../domain/approval";
 import { createAction } from "../domain/action";
 import { buildPacket } from "../domain/evidence";

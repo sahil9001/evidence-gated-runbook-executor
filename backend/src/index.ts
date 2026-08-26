@@ -9,6 +9,10 @@ export type Env = {
    * `src/routes/mcp.ts`.
    */
   ALLOWED_MCP_ORIGINS?: string;
+  /** Idle-timeout for an MCP session, in milliseconds. See `src/routes/mcp.ts`. */
+  MCP_SESSION_IDLE_TTL_MS?: string;
+  /** Hard cap on concurrently held MCP sessions. See `src/routes/mcp.ts`. */
+  MCP_MAX_SESSIONS?: string;
 };
 
 export type ApiError = {

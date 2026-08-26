@@ -110,6 +110,14 @@ own server-side `fetch`, or `register:mcp` — are allowed unconditionally: the 
 this guards against requires a browser, and browsers always send `Origin`. See
 `backend/src/routes/mcp.ts`.
 
+## Session lifecycle
+
+Each MCP session is idle-timed-out and refreshed on every use (default 30 minutes,
+override with the `MCP_SESSION_IDLE_TTL_MS` wrangler var), and the process-local
+session store has a hard capacity cap (default 500, override with `MCP_MAX_SESSIONS`)
+that evicts the least-recently-used session once exceeded. This bounds memory from
+clients that crash or disappear without a clean `DELETE`.
+
 ## Known limitations (local-dev scope)
 
 - `backend/src/routes/mcp.ts` keeps MCP sessions in a process-local `Map`, correct for

@@ -43,6 +43,7 @@ function isOriginAllowed(origin: string | undefined, env: Env): boolean {
 type McpSession = {
   server: McpServer;
   transport: WebStandardStreamableHTTPServerTransport;
+  lastUsedAt: number;
 };
 
 /**
@@ -58,13 +59,83 @@ type McpSession = {
  * `../domain/approval.ts` is a separate, non-forgeable lock that
  * `toolHandlers.ts`'s `handleProposeRollback` still goes through on every
  * call, regardless of which MCP session invoked it.
+ *
+ * Insertion order doubles as recency order: `touchSession` deletes and
+ * re-inserts a session's entry on every use, so `sessions.keys().next()`
+ * always yields the least-recently-used session — the one both idle-TTL
+ * pruning and capacity eviction treat as "oldest".
  */
 const sessions = new Map<string, McpSession>();
 
+/** Default idle timeout for a session with no `MCP_SESSION_IDLE_TTL_MS` override. */
+const DEFAULT_SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
+/** Default hard cap on concurrently held sessions with no `MCP_MAX_SESSIONS` override. */
+const DEFAULT_MAX_SESSIONS = 500;
+
+function parsePositiveIntEnv(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getSessionIdleTtlMs(env: Env): number {
+  return parsePositiveIntEnv(env.MCP_SESSION_IDLE_TTL_MS, DEFAULT_SESSION_IDLE_TTL_MS);
+}
+
+function getMaxSessions(env: Env): number {
+  return parsePositiveIntEnv(env.MCP_MAX_SESSIONS, DEFAULT_MAX_SESSIONS);
+}
+
+/** Closes and forgets a session, swallowing shutdown errors — this is best-effort cleanup, not a request path. */
+function evictSession(sessionId: string, session: McpSession): void {
+  sessions.delete(sessionId);
+  void session.server.close().catch(() => {});
+}
+
+/** Removes every session idle for longer than `idleTtlMs`, as of `now`. */
+function pruneExpiredSessions(now: number, idleTtlMs: number): void {
+  for (const [sessionId, session] of sessions) {
+    if (now - session.lastUsedAt > idleTtlMs) {
+      evictSession(sessionId, session);
+    }
+  }
+}
+
+/** Evicts the least-recently-used session(s) until the map is back at or under `maxSessions`. */
+function evictOldestOverCapacity(maxSessions: number): void {
+  while (sessions.size > maxSessions) {
+    const oldest = sessions.entries().next();
+    if (oldest.done) return;
+    const [sessionId, session] = oldest.value;
+    evictSession(sessionId, session);
+  }
+}
+
+/** Marks a session as just-used: refreshes its TTL clock and moves it to the recent end of the LRU order. */
+function touchSession(sessionId: string, session: McpSession, now: number): void {
+  sessions.delete(sessionId);
+  sessions.set(sessionId, { ...session, lastUsedAt: now });
+}
+
 export const mcpRoute = new Hono<{ Bindings: Env }>();
 
-function existingSession(sessionId: string | undefined): McpSession | undefined {
-  return sessionId ? sessions.get(sessionId) : undefined;
+/**
+ * Looks up a session by id, evicting it first if it has gone idle past its
+ * TTL — a request that names an expired session is treated exactly like a
+ * request that names no session at all (both fall through to the "unknown
+ * session" 400 the transport itself already produces for non-initialize
+ * calls). A session that is still alive gets its idle clock refreshed.
+ */
+function existingSession(sessionId: string | undefined, now: number, idleTtlMs: number): McpSession | undefined {
+  if (!sessionId) return undefined;
+  const session = sessions.get(sessionId);
+  if (!session) return undefined;
+  if (now - session.lastUsedAt > idleTtlMs) {
+    evictSession(sessionId, session);
+    return undefined;
+  }
+  touchSession(sessionId, session, now);
+  return sessions.get(sessionId);
 }
 
 /**
@@ -82,7 +153,12 @@ mcpRoute.all("/", async (c) => {
     return c.json({ ok: false, error: { code: "forbidden_origin", message: "Origin not allowed" } }, 403);
   }
 
-  const existing = existingSession(c.req.header(SESSION_ID_HEADER));
+  const now = Date.now();
+  const idleTtlMs = getSessionIdleTtlMs(c.env);
+  const maxSessions = getMaxSessions(c.env);
+  pruneExpiredSessions(now, idleTtlMs);
+
+  const existing = existingSession(c.req.header(SESSION_ID_HEADER), now, idleTtlMs);
   if (existing) {
     return await existing.transport.handleRequest(c.req.raw);
   }
@@ -92,7 +168,8 @@ mcpRoute.all("/", async (c) => {
     sessionIdGenerator: () => crypto.randomUUID(),
     enableJsonResponse: true,
     onsessioninitialized: (sessionId) => {
-      sessions.set(sessionId, { server, transport });
+      sessions.set(sessionId, { server, transport, lastUsedAt: Date.now() });
+      evictOldestOverCapacity(maxSessions);
     },
     onsessionclosed: async (sessionId) => {
       sessions.delete(sessionId);

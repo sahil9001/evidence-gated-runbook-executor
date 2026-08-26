@@ -11,13 +11,14 @@ type JsonRpcRequest = {
   params?: Record<string, unknown>;
 };
 
-async function postMcp(body: JsonRpcRequest, sessionId?: string): Promise<Response> {
+async function postMcp(body: JsonRpcRequest, sessionId?: string, origin?: string): Promise<Response> {
   const request = new Request("http://localhost/mcp", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
-      ...(sessionId ? { "mcp-session-id": sessionId } : {})
+      ...(sessionId ? { "mcp-session-id": sessionId } : {}),
+      ...(origin ? { origin } : {})
     },
     body: JSON.stringify(body)
   });
@@ -47,6 +48,55 @@ async function initializeSession(): Promise<string> {
 
   return sessionId as string;
 }
+
+describe("MCP endpoint origin validation", () => {
+  it("rejects a hostile Origin with 403 and never reaches the transport", async () => {
+    const response = await postMcp(
+      { jsonrpc: "2.0", id: 1, method: "initialize" },
+      undefined,
+      "https://evil.example.com"
+    );
+    expect(response.status).toBe(403);
+  });
+
+  it("allows the configured TrueForge origin", async () => {
+    const response = await postMcp(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "trueforge", version: "0.1.4" } }
+      },
+      undefined,
+      "http://localhost:8790"
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("allows a localhost dev origin on any port", async () => {
+    const response = await postMcp(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "dev", version: "0.0.1" } }
+      },
+      undefined,
+      "http://localhost:5173"
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("allows requests with no Origin header at all (non-browser clients)", async () => {
+    const response = await postMcp({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "server-fetch", version: "0.0.1" } }
+    });
+    expect(response.status).toBe(200);
+  });
+});
 
 describe("MCP endpoint", () => {
   it("rejects a non-initialize call with no known session", async () => {

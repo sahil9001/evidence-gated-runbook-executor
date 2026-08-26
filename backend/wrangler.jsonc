@@ -5,6 +5,13 @@
   "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  "vars": {
+    // Comma-separated list of extra origins allowed to call /mcp, beyond the
+    // built-in localhost/127.0.0.1 dev-origin allowance. Set this to
+    // wherever TrueForge (or any other MCP client that runs in a browser)
+    // is actually served from. See src/routes/mcp.ts.
+    "ALLOWED_MCP_ORIGINS": "http://localhost:8790"
+  },
   "d1_databases": [
     {
       "binding": "DB",

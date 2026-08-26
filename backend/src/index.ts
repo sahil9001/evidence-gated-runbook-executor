@@ -3,6 +3,12 @@ import { mcpRoute } from "./routes/mcp";
 
 export type Env = {
   DB: D1Database;
+  /**
+   * Comma-separated list of extra origins allowed to call /mcp, on top of
+   * the built-in localhost/127.0.0.1 dev-origin allowance. See
+   * `src/routes/mcp.ts`.
+   */
+  ALLOWED_MCP_ORIGINS?: string;
 };
 
 export type ApiError = {

@@ -98,6 +98,18 @@ and watch `GET /api/v1/sessions/{id}/turns/{turn_id}/events` for the
 above) work with zero model configuration; only the last "watch it actually run" step
 needs an LLM API key.
 
+## Origin allow-list
+
+Per the MCP Streamable HTTP transport spec, `/mcp` validates the `Origin` header on
+every request — required because these servers listen on localhost, where any page a
+browser visits could otherwise POST to them (DNS rebinding) and drive every exposed
+tool. `http://localhost` and `http://127.0.0.1` on any port are always allowed for
+local development; anything else must be listed in the `ALLOWED_MCP_ORIGINS`
+wrangler var (comma-separated). Requests with no `Origin` header at all — TrueForge's
+own server-side `fetch`, or `register:mcp` — are allowed unconditionally: the attack
+this guards against requires a browser, and browsers always send `Origin`. See
+`backend/src/routes/mcp.ts`.
+
 ## Known limitations (local-dev scope)
 
 - `backend/src/routes/mcp.ts` keeps MCP sessions in a process-local `Map`, correct for

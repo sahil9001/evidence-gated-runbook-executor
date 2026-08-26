@@ -139,7 +139,8 @@ describe("NewIncidentClient", () => {
         service: "payment-service",
         state: "awaiting_approval",
         createdAt: "t",
-        updatedAt: "t"
+        updatedAt: "t",
+        createdBy: "oncall@runproof.dev"
       },
       packet: { id: "pk-1", incidentId: "inc-1", runbookId: "checkout-failure", cards: [], summary: "s", builtAt: "t" },
       action: {

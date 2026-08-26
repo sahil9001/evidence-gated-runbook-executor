@@ -1,11 +1,13 @@
 import type {
   ApiErrorBody,
   ApprovalResponse,
+  AuditEntry,
   IncidentDetailResponse,
   IncidentRow,
   OverviewResponse,
   PacketResponse,
   Runbook,
+  RunDetailResponse,
   RunResponse
 } from "./types";
 
@@ -132,17 +134,21 @@ export async function getPacket(incidentId: string): Promise<PacketResponse> {
   });
 }
 
-export async function approve(gateId: string, by: string, reason?: string): Promise<ApprovalResponse> {
+// `by` is deliberately absent from both request bodies — the backend takes
+// the approver from the session (`c.var.user.email`), never from anything a
+// client sends (see backend/src/routes/approvals.ts). Sending one here would
+// be dead weight at best; the schema on the other end doesn't accept it.
+export async function approve(gateId: string, reason?: string): Promise<ApprovalResponse> {
   return request<ApprovalResponse>(`/approvals/${encodeURIComponent(gateId)}/approve`, {
     method: "POST",
-    body: JSON.stringify(reason === undefined ? { by } : { by, reason })
+    body: JSON.stringify(reason === undefined ? {} : { reason })
   });
 }
 
-export async function reject(gateId: string, by: string, reason: string): Promise<ApprovalResponse> {
+export async function reject(gateId: string, reason: string): Promise<ApprovalResponse> {
   return request<ApprovalResponse>(`/approvals/${encodeURIComponent(gateId)}/reject`, {
     method: "POST",
-    body: JSON.stringify({ by, reason })
+    body: JSON.stringify({ reason })
   });
 }
 
@@ -172,4 +178,14 @@ export async function getIncident(id: string): Promise<IncidentDetailResponse> {
 /** Backs the create-incident screen's runbook-match preview and the runbooks screen (B11). */
 export async function listRunbooks(): Promise<Runbook[]> {
   return request<Runbook[]>("/runbooks", { method: "GET" });
+}
+
+/** Backs the run detail screen (B10) — the one call that feeds all four tabs. */
+export async function getRun(id: string): Promise<RunDetailResponse> {
+  return request<RunDetailResponse>(`/runs/${encodeURIComponent(id)}`, { method: "GET" });
+}
+
+/** Backs the run detail screen's Audit tab — this run's entries, in order. */
+export async function listAudit(runId: string): Promise<AuditEntry[]> {
+  return request<AuditEntry[]>(`/audit?runId=${encodeURIComponent(runId)}`, { method: "GET" });
 }

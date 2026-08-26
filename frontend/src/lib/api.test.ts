@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiClientError, approve, getOverview, getPacket, reject, startRun } from "./api";
+import { ApiClientError, approve, getOverview, getPacket, getRun, listAudit, reject, startRun } from "./api";
 
 const ORIGINAL_ENV = process.env.NEXT_PUBLIC_API_URL;
 
@@ -26,7 +26,7 @@ describe("api client", () => {
 
   it("unwraps `data` from a successful response instead of returning the envelope", async () => {
     const data = {
-      run: { id: "run-1", incidentId: "inc-1", runbookId: "rb-1", service: "checkout", state: "awaiting_approval", createdAt: "t", updatedAt: "t" },
+      run: { id: "run-1", incidentId: "inc-1", runbookId: "rb-1", service: "checkout", state: "awaiting_approval", createdAt: "t", updatedAt: "t", createdBy: "oncall@runproof.dev" },
       packet: { id: "pk-1", incidentId: "inc-1", runbookId: "rb-1", cards: [], summary: "s", builtAt: "t" },
       action: { id: "run-1", kind: "rollback", target: "checkout", params: {}, reversible: true, description: "d", isStateChanging: true },
       gate: { id: "run-1", actionId: "run-1", createdAt: "t", expiresAt: "t2", state: "locked" }
@@ -47,7 +47,7 @@ describe("api client", () => {
       jsonResponse({ ok: false, error: { code: "gate_already_decided", message: "already decided" } }, 409)
     );
 
-    await expect(approve("gate-1", "alice")).rejects.toMatchObject({
+    await expect(approve("gate-1")).rejects.toMatchObject({
       code: "gate_already_decided",
       status: 409
     });
@@ -109,17 +109,18 @@ describe("api client", () => {
     expect(String(calledUrl)).toBe("http://localhost:8787/incidents/inc-42/packet");
   });
 
-  it("omits `reason` from the request body when approve is called without one", async () => {
+  it("omits `reason` from the request body when approve is called without one, and never sends `by`", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({ ok: true, data: { gate: { id: "g", actionId: "a", createdAt: "t", expiresAt: "t2", state: "approved" } } })
     );
 
-    await approve("gate-1", "alice");
+    await approve("gate-1");
 
     const init = vi.mocked(fetch).mock.calls[0]?.[1];
     const sentBody: unknown = JSON.parse(String(init?.body));
-    expect(sentBody).toEqual({ by: "alice" });
+    expect(sentBody).toEqual({});
     expect(sentBody).not.toHaveProperty("reason");
+    expect(sentBody).not.toHaveProperty("by");
   });
 
   it("sends credentials: 'include' on every request so the session cookie travels cross-origin", async () => {
@@ -133,16 +134,17 @@ describe("api client", () => {
     expect(init?.credentials).toBe("include");
   });
 
-  it("always sends `reason` in the request body for reject", async () => {
+  it("always sends `reason` (and never `by`) in the request body for reject", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({ ok: true, data: { gate: { id: "g", actionId: "a", createdAt: "t", expiresAt: "t2", state: "rejected", decidedBy: "alice", decidedAt: "t3", reason: "bad idea" } } })
     );
 
-    await reject("gate-1", "alice", "bad idea");
+    await reject("gate-1", "bad idea");
 
     const init = vi.mocked(fetch).mock.calls[0]?.[1];
     const sentBody: unknown = JSON.parse(String(init?.body));
-    expect(sentBody).toEqual({ by: "alice", reason: "bad idea" });
+    expect(sentBody).toEqual({ reason: "bad idea" });
+    expect(sentBody).not.toHaveProperty("by");
   });
 
   it("unwraps the overview payload from GET /overview", async () => {
@@ -154,5 +156,35 @@ describe("api client", () => {
     expect(result).toEqual(data);
     const calledUrl = vi.mocked(fetch).mock.calls[0]?.[0];
     expect(String(calledUrl)).toBe("http://localhost:8787/overview");
+  });
+
+  it("unwraps the run detail payload from GET /runs/:id", async () => {
+    const data = {
+      run: { id: "run-1", incidentId: "inc-1", runbookId: "rb-1", service: "checkout", state: "awaiting_approval", createdAt: "t", updatedAt: "t", createdBy: "oncall@runproof.dev" },
+      incident: null,
+      packet: null,
+      action: null,
+      gate: null,
+      failures: [],
+      confidence: null
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, data }));
+
+    const result = await getRun("run-1");
+
+    expect(result).toEqual(data);
+    const calledUrl = vi.mocked(fetch).mock.calls[0]?.[0];
+    expect(String(calledUrl)).toBe("http://localhost:8787/runs/run-1");
+  });
+
+  it("unwraps the audit list payload from GET /audit?runId=", async () => {
+    const data = [{ id: "a1", runId: "run-1", at: "t", kind: "run_created", detail: "d" }];
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, data }));
+
+    const result = await listAudit("run-1");
+
+    expect(result).toEqual(data);
+    const calledUrl = vi.mocked(fetch).mock.calls[0]?.[0];
+    expect(String(calledUrl)).toBe("http://localhost:8787/audit?runId=run-1");
   });
 });

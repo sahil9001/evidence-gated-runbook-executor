@@ -72,6 +72,8 @@ export interface RunRow {
   readonly state: "collecting" | "awaiting_approval" | "approved" | "rejected" | "executed";
   readonly createdAt: string;
   readonly updatedAt: string;
+  // null for runs created before B5, or via a path with no session.
+  readonly createdBy: string | null;
 }
 
 // mirrors backend/src/domain/executor.ts ExecutionResult
@@ -102,6 +104,29 @@ export interface PacketResponse {
 export interface ApprovalResponse {
   readonly gate: ApprovalGate;
   readonly execution?: ExecutionResult;
+}
+
+// mirrors the shape backend/src/routes/runs.ts builds for each `failures`
+// entry on GET /runs/:id — an evidence source the run's runbook allows but
+// that contributed zero cards to the packet.
+export interface RunFailure {
+  readonly source: EvidenceSourceKind;
+  readonly message: string;
+}
+
+// mirrors the `data` payload of GET /runs/:id (backend/src/routes/runs.ts).
+// `incident`, `packet`, `action`, and `gate` are nullable because the route
+// looks each one up independently by id/fk after loading the run — a
+// dangling reference (or a run whose evidence collection never produced a
+// packet) must surface as "missing", not crash the console.
+export interface RunDetailResponse {
+  readonly run: RunRow;
+  readonly incident: IncidentRow | null;
+  readonly packet: EvidencePacket | null;
+  readonly action: Action | null;
+  readonly gate: ApprovalGate | null;
+  readonly failures: readonly RunFailure[];
+  readonly confidence: Confidence | null;
 }
 
 // mirrors backend/src/auth/middleware.ts PublicUser (UserRow minus passwordHash/salt —

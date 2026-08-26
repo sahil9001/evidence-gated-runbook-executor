@@ -122,6 +122,17 @@ describe("api client", () => {
     expect(sentBody).not.toHaveProperty("reason");
   });
 
+  it("sends credentials: 'include' on every request so the session cookie travels cross-origin", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({ ok: true, data: { packet: { id: "p", incidentId: "i", runbookId: "r", cards: [], summary: "s", builtAt: "t" }, confidence: "high" } })
+    );
+
+    await getPacket("inc-42");
+
+    const init = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(init?.credentials).toBe("include");
+  });
+
   it("always sends `reason` in the request body for reject", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({ ok: true, data: { gate: { id: "g", actionId: "a", createdAt: "t", expiresAt: "t2", state: "rejected", decidedBy: "alice", decidedAt: "t3", reason: "bad idea" } } })

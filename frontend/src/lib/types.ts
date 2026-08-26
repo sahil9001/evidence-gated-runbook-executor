@@ -104,6 +104,14 @@ export interface ApprovalResponse {
   readonly execution?: ExecutionResult;
 }
 
+// mirrors backend/src/auth/middleware.ts PublicUser (UserRow minus passwordHash/salt —
+// the frontend never receives credential material)
+export interface User {
+  readonly id: string;
+  readonly email: string;
+  readonly createdAt: string;
+}
+
 // mirrors backend/src/index.ts ApiError
 export interface ApiErrorBody {
   readonly ok: false;

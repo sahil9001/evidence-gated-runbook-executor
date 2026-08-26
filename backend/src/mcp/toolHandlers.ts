@@ -2,7 +2,7 @@ import { createLogSource } from "./logs";
 import { createMetricSource } from "./metrics";
 import { createDeploySource } from "./deploys";
 import { ALL_RUNBOOKS } from "./runbooks";
-import type { EvidenceCard } from "../domain/evidence";
+import type { EvidenceCard, EvidenceSourceKind } from "../domain/evidence";
 import { matchRunbook, type Runbook } from "../domain/runbook";
 import { createAction, type Action } from "../domain/action";
 import { createGate, type ApprovalGate } from "../domain/approval";
@@ -15,17 +15,50 @@ import { createGate, type ApprovalGate } from "../domain/approval";
  */
 const systemNow = (): string => new Date().toISOString();
 
-export type CollectArgs = { incidentId: string; service: string };
+export type CollectArgs = { incidentId: string; service: string; signals: string[] };
+
+/**
+ * Enforces RunProof's central safety property at the MCP boundary: a
+ * collector may run only once the caller's service+signals resolve to a
+ * runbook that authorizes `source`. Every collect_* handler routes through
+ * this one function — deliberately not duplicated per handler — so there is
+ * exactly one place that can drift from `matchRunbook`, the same matcher
+ * `get_runbook` uses to decide what an agent is even allowed to see.
+ *
+ * Throwing here (rather than returning an empty result) is deliberate: the
+ * MCP SDK converts a thrown error into a `{ isError: true }` tool result
+ * naming exactly what was refused, so a calling agent can act on it instead
+ * of misreading an empty array as "no evidence found".
+ */
+function authorizeSource(args: CollectArgs, source: EvidenceSourceKind): Runbook {
+  const runbook = matchRunbook(ALL_RUNBOOKS, { service: args.service, signals: args.signals });
+  if (!runbook) {
+    throw new Error(
+      `No runbook matches service "${args.service}" with signals [${args.signals.join(", ")}]. ` +
+        `Refusing to collect ${source} evidence without an authorized runbook scope.`
+    );
+  }
+  if (!runbook.allowedSources.includes(source)) {
+    throw new Error(
+      `Runbook "${runbook.id}" does not authorize the "${source}" source ` +
+        `(allowedSources: [${runbook.allowedSources.join(", ")}]). Refusing to collect.`
+    );
+  }
+  return runbook;
+}
 
 export async function handleCollectLogs(args: CollectArgs): Promise<EvidenceCard[]> {
+  authorizeSource(args, "logs");
   return createLogSource().collect({ incidentId: args.incidentId, service: args.service, now: systemNow });
 }
 
 export async function handleCollectMetrics(args: CollectArgs): Promise<EvidenceCard[]> {
+  authorizeSource(args, "metrics");
   return createMetricSource().collect({ incidentId: args.incidentId, service: args.service, now: systemNow });
 }
 
 export async function handleCollectDeploys(args: CollectArgs): Promise<EvidenceCard[]> {
+  authorizeSource(args, "deploys");
   return createDeploySource().collect({ incidentId: args.incidentId, service: args.service, now: systemNow });
 }
 

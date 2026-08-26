@@ -85,7 +85,10 @@ describe("MCP endpoint", () => {
         jsonrpc: "2.0",
         id: 3,
         method: "tools/call",
-        params: { name: "collect_logs", arguments: { incidentId: "inc-mcp-1", service: "payment-service" } }
+        params: {
+          name: "collect_logs",
+          arguments: { incidentId: "inc-mcp-1", service: "payment-service", signals: ["timeout", "error_rate"] }
+        }
       },
       sessionId
     );

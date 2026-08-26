@@ -13,7 +13,14 @@ const SERVER_VERSION = "0.1.0";
 
 const collectArgsShape = {
   incidentId: z.string().min(1).describe("The incident this evidence is being gathered for"),
-  service: z.string().min(1).describe("The service the incident is about")
+  service: z.string().min(1).describe("The service the incident is about"),
+  signals: z
+    .array(z.string().min(1))
+    .describe(
+      "Signals observed for this incident, e.g. ['timeout', 'error_rate']. Used to resolve the same " +
+        "runbook get_runbook would match, so the collector can be refused if that runbook does not " +
+        "authorize this source."
+    )
 };
 
 /**
@@ -42,7 +49,10 @@ export function createRunProofMcpServer(): McpServer {
     "collect_logs",
     {
       title: "Collect logs",
-      description: "Gather log-derived evidence cards for an incident's service from RunProof's log source.",
+      description:
+        "Gather log-derived evidence cards for an incident's service from RunProof's log source. " +
+        "Refuses with an error if no runbook matches the given service/signals, or if the matched " +
+        "runbook's allowedSources does not include logs.",
       inputSchema: collectArgsShape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
     },
@@ -53,7 +63,10 @@ export function createRunProofMcpServer(): McpServer {
     "collect_metrics",
     {
       title: "Collect metrics",
-      description: "Gather metric-derived evidence cards for an incident's service from RunProof's metrics source.",
+      description:
+        "Gather metric-derived evidence cards for an incident's service from RunProof's metrics source. " +
+        "Refuses with an error if no runbook matches the given service/signals, or if the matched " +
+        "runbook's allowedSources does not include metrics.",
       inputSchema: collectArgsShape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
     },
@@ -64,7 +77,10 @@ export function createRunProofMcpServer(): McpServer {
     "collect_deploys",
     {
       title: "Collect deploys",
-      description: "Gather deploy-history evidence cards for an incident's service from RunProof's deploy source.",
+      description:
+        "Gather deploy-history evidence cards for an incident's service from RunProof's deploy source. " +
+        "Refuses with an error if no runbook matches the given service/signals, or if the matched " +
+        "runbook's allowedSources does not include deploys.",
       inputSchema: collectArgsShape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
     },

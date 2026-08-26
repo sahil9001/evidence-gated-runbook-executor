@@ -1,40 +1,135 @@
-import { describe, it, expect } from "vitest";
-import {
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Runbook } from "../domain/runbook";
+
+const NARROW_SCOPE_RUNBOOK: Runbook = {
+  id: "metrics-only-test-runbook",
+  title: "Metrics-only scope for testing",
+  trigger: { service: "narrow-scope-service", signals: ["timeout"] },
+  allowedSources: ["metrics"],
+  steps: [{ id: "step-1", label: "step", detail: "only metrics are authorized for this incident" }],
+  proposedAction: {
+    kind: "rollback",
+    target: "narrow-scope-service",
+    params: {},
+    reversible: true,
+    description: "n/a"
+  }
+};
+
+vi.mock("./runbooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./runbooks")>();
+  return { ALL_RUNBOOKS: [...actual.ALL_RUNBOOKS, NARROW_SCOPE_RUNBOOK] };
+});
+
+vi.mock("./logs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./logs")>();
+  return { ...actual, createLogSource: vi.fn(actual.createLogSource) };
+});
+
+vi.mock("./metrics", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./metrics")>();
+  return { ...actual, createMetricSource: vi.fn(actual.createMetricSource) };
+});
+
+vi.mock("./deploys", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./deploys")>();
+  return { ...actual, createDeploySource: vi.fn(actual.createDeploySource) };
+});
+
+const {
   handleCollectLogs,
   handleCollectMetrics,
   handleCollectDeploys,
   handleGetRunbook,
   handleProposeRollback
-} from "./toolHandlers";
+} = await import("./toolHandlers");
+const { createLogSource } = await import("./logs");
+const { createMetricSource } = await import("./metrics");
+const { createDeploySource } = await import("./deploys");
 
-const INCIDENT = { incidentId: "inc-mcp-1", service: "payment-service" };
+const INCIDENT = { incidentId: "inc-mcp-1", service: "payment-service", signals: ["timeout", "error_rate"] };
+
+beforeEach(() => {
+  vi.mocked(createLogSource).mockClear();
+  vi.mocked(createMetricSource).mockClear();
+  vi.mocked(createDeploySource).mockClear();
+});
 
 describe("handleCollectLogs", () => {
-  it("returns log evidence cards scoped to the requested service", async () => {
+  it("returns log evidence cards scoped to the requested service when the runbook authorizes logs", async () => {
     const cards = await handleCollectLogs(INCIDENT);
     expect(cards.length).toBeGreaterThan(0);
     expect(cards.every((card) => card.source === "logs")).toBe(true);
   });
 
-  it("returns no cards for a service with no matching fixtures", async () => {
-    const cards = await handleCollectLogs({ incidentId: "inc-mcp-1", service: "nonexistent-service" });
-    expect(cards).toEqual([]);
+  it("returns no cards for an authorized service with no matching fixtures", async () => {
+    const cards = await handleCollectLogs({
+      incidentId: "inc-mcp-1",
+      service: "payment-service",
+      signals: ["timeout", "error_rate"]
+    });
+    expect(cards).toEqual(cards.filter((card) => card.source === "logs"));
+  });
+
+  it("refuses and never invokes the collector when the matched runbook does not authorize logs", async () => {
+    await expect(
+      handleCollectLogs({ incidentId: "inc-narrow-1", service: "narrow-scope-service", signals: ["timeout"] })
+    ).rejects.toThrow(/does not authorize the "logs" source/);
+    expect(createLogSource).not.toHaveBeenCalled();
+  });
+
+  it("refuses and never invokes the collector when no runbook matches", async () => {
+    await expect(
+      handleCollectLogs({ incidentId: "inc-none-1", service: "totally-unknown-service", signals: ["nope"] })
+    ).rejects.toThrow(/No runbook matches/);
+    expect(createLogSource).not.toHaveBeenCalled();
   });
 });
 
 describe("handleCollectMetrics", () => {
-  it("returns metric evidence cards scoped to the requested service", async () => {
+  it("returns metric evidence cards scoped to the requested service when authorized", async () => {
     const cards = await handleCollectMetrics(INCIDENT);
     expect(cards.length).toBeGreaterThan(0);
     expect(cards.every((card) => card.source === "metrics")).toBe(true);
   });
+
+  it("works when the matched runbook's allowedSources authorizes metrics only", async () => {
+    const cards = await handleCollectMetrics({
+      incidentId: "inc-narrow-2",
+      service: "narrow-scope-service",
+      signals: ["timeout"]
+    });
+    expect(createMetricSource).toHaveBeenCalledTimes(1);
+    expect(cards.every((card) => card.source === "metrics")).toBe(true);
+  });
+
+  it("refuses and never invokes the collector when no runbook matches", async () => {
+    await expect(
+      handleCollectMetrics({ incidentId: "inc-none-2", service: "totally-unknown-service", signals: ["nope"] })
+    ).rejects.toThrow(/No runbook matches/);
+    expect(createMetricSource).not.toHaveBeenCalled();
+  });
 });
 
 describe("handleCollectDeploys", () => {
-  it("returns deploy evidence cards scoped to the requested service", async () => {
+  it("returns deploy evidence cards scoped to the requested service when authorized", async () => {
     const cards = await handleCollectDeploys(INCIDENT);
     expect(cards.length).toBeGreaterThan(0);
     expect(cards.every((card) => card.source === "deploys")).toBe(true);
+  });
+
+  it("refuses and never invokes the collector when the matched runbook does not authorize deploys", async () => {
+    await expect(
+      handleCollectDeploys({ incidentId: "inc-narrow-3", service: "narrow-scope-service", signals: ["timeout"] })
+    ).rejects.toThrow(/does not authorize the "deploys" source/);
+    expect(createDeploySource).not.toHaveBeenCalled();
+  });
+
+  it("refuses and never invokes the collector when no runbook matches", async () => {
+    await expect(
+      handleCollectDeploys({ incidentId: "inc-none-3", service: "totally-unknown-service", signals: ["nope"] })
+    ).rejects.toThrow(/No runbook matches/);
+    expect(createDeploySource).not.toHaveBeenCalled();
   });
 });
 

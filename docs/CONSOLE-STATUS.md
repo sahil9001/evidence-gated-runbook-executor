@@ -28,7 +28,7 @@
 | B7 | App shell — sidebar + top bar | 2 | B6 | ✅ done | impl-b7 | 68/68 frontend (54 baseline + 14 new); typecheck/lint/build clean; backend 240/240 unchanged |
 | B8 | Overview screen + CORS credentials fix | 3 | B5, B7 | 🔨 in progress | impl-b8 | — |
 | B9 | Incidents list + create flow | 3 | B8 | 🔨 in progress | impl-b9 | — |
-| B10 | Run detail with 4 tabs | 3 | B9 | ⬜ not started | — | — |
+| B10 | Run detail with 4 tabs | 3 | B9 | 🔨 in progress | impl-b10 | — |
 | B11 | Runbooks, History, Audit screens | 3 | B10 | ⬜ not started | — | — |
 | B12 | End-to-end verification + docs | 4 | B11 | ⬜ not started | — | — |
 

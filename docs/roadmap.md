@@ -96,6 +96,20 @@ evidence trail, and a locked Approve button.
 
 ## Part 2 — What Exists Today
 
+**UPDATE (2026-08-26, operator-console B1–B12):** a full operator console now
+sits on top of the approval-gate vertical slice below — real auth (register/
+login/session cookies), a multi-incident model, an incidents list and
+creation flow with a live runbook-match preview, a tabbed run-detail screen
+(Evidence / Diagnostics / Approval / Audit), and dedicated Runbooks/History/
+Audit screens, all backed by a pluggable `Store` interface with D1 and
+in-memory adapters proven conformant against the same test suite. Verified
+end to end in a real headless-Chromium browser session on 2026-08-26 — see
+`.superpowers/sdd/2026-08-26-operator-console/task-b12-report.md` for the
+full walkthrough, screenshots, and curl-level guard checks. Backend 242/242,
+frontend 151/151, both typecheck/lint/build clean from a fresh `npm ci`.
+Phases 4, 5, and 8 (real sandbox execution, a computed risk model, and full
+run replay) remain **open** — see below.
+
 **UPDATE (2026-08-25, approval-gate-vertical-slice):** the vertical slice
 described in Part 5 below is now built and verified end to end — a real
 backend, a real D1-backed approval gate, and a `/app` dashboard wired to live
@@ -105,22 +119,28 @@ the original marketing route.
 
 | Area | State |
 |---|---|
-| `frontend/` | Real. Next.js 16 landing page (marketing, `/`) **and** a live operator dashboard (`/app`) wired to the backend API. 14/14 tests, lint/typecheck/build clean |
-| `backend/` | Real. Hono Worker on Cloudflare Workers, D1-backed. Domain model, runbook loader, fixture-backed evidence collectors, packet builder with scope enforcement, token-gated executor with a safety bypass suite, and the full API surface for the slice below. 114/114 tests, typecheck clean |
+| `frontend/` | Real. Next.js 16 landing page (marketing, `/`) **and** a full operator console (`/app/*`) wired to the backend API — auth pages, overview, incidents list + creation, tabbed run detail, runbooks, history, audit. 151/151 tests, lint/typecheck/build clean |
+| `backend/` | Real. Hono Worker on Cloudflare Workers, D1-backed. Domain model, runbook loader, fixture-backed evidence collectors, packet builder with scope enforcement, token-gated executor with a safety bypass suite, PBKDF2 auth + session cookies, incidents/runs/runbooks/audit/overview routes. 242/242 tests, typecheck clean |
 | `backend/src/domain/` | Real — incident/runbook/evidence/action/approval/run types, runbook matcher, packet builder, executor |
+| `backend/src/auth/` | Real — PBKDF2-SHA256 password hashing, session create/resolve/revoke, `requireAuth` middleware |
 | `backend/src/mcp/` | Real — fixture-backed `logs`, `metrics`, `deploys` collectors behind a shared `EvidenceSource` interface |
-| `backend/src/routes/` | Real — `POST /incidents/:id/run`, `GET /incidents/:id/packet`, `POST /approvals/:id/approve`, `POST /approvals/:id/reject` |
+| `backend/src/store/` | Real — `Store` interface with a D1 adapter and an in-memory adapter, both proven conformant against one shared test suite (`store/conformance.ts`) |
+| `backend/src/routes/` | Real — `auth/*`, `incidents/*`, `runs/*`, `runbooks/*`, `approvals/:id/*`, `audit/*`, `overview/*` |
 | `testing/runbooks/` | Real — `checkout-failure.json` (the runbook the frontend has always shown) plus two more proving the format generalizes |
 | `testing/fixtures/` | Real — logs, p95 metrics, and deploy history fixtures reproducing the exact checkout-incident scenario the UI depicts |
 | `testing/prompts/` | Empty (`.gitkeep`) — out of scope for this slice |
 | `testing/tests/` | Real — safety bypass suite proving state-changing actions cannot execute without an approval token |
-| `docs/` | `cloudflare-deployment.md`, `local-development.md` (new), `roadmap.md`, `IMPLEMENTATION-STATUS.md`, `runbook-format.md` |
+| `docs/` | `cloudflare-deployment.md`, `local-development.md`, `roadmap.md`, `IMPLEMENTATION-STATUS.md`, `CONSOLE-STATUS.md`, `runbook-format.md` |
 
-The risk score shown in `/app` is still **fixture-derived, not a computed
-model** — Phase 5 (Risk Scoring and Recommendation) was explicitly out of
-scope for this slice and remains open below. Sandbox execution (Phase 4) is
-also still simulated: the post-approval "execution" result is a descriptive
-string, not a real side effect. Replay (Phase 8) has not been started.
+The risk score shown in the run detail's Approval tab is still a **disclosed
+display heuristic derived from evidence confidence, not a computed model** —
+Phase 5 (Risk Scoring and Recommendation) was explicitly out of scope for
+this slice and remains open below. Sandbox execution (Phase 4) is also still
+simulated: the post-approval "execution" result is a descriptive string, not
+a real side effect. Full run replay / a complete `RunRecord` transcript
+(Phase 8) remains open, though the console now has real History and Audit
+*list* screens reading genuine persisted rows — see the Phase 8 table below
+for the precise line between what's done and what isn't.
 
 **The useful part:** the frontend had already fixed the vocabulary before this
 slice, and the backend now implements those exact nouns, so the UI could be
@@ -254,7 +274,7 @@ right before building around them.
 > E7 is a safety boundary, not a feature. Test it as adversarially as the
 > approval gate itself.
 
-### Phase 4 — Sandbox Diagnostics
+### Phase 4 — Sandbox Diagnostics — **still open**
 
 | ID | Task | Location | Done when |
 |---|---|---|---|
@@ -264,7 +284,7 @@ right before building around them.
 | S4 | Assert the sandbox has **no network and no credential access** | `backend/src/mcp/sandbox.ts` | Escape attempts are blocked; tests prove it |
 | S5 | Attach sandbox output to the evidence packet as a card | `backend/src/domain/packet-builder.ts` | Card appears in the packet; tested |
 
-### Phase 5 — Risk Scoring and Recommendation
+### Phase 5 — Risk Scoring and Recommendation — **still open**
 
 | ID | Task | Location | Done when |
 |---|---|---|---|
@@ -299,24 +319,27 @@ The core of the product. Build it defensively.
 
 | ID | Task | Location | Done when |
 |---|---|---|---|
-| P1 | `POST /incidents` — create an incident, match a runbook | `backend/src/routes/incidents.ts` | ⬜ Not done. There is no incident-creation route — an incident id is just a string (`inc-demo-1`) passed straight to `POST /incidents/:id/run`, which matches the runbook inline. Folded into P2 for this slice |
-| P2 | `POST /incidents/:id/run` — execute the read-only phase | `backend/src/routes/run.ts` | ✅ Done (T9). Returns the packet, action, and a **locked** gate — confirmed live in T12: 16 evidence cards, `gate.state === "locked"`, no `execution` field in the response. Does not return a risk score (that's Phase 5, still fixture-derived on the frontend, not from this route) |
-| P3 | `GET /incidents/:id/packet` — fetch the packet with all cards | `backend/src/routes/packet.ts` | ✅ Done (T9). Confirmed live in T12 |
-| P4 | `POST /approvals/:id/approve` and `/reject` | `backend/src/routes/approvals.ts` | ✅ Done (T9). Confirmed live in T12: approve returns `gate.state === "approved"` plus a simulated `execution` result; a second approve on the same gate returns `409 gate_already_decided` |
+| P1 | `POST /incidents` — create an incident, match a runbook | `backend/src/routes/incidents.ts` | ✅ Done (B5). `POST /incidents` creates a real row (`createdBy` from the session, never the body); `GET /incidents` lists with `?status=` filtering; `GET /incidents/:id` returns it with its runs. Runbook matching still happens at `POST /incidents/:id/run`, not at creation |
+| P2 | `POST /incidents/:id/run` — execute the read-only phase | `backend/src/routes/run.ts` | ✅ Done (T9, hardened B5). Returns the packet, action, and a **locked** gate — confirmed live in B12: 16 evidence cards, `gate.state === "locked"`, no `execution` field in the response. 404s `not_found` for an unknown incident id (B5). Does not return a risk score (that's Phase 5, still a display heuristic on the frontend, not from this route) |
+| P3 | `GET /incidents/:id/packet` — fetch the packet with all cards | `backend/src/routes/packet.ts` | ✅ Done (T9). Confirmed live in B12 |
+| P4 | `POST /approvals/:id/approve` and `/reject` | `backend/src/routes/approvals.ts` | ✅ Done (T9, approver now from session not free text — B4). Confirmed live in B12 via both a real headless-browser Approve click *and* curl: approve returns `gate.state === "approved"` plus a simulated `execution` result; a second approve on the same gate returns `409 gate_already_decided`; the decision was independently confirmed to persist to D1 (survives a page reload) |
 | P5 | `GET /incidents/:id/run-record` — the full replay transcript | `backend/src/routes/replay.ts` | ⬜ Not done — Phase 8 (replay), explicitly out of scope for this slice |
 | P6 | Validate every request body at the boundary; consistent error envelope | `backend/src/routes/` | ✅ Done (T9) — Zod schemas in `run.ts`/`approvals.ts`, shared `apiError()` envelope, generic `onError` handler returning 500 only for truly unhandled errors |
 | P7 | Live progress for the UI (SSE or WebSocket via the Durable Object) | `backend/src/routes/stream.ts` | ⬜ Not done. `/run` responds synchronously with the full packet in one round trip; no per-run Durable Object or streaming was built (see D2 above) |
 
-### Phase 8 — Audit Trail and Replay
+### Phase 8 — Audit Trail and Replay — **still open**
 
 The README calls out "explainable, replayable" as the product direction. This is
-where that gets delivered.
+where that gets delivered. The console now surfaces the audit *log* end to
+end (backend storage → API → screen), but real replay (reconstructing a run's
+full behavior from its log alone) and export are not built. Treat this phase
+as open.
 
 | ID | Task | Location | Done when |
 |---|---|---|---|
-| L1 | Append-only run log: every step, collection, sandbox run, and decision | `backend/src/domain/audit.ts` | Log is append-only; tested |
-| L2 | Replay: reconstruct any past run from its log alone | `backend/src/domain/replay.ts` | A completed run replays identically |
-| L3 | Export a run as a shareable post-incident artifact | `backend/src/routes/replay.ts` | Produces a readable document |
+| L1 | Append-only run log: every step, collection, sandbox run, and decision | `backend/src/domain/audit.ts` | ✅ Done, further exposed via `GET /audit?runId=` and `GET /audit` (B5) and a real `/app/audit` screen (B11) showing every `run_started` / `evidence_gathered` / `approval_granted` / `action_executed` entry, newest first, with an explicit "append-only" banner. Confirmed live in B12 with real entries for a real run. Log is append-only in storage (`Store#appendAudit`); still **not** the same thing as L2's replay |
+| L2 | Replay: reconstruct any past run from its log alone | `backend/src/domain/replay.ts` | ⬜ Not done. `/app/history` and `/app/runs/:id`'s Audit tab display the persisted `RunRow` and audit entries, but nothing reconstructs or re-derives a run's behavior from the log — there is no `replay.ts` |
+| L3 | Export a run as a shareable post-incident artifact | `backend/src/routes/replay.ts` | ⬜ Not done |
 
 ### Phase 9 — Connect the Frontend
 
@@ -327,21 +350,21 @@ the components already match the domain shapes.
 |---|---|---|---|
 | U1 | API client with typed responses shared from the domain types | `frontend/src/lib/api.ts` | ✅ Done (T10). Structural mirror, not a shared import (separate Workers/builds) — `frontend/src/lib/types.ts` names which backend module each type shadows so drift shows up in review |
 | U2 | Wire `RunbookPreview` to a real incident (replaces the `timeline` array) | `frontend/src/app/app/DashboardClient.tsx` | ✅ Done (T11) — timeline is built from the live packet + gate, not a hardcoded array |
-| U3 | Live risk score and gauge from the API (replaces the hardcoded `82`) | `frontend/src/app/app/DashboardClient.tsx` | ⚠️ Partially done. The gauge reads from real evidence-packet confidence, but there is still **no computed risk model** — `DashboardClient.tsx` maps packet confidence (`high`/`medium`/`low`) to one of three fixed scores (e.g. `medium → 55`). This is not the `82/100` hardcoded on the landing page, but it is still not Phase 5's explainable, weighted score. Do not describe this as "real" scoring |
-| U4 | Make Approve and Review functional against `POST /approvals/:id` | `frontend/src/app/app/DashboardClient.tsx` | ✅ Done (T11). Confirmed live in T12 via both curl and a real headless-browser screenshot of `/app` showing the locked gate and an enabled Approve button |
-| U5 | Evidence detail view — drill from a card into its raw payload | `frontend/src/app/` | ⬜ Not done. Evidence cards render their `claim` text; there's no click-through to the raw payload |
-| U6 | Incident list and run history view | `frontend/src/app/` | ⬜ Not done. `/app` shows only the single seeded `inc-demo-1` incident |
-| U7 | Loading, empty, and error states for every new surface | `frontend/src/app/app/DashboardClient.tsx` | ✅ Done (T11) — loading/error states present; error codes (`not_found`, `gate_already_decided`, `gate_expired`) have user-facing copy |
-| U8 | Keep the landing page as the marketing route; put the app on `/app` | `frontend/src/app/` | ✅ Done (T11). Confirmed live in T12 — both `/` and `/app` render correctly in a real browser |
+| U3 | Live risk score and gauge from the API (replaces the hardcoded `82`) | `frontend/src/app/app/runs/[id]/components/ApprovalTab.tsx` | ⚠️ Still a display heuristic, not a computed model. The run-detail Approval tab's gauge derives from real evidence-packet confidence, but there is still **no computed risk model** — it maps packet confidence (`high`/`medium`/`low`) to one of a small set of fixed scores. This is disclosed in-product (the panel names its own inputs) but is still not Phase 5's explainable, weighted score. Do not describe this as "real" scoring |
+| U4 | Make Approve and Review functional against `POST /approvals/:id` | `frontend/src/app/app/runs/[id]/components/ApprovalTab.tsx` | ✅ Done (T11, moved to the tabbed run-detail screen in B10). Confirmed live in B12 via both curl and a real headless-browser Approve click — gate flips to `approved`, an execution result renders, and the decision survives a page reload (reads back from D1) |
+| U5 | Evidence detail view — drill from a card into its raw payload | `frontend/src/app/app/runs/[id]/components/EvidenceTab.tsx` | ✅ Done (B10) — every evidence card has a "Show raw" control exposing its underlying payload, confirmed live in B12 |
+| U6 | Incident list and run history view | `frontend/src/app/app/incidents/`, `frontend/src/app/app/history/` | ✅ Done (B6–B11). `/app/incidents` lists every incident with status filtering; `/app/incidents/new` creates one with a live runbook-match preview; `/app/history` lists every run newest-first with state filtering. Confirmed live in B12 |
+| U7 | Loading, empty, and error states for every new surface | `frontend/src/app/app/**` | ✅ Done — loading/error states present across Overview, Incidents, Run detail, Runbooks, History, Audit; error codes have user-facing copy |
+| U8 | Keep the landing page as the marketing route; put the app on `/app` | `frontend/src/app/` | ✅ Done (T11). Confirmed live in B12 — both `/` and the full `/app/*` console render correctly in a real browser, including a reload-survives-login check and a logout → `/app` → redirected-to-`/login` check |
 
 ### Phase 10 — Verification
 
 | ID | Task | Location | Done when |
 |---|---|---|---|
-| T1 | Unit tests across domain logic to the 80% standard | `testing/tests/` | ✅ Done, colocated rather than centralized. 114 backend + 14 frontend tests live next to the code they test (`backend/src/**/*.test.ts`), not under `testing/tests/`. No coverage threshold is enforced in CI — there is no CI (F3, still open) |
-| T2 | Integration tests over the full alert → packet → gate flow | `testing/tests/` | ✅ Done as `backend/src/routes/routes.test.ts`, and manually re-verified end to end in this task (T12) against real running dev servers, not just mocked handlers |
+| T1 | Unit tests across domain logic to the 80% standard | `testing/tests/` | ✅ Done, colocated rather than centralized. 242 backend + 151 frontend tests live next to the code they test (`backend/src/**/*.test.ts`, `frontend/src/**/*.test.tsx`), not under `testing/tests/`. No coverage threshold is enforced in CI — there is no CI (F3, still open) |
+| T2 | Integration tests over the full alert → packet → gate flow | `testing/tests/` | ✅ Done as `backend/src/routes/routes.test.ts`, and manually re-verified end to end against real running dev servers (not mocked handlers) twice: once at the T12 milestone, and again in B12 covering the full multi-incident console — register → overview → create incident → run → all four run-detail tabs → approve → reload-persists → runbooks/history/audit → logout → redirect |
 | T3 | **Safety test suite**: every attempt to act without approval fails | `testing/tests/safety/` | ✅ Done — `testing/tests/safety/bypass.test.ts` (implementation task T8). All bypass routes proven to be compile errors, not just runtime rejections |
-| T4 | E2E test of the operator approval journey (Playwright) | `testing/tests/e2e/` | ⬜ No automated Playwright suite committed. This task (T12) drove the journey manually with curl and an ad hoc Playwright script against real dev servers, but nothing reusable was added to the repo |
+| T4 | E2E test of the operator approval journey (Playwright) | `testing/tests/e2e/` | ⬜ Still no automated Playwright suite committed to the repo. B12 drove the full journey with an ad hoc Playwright script (`playwright-skill`) plus curl against real dev servers — screenshots and output archived in `.superpowers/sdd/2026-08-26-operator-console/task-b12-report.md` — but nothing reusable was added under `testing/tests/e2e/` |
 | T5 | Agent prompt fixtures and regression checks | `testing/prompts/` | ⬜ Not done — `testing/prompts/` is still an empty placeholder. There is no LLM-driven agent in this slice (evidence collection is fixture-backed, not model-driven), so there's nothing yet to regression-test |
 
 ---
@@ -384,6 +407,11 @@ interface honest about failure so real adapters slot in without a redesign.
 precise than the evidence usually supports. K3's explainability requirement is
 the mitigation — the breakdown should always be one click away from the number.
 
-**The demo/production gap is wide.** Auth, secret management, rate limiting, and
-credential scoping (D6) are not in this roadmap. They are not small. Do not let
-a convincing demo blur into an assumption of production readiness.
+**The demo/production gap is still real, even with auth now built.** Password
+auth and session cookies exist (B4) and are exercised by every screen, but
+there is **no rate limiting on `/auth/login`**, no secret management beyond
+Wrangler's local dev defaults, and no credential scoping (D6) for what a real
+evidence collector would need. Do not let a convincing console blur into an
+assumption of production readiness — see `docs/local-development.md` for the
+one-time `wrangler d1 create` step nobody has run yet, which is the actual
+gate on deploying any of this for real.

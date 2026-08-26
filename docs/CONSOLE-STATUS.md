@@ -26,13 +26,13 @@
 | B5 | Incidents entity + listing APIs | 1 | B4 | ✅ done | impl-b5 | 240/240 (206 baseline + 34 new); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers incidents/created_by) |
 | B6 | Frontend auth pages + route guard | 2 | B4 | ✅ done | impl-b6 | 54/54 (14 baseline + 40 new); typecheck/lint/build clean; backend 240/240 unchanged (status row was stale — corrected by impl-b7, see task-b6-report.md) |
 | B7 | App shell — sidebar + top bar | 2 | B6 | ✅ done | impl-b7 | 68/68 frontend (54 baseline + 14 new); typecheck/lint/build clean; backend 240/240 unchanged |
-| B8 | Overview screen + CORS credentials fix | 3 | B5, B7 | 🔨 in progress | impl-b8 | — |
-| B9 | Incidents list + create flow | 3 | B8 | 🔨 in progress | impl-b9 | — |
-| B10 | Run detail with 4 tabs | 3 | B9 | 🔨 in progress | impl-b10 | — |
-| B11 | Runbooks, History, Audit screens | 3 | B10 | 🔨 in progress | impl-b11 | — |
-| B12 | End-to-end verification + docs | 4 | B11 | 🔨 in progress | impl-b12 | — |
+| B8 | Overview screen + CORS credentials fix | 3 | B5, B7 | ✅ done | impl-b8 | 76/76 frontend (68 baseline + 8 new); typecheck/lint/build clean; backend 242/242 unchanged. Committed at `4b42bcc` |
+| B9 | Incidents list + create flow | 3 | B8 | ✅ done | impl-b9 | 104/104 frontend (76 baseline + 28 new); backend 242/242 reconfirmed unchanged |
+| B10 | Run detail with 4 tabs | 3 | B9 | ✅ done | impl-b10 | 106/106 frontend (104 baseline + 2 new api tests) at the time; typecheck clean |
+| B11 | Runbooks, History, Audit screens | 3 | B10 | ✅ done | impl-b11 | 151/151 frontend (125 baseline + 26 new); typecheck/lint/build clean; backend 242/242 unchanged |
+| B12 | End-to-end verification + docs | 4 | B11 | ✅ done | impl-b12 | Fresh `npm ci` clean-state: backend 242/242, frontend 151/151, both typecheck/lint/build clean. Full headless-Chromium browser walkthrough of every screen (register → overview → reload-stays-logged-in → incident create with runbook-match preview → run → all 4 tabs → approve → reload-persists-to-D1 → runbooks/history/audit → logout → `/app` redirects to `/login`) plus curl guard checks (401 with no cookie, 409 on double-approve). One pre-existing, unrelated bug found and reported, not fixed (SSR/CSR hydration mismatch in `Gauge.tsx`'s trig-derived SVG coordinates). Both dev servers confirmed stopped. Full report: `.superpowers/sdd/2026-08-26-operator-console/task-b12-report.md` |
 
-**Progress: 7 / 12.**
+**Progress: 12 / 12 — operator console complete.**
 
 ## Invariants — do not "fix" these
 
@@ -47,6 +47,79 @@
 | Domain layer is pure | No `Date.now()` inside; clocks inject at the route boundary |
 
 ## Handoff Log
+
+### 2026-08-26 — impl-b12 — B12 done. **12/12 — operator console complete.**
+
+Final task: no source changes (per constraints — `backend/src/` and
+`frontend/src/` untouched), pure verification and documentation.
+
+**Step 1, clean-state verification**, from a fresh checkout (`npm ci`, not
+just cached `node_modules`): backend `npm ci` → `db:migrate` ("No migrations
+to apply!", both `0001_init.sql` and `0002_auth_and_incidents.sql` already
+applied) → `npm test` → **242/242** → `npm run typecheck` clean. Frontend
+`npm ci` → `npm test` → **151/151** → `npm run typecheck` clean → `npm run
+lint` clean → `npm run build` clean, all 12 routes present (`/`, `/app`,
+`/app/audit`, `/app/history`, `/app/incidents`, `/app/incidents/[id]`,
+`/app/incidents/new`, `/app/runbooks`, `/app/runs/[id]`, `/login`,
+`/register`, `/_not-found`).
+
+**Step 2, full browser walkthrough** via `playwright-skill` driving headless
+Chromium at 1440px against both dev servers (`wrangler dev` :8787, `next dev`
+:3000): registered a user, confirmed the Overview loads and **survives a page
+reload while staying logged in** (the specific symptom the CORS
+`credentials: true` fix addressed — B7 found the gap and routed it to B8,
+the fix landed as `b26f6b5` right before B8's own commit, and this task
+independently re-verified it still holds), created an incident (`payment-service` / `timeout` + `error_rate`) and
+confirmed the matched-runbook panel names `checkout-failure` and lists its
+`allowedSources` (`logs`, `metrics`, `deploys`), submitted it into a run,
+screenshotted all four run-detail tabs (Evidence cards reference real fixture
+claims — 47 failed requests, commit `8f31c2b` — not placeholder text),
+clicked **Approve** and watched the gate flip to `approved` with an execution
+result, **reloaded the run page and confirmed the decision read back from D1**
+(gate stayed `approved`, run status badge became `executed`), then walked
+`/app/runbooks`, `/app/history`, `/app/audit` (each showing real persisted
+rows), logged out, and confirmed `/app` redirects to `/login?next=%2Fapp`.
+Every step in the spec's script completed successfully — no step failed.
+Separately verified with curl: `GET /incidents` with no cookie → `401
+unauthenticated`; approving the same gate twice → `409 gate_already_decided`.
+Both dev servers killed at the end; `pgrep -fl "wrangler dev|next dev"`
+confirmed empty.
+
+**One bug found, not fixed** (source is off-limits for this task): a
+pre-existing React hydration mismatch in `frontend/src/app/components/
+Gauge.tsx` — the SVG tick-mark coordinates are computed with `Math.cos`/
+`Math.sin`, and the server-rendered and client-recomputed values differ in
+trailing significant digits (Node's V8 vs. the browser's V8 do not guarantee
+bit-identical transcendental function results), producing a real hydration
+warning and a Next.js dev-overlay "1 Issue" badge on every fresh load of `/`.
+Cosmetic in this session (no visual glitch observed), but a genuine
+correctness issue worth a follow-up fix (round the coordinates before
+render). Full repro and evidence in the task report.
+
+**Step 3, documentation:** rewrote `docs/local-development.md` (both servers,
+the two migrations, `NEXT_PUBLIC_API_URL` and its `credentials: "include"`
+contract, registering the first user via UI and curl, the one-time `wrangler
+d1 create runproof-db` a human still needs to run); rewrote `README.md` to
+describe the actual operator console (auth, multi-incident model, tabbed run
+detail, runbooks/history/audit, the pluggable `Store` with D1 and in-memory
+adapters) and kept the "not built" section honest (no real sandbox execution,
+no computed risk model — the run detail's risk figure is a disclosed display
+heuristic — no CI, no login rate limiting); updated `docs/roadmap.md` (Part 2
+"what exists today" table, Phase 7/9 task rows, Phase 8 marked explicitly
+open with L1 now done via the real Audit screen while L2/L3 stay open, Phase
+4/5 headers marked open, Phase 10 verification numbers, the "demo/production
+gap" risk note updated now that auth exists); this file.
+
+This task table's B8–B11 rows were still marked 🔨 in progress despite their
+commits having landed and their individual task reports (`task-b8-report.md`
+… `task-b11-report.md`) showing DONE with real verification numbers — nobody
+had corrected the table after B7's agent flagged the same staleness pattern
+for B6. Corrected all four rows above from those reports; no code changes
+involved, matching B7's precedent for fixing a stale handoff record.
+
+**Backend 242/242, frontend 151/151, both green from a fresh checkout. Full
+report: `.superpowers/sdd/2026-08-26-operator-console/task-b12-report.md`.**
+**This is the last task — the operator console vertical slice is complete.**
 
 ### 2026-08-26 — impl-b7 — B7 done
 

@@ -52,7 +52,8 @@ type McpSession = {
  * `wrangler dev` process this project runs against for the hackathon (see
  * docs/trueforge-setup.md) — a horizontally-scaled production Workers
  * deployment would need a Durable Object per session instead, since
- * separate requests can land on separate isolates there.
+ * separate requests can land on separate isolates there and this Map
+ * would not be visible across them.
  *
  * This is transport-layer bookkeeping only. It has nothing to do with
  * RunProof's actual safety property: the domain-level `ApprovalGate` in
@@ -64,6 +65,23 @@ type McpSession = {
  * re-inserts a session's entry on every use, so `sessions.keys().next()`
  * always yields the least-recently-used session — the one both idle-TTL
  * pruning and capacity eviction treat as "oldest".
+ *
+ * Considered and rejected: `WebStandardStreamableHTTPServerTransport`
+ * does support a fully stateless mode (`sessionIdGenerator: undefined` —
+ * no session ID is ever issued, and the transport itself performs no
+ * session validation). That would sidestep the cross-isolate problem
+ * entirely, since there would be no server-side session state to be
+ * inconsistent about. It was not adopted here because it is a strictly
+ * bigger change than this bug warrants: it removes the session concept
+ * this file's idle-TTL/capacity bounding (see `pruneExpiredSessions` /
+ * `evictOldestOverCapacity`) exists to police, it would require every
+ * request to spin up a fresh `McpServer` + transport pair (the SDK
+ * explicitly requires a new transport per request in stateless mode), and
+ * it would need re-verification against the live TrueForge integration
+ * this slice already has working. `wrangler dev` — the only way this
+ * project runs today — is a single isolate, so the bug this Map has is
+ * latent, not active, in the environment this actually ships to for the
+ * hackathon. See docs/trueforge-setup.md for the deployment-time fix.
  */
 const sessions = new Map<string, McpSession>();
 

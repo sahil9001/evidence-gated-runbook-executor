@@ -121,8 +121,20 @@ clients that crash or disappear without a clean `DELETE`.
 ## Known limitations (local-dev scope)
 
 - `backend/src/routes/mcp.ts` keeps MCP sessions in a process-local `Map`, correct for
-  the single long-lived `wrangler dev` process this setup targets. A horizontally
-  scaled production Workers deployment would need a Durable Object per session
-  instead, since separate requests can land on separate isolates there.
+  the single long-lived `wrangler dev` process this setup targets — `wrangler dev` is
+  one isolate, so every request that follows an `initialize` lands on the same Map.
+  A horizontally scaled production Workers deployment would need a Durable Object per
+  session instead, since separate requests there can land on separate isolates that
+  cannot see each other's in-memory Map, breaking any multi-request MCP session.
+  **This was evaluated and consciously deferred, not overlooked:** the MCP SDK's
+  `WebStandardStreamableHTTPServerTransport` does support a fully stateless mode
+  (`sessionIdGenerator: undefined`) that would sidestep the problem by never keeping
+  server-side session state at all. It was not adopted here because it is a bigger
+  change than a targeted fix warrants — it would remove the session concept this
+  file's idle-TTL and capacity bounding exist to police, require a fresh `McpServer` +
+  transport per HTTP request (the SDK requires a new transport per request in
+  stateless mode), and need re-verification against the live TrueForge integration
+  this slice already has working. A Durable Object per session is the correct fix
+  when this actually needs to run across multiple isolates.
 - This repo does not run `wrangler deploy` or any `--remote` command as part of this
   workflow — everything above is local `wrangler dev` talking to a local TrueForge.

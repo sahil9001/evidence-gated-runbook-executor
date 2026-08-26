@@ -58,26 +58,26 @@ TrueForge is the only thing in the system that can execute code or grant tool
 access; RunProof is the only thing that knows what a valid runbook, a valid
 evidence packet, or a valid approval actually look like.
 
-## The safety argument: two independent gates
+## The safety argument: what's enforced today, and what still isn't
 
-The core safety claim is that an irreversible action requires two separate,
-independently-enforced approvals — not one approval implemented twice.
-
-**Gate 1 — TrueForge's approval checkpoint (runtime, harness-level).**
+**Gate — TrueForge's approval checkpoint (runtime, harness-level).**
 `propose_rollback` is annotated `destructiveHint: true`. When the agent calls it,
 TrueForge emits a `ToolApprovalRequiredEvent` and pauses the turn. Only after a
 human sends an explicit `UserToolApprovalEvent` with `allow` does TrueForge let
-the call through to RunProof's handler. This gate lives entirely in TrueForge and
-would stop *any* MCP tool annotated this way, regardless of what RunProof does
-internally.
+the call through to RunProof's handler at all. This gate lives entirely in
+TrueForge and stops the call before it ever reaches RunProof's code.
 
-**Gate 2 — RunProof's approval gate (compile-time-enforced, domain-level).**
-Even after TrueForge's human approves the tool call, RunProof's handler does not
-execute a rollback. It creates an `Action`, opens an `ApprovalGate` in the
-**locked** state via `createGate`, and returns that — locked — gate in the tool
-result. Nothing has happened to production yet.
+**What RunProof does once that call gets through: mints a locked gate, and
+nothing more.** `handleProposeRollback` resolves the runbook that must
+authorize the proposed action (see above), builds an `Action`, and opens an
+`ApprovalGate` in the **locked** state via `createGate`. That locked gate is
+the entire tool result — `executed` is always `false`. Nothing approves it as
+part of this call, and nothing in this codebase turns a locked gate into a
+production change.
 
-Getting from a locked gate to an executed action requires an `ApprovalToken`:
+**The domain layer has real, tested machinery for a second gate — it just
+isn't wired to anything yet.** `backend/src/domain/approval.ts` defines an
+`ApprovalToken`, a branded type only `approveGate()` can produce:
 
 ```typescript
 declare const tokenBrand: unique symbol;
@@ -93,36 +93,25 @@ export type ApprovalToken = {
 };
 ```
 
-`approveGate()` is the only function in the codebase that can produce a value of
-this type. `executeStateChanging(action: Action, token: ApprovalToken)` — the
-function that actually performs a state-changing action — requires one as a
-parameter. **Calling it without a real token is a TypeScript compile error, not
-a check that a future refactor could accidentally skip.** There is no code path
-where "forgot to check for approval" compiles.
+The `unique symbol` brand is erased at runtime, so the actual non-forgeability
+guarantee comes from a module-private `WeakSet`: `tokenAuthorizes` only
+accepts objects `approveGate()` actually minted in this process, regardless of
+shape — a hand-built object with a matching shape from JSON, D1, or any
+untyped boundary is rejected even if it type-casts its way past the type
+system. Each token is further bound to an `actionFingerprint`, computed by a
+type-tagged deterministic serializer over the action's content, so approval
+granted for one action's exact parameters can't be silently reused for a
+different action that happens to share an id.
 
-That said, a `unique symbol` brand is erased by the TypeScript compiler — at
-runtime it leaves no trace on the object. A hand-built object with a matching
-shape (from JSON, from D1, from any untyped boundary) could type-cast its way
-past the *type system* and still fail at *runtime*, because `tokenAuthorizes`
-doesn't trust the shape — it checks a module-private `WeakSet` of objects that
-`approveGate()` actually minted in this process. Only real tokens are members.
-This is why the type brand alone isn't the safety mechanism — it's the WeakSet
-identity check backing it that is. (One consequence: tokens are intentionally
-not serializable — they must never survive a JSON round-trip, D1 write, or
-`structuredClone`. If an approval needs to persist, the plain, serializable
-`ApprovalGate` is what gets persisted, never the token.)
-
-The token is also bound to more than an id: it carries an `actionFingerprint`
-computed by a type-tagged deterministic serializer over the action's content, so
-an approval granted for one action's exact parameters can't be silently reused
-for a different action that happens to share an id. (This fingerprinting logic
-is itself the subject of one of the fixes described in the README's Qodo
-section — the serializer's edge cases were caught and closed by re-review.)
-
-So: TrueForge stops the agent before the tool call reaches RunProof at all.
-RunProof stops itself again before that approved call turns into an executed
-change, using a mechanism the type checker enforces and a runtime identity check
-backs up. Removing either gate individually still leaves the other standing.
+**That machinery is real and unit-tested, but that's as far as it goes on
+`main`.** There is no HTTP route that calls `approveGate`, and there is no
+`executeStateChanging` function or any other code path that takes an
+`ApprovalToken` and performs a rollback. A second, token-gated enforcement
+layer built on top of this machinery exists only on an unmerged branch, not
+in this submission — **it is not implemented here.** Until it lands, the
+only thing standing between an agent and an executed `propose_rollback` is
+TrueForge's `@destructive` checkpoint above: `propose_rollback` itself
+returns a locked gate and executes nothing, full stop.
 
 ## Honesty
 

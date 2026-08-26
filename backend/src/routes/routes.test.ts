@@ -146,6 +146,35 @@ describe("approval flow", () => {
     expect(body.error.code).toBe("gate_already_decided");
   });
 
+  it("two concurrent approvals: exactly one 200, one 409, and exactly one action_executed audit entry", async () => {
+    // Reproduces the TOCTOU race: loadDecidableGate reads run.state, then
+    // several awaits later the route writes it back, with no conditional
+    // guard in between. Firing both requests via Promise.all (not awaited
+    // sequentially) lets both reach the read before either writes.
+    const gateId = await runAndGetGateId("inc-approve-race");
+
+    const [first, second] = await Promise.all([
+      post(`/approvals/${gateId}/approve`, { by: "sahil" }),
+      post(`/approvals/${gateId}/approve`, { by: "priya" })
+    ]);
+
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const winner = first.status === 200 ? first : second;
+    const winnerBody = winner.json as ApiOk<{ execution: { executed: boolean } }>;
+    expect(winnerBody.data.execution.executed).toBe(true);
+
+    const loser = first.status === 409 ? first : second;
+    const loserBody = loser.json as ApiErr;
+    expect(loserBody.error.code).toBe("gate_already_decided");
+
+    const store = createD1Store(env.DB);
+    const audit = await store.listAudit(gateId);
+    const executedEntries = audit.filter((e) => e.kind === "action_executed");
+    expect(executedEntries).toHaveLength(1);
+  });
+
   it("approving an unknown gate id returns 404 not_found", async () => {
     const { status, json } = await post("/approvals/no-such-gate/approve", { by: "sahil" });
     expect(status).toBe(404);

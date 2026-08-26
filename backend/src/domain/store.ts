@@ -1,6 +1,6 @@
 import { evidencePacketSchema, type EvidencePacket } from "./evidence";
-import type { Action } from "./action";
-import type { ApprovalGate } from "./approval";
+import { createAction, type Action } from "./action";
+import { approvalGateSchema, type ApprovalGate } from "./approval";
 
 export type RunRow = {
   id: string;
@@ -23,7 +23,12 @@ export type AuditEntry = {
 export interface Store {
   createRun(run: RunRow): Promise<void>;
   getRun(id: string): Promise<RunRow | null>;
-  updateRunState(id: string, state: RunRow["state"], at: string): Promise<void>;
+  updateRunState(
+    id: string,
+    state: RunRow["state"],
+    at: string,
+    expectedState?: RunRow["state"]
+  ): Promise<boolean>;
   savePacket(packet: EvidencePacket, runId: string): Promise<void>;
   getPacketByIncident(incidentId: string): Promise<EvidencePacket | null>;
   saveAction(action: Action, runId: string): Promise<void>;
@@ -100,11 +105,26 @@ export function createD1Store(db: D1Database): Store {
       return record === null ? null : toRunRow(record);
     },
 
-    async updateRunState(id: string, state: RunRow["state"], at: string): Promise<void> {
-      await db
-        .prepare(`UPDATE runs SET state = ?, updated_at = ? WHERE id = ?`)
-        .bind(state, at, id)
-        .run();
+    async updateRunState(
+      id: string,
+      state: RunRow["state"],
+      at: string,
+      expectedState?: RunRow["state"]
+    ): Promise<boolean> {
+      // When `expectedState` is given, the WHERE clause makes this the
+      // atomic claim that closes the approve/reject TOCTOU race: two
+      // concurrent requests both reading `awaiting_approval` will race this
+      // UPDATE, but only one row transitions (`state = 'awaiting_approval'`
+      // matches for exactly one of them), so `meta.changes` distinguishes
+      // the winner from the loser without a separate transaction.
+      const result =
+        expectedState === undefined
+          ? await db.prepare(`UPDATE runs SET state = ?, updated_at = ? WHERE id = ?`).bind(state, at, id).run()
+          : await db
+              .prepare(`UPDATE runs SET state = ?, updated_at = ? WHERE id = ? AND state = ?`)
+              .bind(state, at, id, expectedState)
+              .run();
+      return result.meta.changes === 1;
     },
 
     async savePacket(packet: EvidencePacket, runId: string): Promise<void> {
@@ -134,7 +154,12 @@ export function createD1Store(db: D1Database): Store {
     async getAction(id: string): Promise<Action | null> {
       const record = await db.prepare(`SELECT data FROM actions WHERE id = ?`).bind(id).first<JsonBodyRecord>();
       if (record === null) return null;
-      return JSON.parse(record.data) as Action;
+      // createAction re-derives isStateChanging from kind and ignores any
+      // stored value — a cast here would let a corrupted or tampered row
+      // (e.g. a persisted rollback with isStateChanging: false) resurrect a
+      // state-changing action as read-only, routing it past the approval
+      // token check entirely. See docs/CONSOLE-STATUS.md invariants.
+      return createAction(JSON.parse(record.data));
     },
 
     async saveGate(gate: ApprovalGate, runId: string): Promise<void> {
@@ -154,7 +179,11 @@ export function createD1Store(db: D1Database): Store {
     async getGate(id: string): Promise<ApprovalGate | null> {
       const record = await db.prepare(`SELECT data FROM gates WHERE id = ?`).bind(id).first<JsonBodyRecord>();
       if (record === null) return null;
-      return JSON.parse(record.data) as ApprovalGate;
+      // Validated on read like savePacket/getPacketByIncident, not cast: a
+      // corrupt expiresAt must fail loudly here rather than produce a gate
+      // that isExpired can never report as expired (Date.parse on garbage
+      // is NaN, and every comparison against NaN is false).
+      return approvalGateSchema.parse(JSON.parse(record.data));
     },
 
     async appendAudit(entry: AuditEntry): Promise<void> {

@@ -71,6 +71,16 @@ approvalRoutes.post("/approvals/:id/approve", async (c) => {
     return c.json(apiError("not_found", `No action found for gate "${id}"`), 404);
   }
 
+  // Atomic claim, before minting a token or executing anything. Two
+  // concurrent approvals can both pass loadDecidableGate's read of
+  // run.state — this conditional UPDATE is the only point that can only
+  // ever succeed for one of them (`meta.changes === 1`). The loser gets
+  // 409 here and never reaches approveGate or executeAction.
+  const claimed = await store.updateRunState(id, "approved", nowIso, "awaiting_approval");
+  if (!claimed) {
+    return c.json(apiError("gate_already_decided", `Gate "${id}" was already decided`), 409);
+  }
+
   const { gate: approvedGate, token } = approveGate(gate, {
     by,
     at: nowIso,
@@ -78,7 +88,6 @@ approvalRoutes.post("/approvals/:id/approve", async (c) => {
   });
 
   await store.saveGate(approvedGate, id);
-  await store.updateRunState(id, "approved", nowIso);
   await store.appendAudit({
     id: crypto.randomUUID(),
     runId: id,
@@ -134,10 +143,17 @@ approvalRoutes.post("/approvals/:id/reject", async (c) => {
   if (loaded instanceof Response) return loaded;
   const { gate } = loaded;
 
+  // Same atomic claim as approve, for the same reason: two concurrent
+  // decisions on the same gate (reject/reject, or reject racing approve)
+  // must not both win.
+  const claimed = await store.updateRunState(id, "rejected", nowIso, "awaiting_approval");
+  if (!claimed) {
+    return c.json(apiError("gate_already_decided", `Gate "${id}" was already decided`), 409);
+  }
+
   const rejectedGate = rejectGate(gate, { by, at: nowIso, reason });
 
   await store.saveGate(rejectedGate, id);
-  await store.updateRunState(id, "rejected", nowIso);
   await store.appendAudit({
     id: crypto.randomUUID(),
     runId: id,

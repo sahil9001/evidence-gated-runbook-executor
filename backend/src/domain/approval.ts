@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { Action } from "./action";
 
 declare const tokenBrand: unique symbol;
@@ -29,6 +30,48 @@ export type ApprovedGate = GateBase & { readonly state: "approved"; readonly dec
 export type RejectedGate = GateBase & { readonly state: "rejected"; readonly decidedBy: string; readonly decidedAt: string; readonly reason: string };
 
 export type ApprovalGate = LockedGate | ApprovedGate | RejectedGate;
+
+/**
+ * A gate's `expiresAt` decides whether it can still be decided (see
+ * `isExpired`) — a corrupted or malformed value here must fail loudly on
+ * read rather than silently produce a gate that can never expire (a
+ * `Date.parse` on garbage yields `NaN`, and `now >= NaN` is always false).
+ * Mirrors `evidencePacketSchema`: Zod-validated on both write and read.
+ */
+const isoDateString = z.string().min(1).refine((value) => !Number.isNaN(Date.parse(value)), {
+  message: "must be a valid ISO date string"
+});
+
+const gateBaseSchema = z.object({
+  id: z.string().min(1),
+  actionId: z.string().min(1),
+  createdAt: isoDateString,
+  expiresAt: isoDateString
+});
+
+const lockedGateSchema = gateBaseSchema.extend({
+  state: z.literal("locked")
+});
+
+const approvedGateSchema = gateBaseSchema.extend({
+  state: z.literal("approved"),
+  decidedBy: z.string().min(1),
+  decidedAt: isoDateString,
+  reason: z.string().min(1).optional()
+});
+
+const rejectedGateSchema = gateBaseSchema.extend({
+  state: z.literal("rejected"),
+  decidedBy: z.string().min(1),
+  decidedAt: isoDateString,
+  reason: z.string().min(1)
+});
+
+export const approvalGateSchema = z.discriminatedUnion("state", [
+  lockedGateSchema,
+  approvedGateSchema,
+  rejectedGateSchema
+]);
 
 export function createGate(input: {
   id: string; actionId: string; createdAt: string; ttlMs: number;

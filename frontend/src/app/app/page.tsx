@@ -1,27 +1,26 @@
-import { DashboardClient } from "./DashboardClient";
+import { OverviewClient } from "./OverviewClient";
 
 export const metadata = {
-  title: "RunProof - Operator Dashboard"
+  title: "RunProof - Overview"
 };
 
 /**
- * Temporary: this is still the single-seeded-incident dashboard from the
- * prior slice, now mounted inside the console shell (`app/app/layout.tsx`)
- * instead of rendering its own `<main>`/`Navbar` — those now live one level
- * up, and nesting a second `<main>` inside the shell's would be invalid.
- * Task B8 replaces this with the real Overview screen.
+ * Thin server-component wrapper around the Overview screen — mounted inside
+ * the console shell (`app/app/layout.tsx`), which already owns the
+ * `<main>`/top bar/sidebar chrome, so this page only needs to lay out its
+ * own content.
  */
-export default function DashboardPage() {
+export default function OverviewPage() {
   return (
     <div className="mx-auto max-w-[1180px] px-2 pb-10 sm:px-4">
-      <h1 className="text-2xl font-semibold text-ink sm:text-3xl">Operator dashboard</h1>
+      <h1 className="text-2xl font-semibold text-ink sm:text-3xl">Overview</h1>
       <p className="mt-2 max-w-2xl text-sm text-neutral-600">
-        Live evidence for the seeded payment-service incident. Nothing executes until you
-        approve it below.
+        What needs you right now — approvals waiting on a decision, active incidents, and recent
+        activity across runs.
       </p>
 
       <div className="mt-6">
-        <DashboardClient />
+        <OverviewClient />
       </div>
     </div>
   );

@@ -150,7 +150,14 @@ describe("MCP endpoint", () => {
       result: { tools: { name: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } }[] };
     };
     const names = body.result.tools.map((tool) => tool.name).sort();
-    expect(names).toEqual(["collect_deploys", "collect_logs", "collect_metrics", "get_runbook", "propose_rollback"]);
+    expect(names).toEqual([
+      "collect_deploys",
+      "collect_logs",
+      "collect_metrics",
+      "get_diagnostic_script",
+      "get_runbook",
+      "propose_rollback"
+    ]);
 
     const readOnlyTools = body.result.tools.filter((tool) => tool.name !== "propose_rollback");
     expect(readOnlyTools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
@@ -181,6 +188,54 @@ describe("MCP endpoint", () => {
     const cards = JSON.parse(body.result.content[0]?.text ?? "[]") as { source: string }[];
     expect(cards.length).toBeGreaterThan(0);
     expect(cards.every((card) => card.source === "logs")).toBe(true);
+  });
+
+  it("calls get_diagnostic_script and returns a runnable, deterministic script", async () => {
+    const sessionId = await initializeSession();
+    const response = await postMcp(
+      {
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: {
+          name: "get_diagnostic_script",
+          arguments: { service: "payment-service", signals: ["timeout", "error_rate"] }
+        }
+      },
+      { sessionId }
+    );
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { result: { content: { type: string; text: string }[]; isError?: boolean } };
+    expect(body.result.isError).toBeFalsy();
+    const payload = JSON.parse(body.result.content[0]?.text ?? "{}") as {
+      runbookId: string;
+      script: string;
+      expectedOutput: string;
+    };
+    expect(payload.runbookId).toBe("checkout-failure");
+    expect(payload.script).toContain("#!/usr/bin/env python3");
+    expect(payload.expectedOutput.length).toBeGreaterThan(0);
+  });
+
+  it("refuses get_diagnostic_script with an MCP error when no runbook matches", async () => {
+    const sessionId = await initializeSession();
+    const response = await postMcp(
+      {
+        jsonrpc: "2.0",
+        id: 6,
+        method: "tools/call",
+        params: {
+          name: "get_diagnostic_script",
+          arguments: { service: "totally-unknown-service", signals: ["nope"] }
+        }
+      },
+      { sessionId }
+    );
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { result: { content: { type: string; text: string }[]; isError?: boolean } };
+    expect(body.result.isError).toBe(true);
   });
 
   it("calls propose_rollback and confirms nothing was executed", async () => {

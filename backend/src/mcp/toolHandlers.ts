@@ -18,19 +18,30 @@ const systemNow = (): string => new Date().toISOString();
 export type CollectArgs = { incidentId: string; service: string; signals: string[] };
 
 /**
+ * The subset of args every scope check actually needs. `CollectArgs` (which
+ * also carries `incidentId`, unused by `authorizeSource` itself) and
+ * `GetDiagnosticScriptArgs` (which is exactly this shape) are both
+ * structurally assignable to it, so `authorizeSource` serves both without
+ * widening what it depends on.
+ */
+type ScopeCheckArgs = { service: string; signals: string[] };
+
+/**
  * Enforces RunProof's central safety property at the MCP boundary: a
- * collector may run only once the caller's service+signals resolve to a
- * runbook that authorizes `source`. Every collect_* handler routes through
- * this one function — deliberately not duplicated per handler — so there is
- * exactly one place that can drift from `matchRunbook`, the same matcher
- * `get_runbook` uses to decide what an agent is even allowed to see.
+ * collector — or, via `handleGetDiagnosticScript`, the diagnostic-script
+ * handoff — may run only once the caller's service+signals resolve to a
+ * runbook that authorizes `source`. Every collect_* handler and
+ * `handleGetDiagnosticScript` route through this one function —
+ * deliberately not duplicated per handler — so there is exactly one place
+ * that can drift from `matchRunbook`, the same matcher `get_runbook` uses to
+ * decide what an agent is even allowed to see.
  *
  * Throwing here (rather than returning an empty result) is deliberate: the
  * MCP SDK converts a thrown error into a `{ isError: true }` tool result
  * naming exactly what was refused, so a calling agent can act on it instead
  * of misreading an empty array as "no evidence found".
  */
-function authorizeSource(args: CollectArgs, source: EvidenceSourceKind): Runbook {
+function authorizeSource(args: ScopeCheckArgs, source: EvidenceSourceKind): Runbook {
   const runbook = matchRunbook(ALL_RUNBOOKS, { service: args.service, signals: args.signals });
   if (!runbook) {
     throw new Error(
@@ -75,6 +86,43 @@ export type GetRunbookResult = { matched: false } | { matched: true; runbook: Ru
 export function handleGetRunbook(args: GetRunbookArgs): GetRunbookResult {
   const runbook = matchRunbook(ALL_RUNBOOKS, { service: args.service, signals: args.signals });
   return runbook ? { matched: true, runbook } : { matched: false };
+}
+
+export type GetDiagnosticScriptArgs = { service: string; signals: string[] };
+export type GetDiagnosticScriptResult = {
+  runbookId: string;
+  description: string;
+  script: string;
+  expectedOutput: string;
+};
+
+/**
+ * Hands back the diagnostic script a matched runbook authorizes running —
+ * RunProof does not execute it. TrueForge owns the sandbox (local fallback
+ * or a configured provider like Daytona); the calling agent is expected to
+ * take this script and run it there, then interpret stdout against
+ * `expectedOutput`. Scope is enforced through the exact same
+ * `authorizeSource` check every collect_* handler uses, with `"sandbox"` as
+ * the guarded source: a runbook that doesn't list `sandbox` in
+ * `allowedSources` refuses this the same way it refuses an unauthorized
+ * collector, and a runbook with no `diagnostic` authored refuses too rather
+ * than returning nothing useful. Read-only: returning text is not itself
+ * destructive (see `readOnlyHint: true` on this tool in `server.ts`).
+ */
+export function handleGetDiagnosticScript(args: GetDiagnosticScriptArgs): GetDiagnosticScriptResult {
+  const runbook = authorizeSource(args, "sandbox");
+  if (!runbook.diagnostic) {
+    throw new Error(
+      `Runbook "${runbook.id}" authorizes the "sandbox" source but has no diagnostic script defined. ` +
+        `Refusing to fabricate one.`
+    );
+  }
+  return {
+    runbookId: runbook.id,
+    description: runbook.diagnostic.description,
+    script: runbook.diagnostic.script,
+    expectedOutput: runbook.diagnostic.expectedOutput
+  };
 }
 
 export type ProposeRollbackArgs = { service: string; commit: string; reason: string };

@@ -4,6 +4,7 @@ import {
   handleCollectDeploys,
   handleCollectLogs,
   handleCollectMetrics,
+  handleGetDiagnosticScript,
   handleGetRunbook,
   handleProposeRollback
 } from "./toolHandlers";
@@ -30,10 +31,15 @@ const collectArgsShape = {
  * handler underneath is already stateless (fixture-backed collectors, pure
  * domain functions), so there is nothing worth keeping alive between calls.
  *
- * Read-only tools (`collect_*`, `get_runbook`) are annotated
- * `readOnlyHint: true` so TrueForge's default
+ * Read-only tools (`collect_*`, `get_runbook`, `get_diagnostic_script`) are
+ * annotated `readOnlyHint: true` so TrueForge's default
  * `require_approval_for_tools: ["@write", "@destructive"]` does not stop
  * for them — this is the "reaching a tool" half of the demo.
+ * `get_diagnostic_script` in particular only hands back text; TrueForge's
+ * own sandbox (local fallback or a configured provider) is what actually
+ * runs it once the calling agent takes that script and executes it there —
+ * this is the "running code in the sandbox" half. RunProof does not
+ * reimplement a sandbox of its own.
  *
  * `propose_rollback` is annotated `readOnlyHint: false, destructiveHint:
  * true` so TrueForge's `@destructive` selector (and its default `@write`
@@ -101,6 +107,25 @@ export function createRunProofMcpServer(): McpServer {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     (args) => textResult(handleGetRunbook(args))
+  );
+
+  server.registerTool(
+    "get_diagnostic_script",
+    {
+      title: "Get diagnostic script",
+      description:
+        "Return the diagnostic script a matched runbook authorizes running, plus a description of what " +
+        "it checks and what its output means, so the calling agent can execute it in TrueForge's own " +
+        "sandbox (RunProof never runs it) and interpret the result. Refuses with an error if no runbook " +
+        "matches the given service/signals, if the matched runbook's allowedSources does not include " +
+        "sandbox, or if the matched runbook has no diagnostic authored.",
+      inputSchema: {
+        service: z.string().min(1).describe("The service the incident is about"),
+        signals: z.array(z.string().min(1)).describe("Signals observed for this incident, e.g. ['timeout', 'error_rate']")
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    (args) => textResult(handleGetDiagnosticScript(args))
   );
 
   server.registerTool(

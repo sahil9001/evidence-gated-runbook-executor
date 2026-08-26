@@ -11,6 +11,18 @@ RunProof supplies the tools plus its own independent domain-level approval gate
 Start your local TrueForge instance (this was verified against v0.1.4 on
 `http://localhost:8790`; local sandbox fallback, no Daytona account required).
 
+### About the sandbox
+
+`GET /api/v1/settings/sandbox-providers` reports no provider configured, and the only
+type in its catalog (`daytona`) needs an account — but that isn't a blocker. TrueForge
+logs `Local sandbox fallback is available {"platform":"darwin","shell":"...",
+"python":"...3.14"}` at startup: with no provider configured, it runs sandboxed code
+locally instead. RunProof relies on exactly that fallback — Daytona stays optional.
+
+RunProof does not implement a sandbox itself. Its `get_diagnostic_script` tool (see
+step 3 below) only returns script text; TrueForge's own sandbox — local fallback or a
+configured provider — is what actually executes it.
+
 ## 2. Start the RunProof backend
 
 ```bash
@@ -53,16 +65,35 @@ discovered the tools. Override `TRUEFORGE_URL`, `RUNPROOF_MCP_URL`, or
 
 ## What a judge should expect to see
 
-1. **Tool discovery** — `GET /api/v1/mcp-servers/runproof/tools` lists 5 tools:
-   `collect_logs`, `collect_metrics`, `collect_deploys`, `get_runbook` (all
-   `readOnlyHint: true`), and `propose_rollback` (`readOnlyHint: false,
-   destructiveHint: true`).
+1. **Tool discovery** — `GET /api/v1/mcp-servers/runproof/tools` lists 6 tools:
+   `collect_logs`, `collect_metrics`, `collect_deploys`, `get_runbook`,
+   `get_diagnostic_script` (all `readOnlyHint: true`), and `propose_rollback`
+   (`readOnlyHint: false, destructiveHint: true`).
 2. **Reaching a tool, no approval needed** — attach `runproof` to an agent
    (`AgentSpec.mcp_servers: [{ name: "runproof" }]`) and have it call `get_runbook`
    or `collect_logs`. These run immediately: TrueForge's default
    `require_approval_for_tools: ["@write", "@destructive"]` doesn't gate read-only
    tools.
-3. **Stopping for a person** — have the agent call `propose_rollback`. Because it's
+3. **Running code in the sandbox** — have the agent call `get_diagnostic_script` with
+   `{ service: "payment-service", signals: ["timeout", "error_rate"] }`. RunProof
+   matches the `checkout-failure` runbook and returns its diagnostic: a self-contained
+   Python script (stdlib only, no imports beyond `re`) plus a description of what it
+   checks and what its output means. The agent then runs that script in TrueForge's
+   sandbox. Expected stdout, every run, identical:
+   ```
+   timeout_ms=3000
+   failed_requests=47
+   likely_commit=8f31c2b
+   recommendation=rollback
+   ```
+   This is deterministic because the script analyses a fixed snapshot of
+   `testing/fixtures/checkout-incident/{logs,deploys}.json`, not live data — a judge
+   can pull the same `script` text out of `get_diagnostic_script`'s result and run it
+   locally under plain `python3` to see the identical numbers. Calling
+   `get_diagnostic_script` for a service/signal pair with no runbook match, or one
+   whose runbook doesn't authorize the `sandbox` source, refuses with an MCP error
+   instead of returning a script — the same scope check `collect_*` enforces.
+4. **Stopping for a person** — have the agent call `propose_rollback`. Because it's
    annotated destructive, TrueForge emits a `ToolApprovalRequiredEvent` and pauses
    the turn until a human sends an `ApprovalDecision` (`allow`/`deny`) via
    `UserToolApprovalEvent`. Only after an explicit `allow` does RunProof's handler

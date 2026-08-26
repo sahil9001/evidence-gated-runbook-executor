@@ -16,9 +16,25 @@ const NARROW_SCOPE_RUNBOOK: Runbook = {
   }
 };
 
+const SANDBOX_NO_DIAGNOSTIC_RUNBOOK: Runbook = {
+  id: "sandbox-no-diagnostic-test-runbook",
+  title: "Sandbox-authorized but no diagnostic authored yet",
+  trigger: { service: "no-diagnostic-service", signals: ["timeout"] },
+  allowedSources: ["sandbox"],
+  steps: [{ id: "step-1", label: "step", detail: "sandbox is authorized, but no diagnostic script exists" }],
+  proposedAction: {
+    kind: "rollback",
+    target: "no-diagnostic-service",
+    params: {},
+    reversible: true,
+    description: "n/a"
+  }
+  // deliberately no `diagnostic` field
+};
+
 vi.mock("./runbooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./runbooks")>();
-  return { ALL_RUNBOOKS: [...actual.ALL_RUNBOOKS, NARROW_SCOPE_RUNBOOK] };
+  return { ALL_RUNBOOKS: [...actual.ALL_RUNBOOKS, NARROW_SCOPE_RUNBOOK, SANDBOX_NO_DIAGNOSTIC_RUNBOOK] };
 });
 
 vi.mock("./logs", async (importOriginal) => {
@@ -41,6 +57,7 @@ const {
   handleCollectMetrics,
   handleCollectDeploys,
   handleGetRunbook,
+  handleGetDiagnosticScript,
   handleProposeRollback
 } = await import("./toolHandlers");
 const { createLogSource } = await import("./logs");
@@ -139,7 +156,7 @@ describe("handleGetRunbook", () => {
     expect(result.matched).toBe(true);
     if (!result.matched) throw new Error("expected a match");
     expect(result.runbook.id).toBe("checkout-failure");
-    expect(result.runbook.allowedSources).toEqual(["logs", "metrics", "deploys"]);
+    expect(result.runbook.allowedSources).toEqual(["logs", "metrics", "deploys", "sandbox"]);
     expect(result.runbook.proposedAction.kind).toBe("rollback");
   });
 
@@ -151,6 +168,41 @@ describe("handleGetRunbook", () => {
   it("reports no match when signals share nothing with any runbook's trigger", () => {
     const result = handleGetRunbook({ service: "payment-service", signals: ["unrelated_signal"] });
     expect(result).toEqual({ matched: false });
+  });
+});
+
+describe("handleGetDiagnosticScript", () => {
+  it("returns the matched runbook's diagnostic script, description, and expected output", () => {
+    const result = handleGetDiagnosticScript({ service: "payment-service", signals: ["timeout", "error_rate"] });
+    expect(result.runbookId).toBe("checkout-failure");
+    expect(result.script).toContain("timeout_ms=");
+    expect(result.description.length).toBeGreaterThan(0);
+    expect(result.expectedOutput.length).toBeGreaterThan(0);
+  });
+
+  it("returns a script that is deterministic Python with no third-party imports", () => {
+    const result = handleGetDiagnosticScript({ service: "payment-service", signals: ["timeout", "error_rate"] });
+    expect(result.script).toMatch(/^#!\/usr\/bin\/env python3/);
+    expect(result.script).toContain("import re");
+    expect(result.script).not.toMatch(/^\s*import\s+(?!re\b)\w+/m);
+  });
+
+  it("refuses and does not return a script when no runbook matches", () => {
+    expect(() =>
+      handleGetDiagnosticScript({ service: "totally-unknown-service", signals: ["nope"] })
+    ).toThrow(/No runbook matches/);
+  });
+
+  it("refuses when the matched runbook does not authorize the sandbox source", () => {
+    expect(() =>
+      handleGetDiagnosticScript({ service: "narrow-scope-service", signals: ["timeout"] })
+    ).toThrow(/does not authorize the "sandbox" source/);
+  });
+
+  it("refuses when the matched runbook authorizes sandbox but has no diagnostic authored", () => {
+    expect(() =>
+      handleGetDiagnosticScript({ service: "no-diagnostic-service", signals: ["timeout"] })
+    ).toThrow(/no diagnostic script/i);
   });
 });
 

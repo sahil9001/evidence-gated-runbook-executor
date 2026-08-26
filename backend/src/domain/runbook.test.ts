@@ -136,6 +136,147 @@ describe("loadRunbook", () => {
       })
     ).not.toThrow();
   });
+
+  it("loads a runbook with no diagnostic field, since diagnostic is optional", () => {
+    const input = validRunbook() as { diagnostic?: unknown };
+    expect(input.diagnostic).toBeUndefined();
+    const runbook = loadRunbook(input);
+    expect(runbook.diagnostic).toBeUndefined();
+  });
+
+  it("loads a runbook whose diagnostic field round-trips script, description, and expectedOutput", () => {
+    const input = validRunbook() as { diagnostic?: unknown };
+    input.diagnostic = {
+      description: "Reproduces the timeout in isolation and reports the likely bad commit.",
+      script: "print('timeout_ms=3000')",
+      expectedOutput: "timeout_ms=<int> / failed_requests=<int> / likely_commit=<sha> / recommendation=<rollback|none>"
+    };
+    const runbook = loadRunbook(input);
+    expect(runbook.diagnostic).toEqual(input.diagnostic);
+  });
+
+  it("throws RunbookValidationError naming diagnostic.script when script is empty", () => {
+    const input = validRunbook() as { diagnostic?: { description: string; script: string; expectedOutput: string } };
+    input.diagnostic = { description: "checks something", script: "", expectedOutput: "some output" };
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("diagnostic.script");
+    }
+  });
+
+  it("throws RunbookValidationError naming diagnostic.script when script is whitespace-only", () => {
+    const input = validRunbook() as { diagnostic?: { description: string; script: string; expectedOutput: string } };
+    input.diagnostic = { description: "checks something", script: "   ", expectedOutput: "some output" };
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("diagnostic.script");
+    }
+  });
+
+  it("throws RunbookValidationError naming diagnostic.description when description is whitespace-only", () => {
+    const input = validRunbook() as { diagnostic?: { description: string; script: string; expectedOutput: string } };
+    input.diagnostic = { description: "\t\n", script: "print(1)", expectedOutput: "some output" };
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("diagnostic.description");
+    }
+  });
+
+  it("throws RunbookValidationError naming diagnostic.expectedOutput when expectedOutput is whitespace-only", () => {
+    const input = validRunbook() as { diagnostic?: { description: string; script: string; expectedOutput: string } };
+    input.diagnostic = { description: "checks something", script: "print(1)", expectedOutput: "  \n " };
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("diagnostic.expectedOutput");
+    }
+  });
+
+  it("throws RunbookValidationError naming title when title is whitespace-only", () => {
+    const input = validRunbook() as { title: string };
+    input.title = "   ";
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("title");
+    }
+  });
+
+  it("throws RunbookValidationError naming steps.0.label when a step label is whitespace-only", () => {
+    const input = validRunbook() as { steps: Array<{ label: string }> };
+    const firstStep = input.steps[0];
+    if (!firstStep) throw new Error("expected fixture to have a first step");
+    firstStep.label = "   ";
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("steps.0.label");
+    }
+  });
+
+  it("throws RunbookValidationError naming id when the runbook id is whitespace-only", () => {
+    const input = validRunbook() as { id: string };
+    input.id = "   ";
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("id");
+    }
+  });
+
+  it("throws RunbookValidationError naming proposedAction.target when target is whitespace-only", () => {
+    const input = validRunbook() as { proposedAction: { target: string } };
+    input.proposedAction.target = "   ";
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("proposedAction.target");
+    }
+  });
+
+  it("loads the shipped checkout-failure runbook's diagnostic and authorizes the sandbox source", () => {
+    const runbook = loadRunbook(checkoutFailureRaw);
+    expect(runbook.allowedSources).toContain("sandbox");
+    expect(runbook.diagnostic).toBeDefined();
+    expect(runbook.diagnostic?.script).toContain("timeout_ms=");
+    expect(runbook.diagnostic?.description.length).toBeGreaterThan(0);
+    expect(runbook.diagnostic?.expectedOutput.length).toBeGreaterThan(0);
+  });
 });
 
 describe("matchRunbook", () => {
@@ -252,7 +393,7 @@ describe("checkout-failure.json", () => {
 
     expect(runbook.trigger.service).toBe("payment-service");
     expect(runbook.trigger.signals).toEqual(expect.arrayContaining(["timeout", "error_rate"]));
-    expect(runbook.allowedSources).toEqual(["logs", "metrics", "deploys"]);
+    expect(runbook.allowedSources).toEqual(["logs", "metrics", "deploys", "sandbox"]);
     expect(runbook.steps.map((step) => step.label)).toEqual([
       "Alert received",
       "Evidence gathered",

@@ -25,7 +25,7 @@
 | B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | ✅ done | impl-b4 | 206/206 (167 baseline + 39 new: 6 password + 9 session + 4 middleware + 20 auth routes); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers users/sessions) |
 | B5 | Incidents entity + listing APIs | 1 | B4 | ✅ done | impl-b5 | 240/240 (206 baseline + 34 new); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers incidents/created_by) |
 | B6 | Frontend auth pages + route guard | 2 | B4 | 🔨 in progress | impl-b6 | — |
-| B7 | App shell — sidebar + top bar | 2 | B6 | ⬜ not started | — | — |
+| B7 | App shell — sidebar + top bar | 2 | B6 | 🔨 in progress | impl-b7 | — |
 | B8 | Overview screen | 3 | B5, B7 | ⬜ not started | — | — |
 | B9 | Incidents list + create flow | 3 | B8 | ⬜ not started | — | — |
 | B10 | Run detail with 4 tabs | 3 | B9 | ⬜ not started | — | — |

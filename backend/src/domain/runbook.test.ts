@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { loadRunbook, matchRunbook, RunbookValidationError, type Runbook } from "./runbook";
+import { createAction } from "./action";
 import checkoutFailureRaw from "../../../testing/runbooks/checkout-failure.json";
 
 const validRunbook = (): unknown => ({
@@ -102,6 +103,38 @@ describe("loadRunbook", () => {
       const message = (error as RunbookValidationError).message;
       expect(message).toContain("allowedSources");
     }
+  });
+
+  it("throws RunbookValidationError naming proposedAction.params when params contain a non-finite number", () => {
+    const input = validRunbook() as { proposedAction: { params: Record<string, unknown> } };
+    input.proposedAction.params = { retries: Infinity };
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("proposedAction.params");
+    }
+  });
+
+  it("loads a runbook whose proposedAction.params are valid JSON-safe values", () => {
+    const input = validRunbook() as { proposedAction: { params: Record<string, unknown> } };
+    input.proposedAction.params = { commit: "8f31c2b", attempt: 2, forced: true, note: null, tags: ["a", "b"] };
+
+    const runbook = loadRunbook(input);
+    expect(runbook.proposedAction.params).toEqual(input.proposedAction.params);
+  });
+
+  it("never lets createAction throw on the proposedAction of a runbook that already passed loadRunbook", () => {
+    const runbook = loadRunbook(checkoutFailureRaw);
+    expect(() =>
+      createAction({
+        id: `${runbook.id}-proposed-action`,
+        ...runbook.proposedAction
+      })
+    ).not.toThrow();
   });
 });
 

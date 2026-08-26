@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { evidenceSourceKindSchema } from "./evidence";
-import { actionKindSchema } from "./action";
+import { actionKindSchema, jsonValueSchema } from "./action";
 
 export const runbookStepSchema = z.object({
   id: z.string().min(1),
@@ -13,7 +13,7 @@ export type RunbookStep = z.infer<typeof runbookStepSchema>;
 export const runbookActionSchema = z.object({
   kind: actionKindSchema,
   target: z.string().min(1),
-  params: z.record(z.string(), z.unknown()),
+  params: z.record(z.string(), jsonValueSchema),
   reversible: z.boolean(),
   description: z.string().min(1)
 });

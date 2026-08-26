@@ -23,7 +23,7 @@
 | B2 | Surface `failures` (I1), server evidence gate (I3), error mapping (I2) | 0 | B1 | ✅ done | impl-b2 | 122/122 (117 baseline + 5 new); RED confirmed by stashing source fixes only |
 | B3 | Store seam + memory adapter + conformance suite | 1 | B1 | ✅ done | impl-b3 | 167/167 (122 baseline − 15 moved + 58 conformance ×2-adapters + 2 D1-only); typecheck clean; `db:migrate` applied 0002 cleanly (9 commands) |
 | B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | ✅ done | impl-b4 | 206/206 (167 baseline + 39 new: 6 password + 9 session + 4 middleware + 20 auth routes); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers users/sessions) |
-| B5 | Incidents entity + listing APIs | 1 | B4 | 🔨 in progress | impl-b5 | — |
+| B5 | Incidents entity + listing APIs | 1 | B4 | ✅ done | impl-b5 | 240/240 (206 baseline + 34 new); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers incidents/created_by) |
 | B6 | Frontend auth pages + route guard | 2 | B4 | ⬜ not started | — | — |
 | B7 | App shell — sidebar + top bar | 2 | B6 | ⬜ not started | — | — |
 | B8 | Overview screen | 3 | B5, B7 | ⬜ not started | — | — |
@@ -32,7 +32,7 @@
 | B11 | Runbooks, History, Audit screens | 3 | B10 | ⬜ not started | — | — |
 | B12 | End-to-end verification + docs | 4 | B11 | ⬜ not started | — | — |
 
-**Progress: 4 / 12.**
+**Progress: 5 / 12.**
 
 ## Invariants — do not "fix" these
 
@@ -47,6 +47,18 @@
 | Domain layer is pure | No `Date.now()` inside; clocks inject at the route boundary |
 
 ## Handoff Log
+
+### 2026-08-26 — impl-b5 — B5 done
+
+Five new route files, all authenticated: `routes/incidents.ts` (`GET /incidents` with `?status=`, `POST /incidents` — `createdBy` from `c.var.user.email`, never the body, `GET /incidents/:id` with its runs, 404 `not_found`), `routes/runs.ts` (`GET /runs` — `?state=` validated, `?limit=` default 25 capped at 50; `GET /runs/:id` — the full tabbed-screen payload, see below), `routes/runbooks.ts` (`GET /runbooks`, `GET /runbooks/:id`, serving `RUNBOOKS` exported from `run.ts` rather than a second copy), `routes/audit.ts` (`GET /audit?runId=` via existing `listAudit`; `GET /audit` via new `Store.listRecentAudit`, `?limit=` default 50 capped at 100), `routes/overview.ts` (`GET /overview` → `{ awaitingApproval, activeIncidents, runsToday, recentActivity }`). `index.ts` gained `requireAuth` on `/runbooks/*` and `/overview/*` (the other four prefixes already existed).
+
+`POST /incidents/:id/run` (`run.ts`) now 404s `not_found` for an incident id with no row, checked right after body-parsing and before `matchRunbook`; sets `createdBy` from the session; Hono generic moved `{ Bindings: Env }` → `AuthedEnv` (mirrors `approvals.ts`). Execution-free contract (no `execution` field) untouched. This broke every existing test hitting that endpoint with a synthetic incident id — fixed with an idempotent `ensureIncident()` helper in `routes.test.ts`, called from every such test (including inside the shared `runAndGetGateId`), plus `requireAuth` + a cookie added to the one test that builds its own bare `Hono` app.
+
+`Store` gained `listRecentAudit(limit)` (both adapters, conformance-covered — see the doc comment there about timestamp non-collision with other fixtures). `RunRow.createdBy: string | null` is a field addition to an existing type (the D1 column existed since B3's migration 0002 but nothing read/wrote it yet) — same both-adapters-plus-conformance discipline. `domain/evidence.ts` gained a pure `missingSources(packet, allowedSources)` used to reconstruct `GET /runs/:id`'s `failures` field: B2's per-source collection failures are only available transiently at run-creation time (never persisted structurally), so the detail endpoint infers the same *shape* of gap from the packet itself (an allowed source with zero cards) rather than the original collector error text.
+
+No new migration: B3's `0002_auth_and_incidents.sql` already created `incidents` and `runs.created_by` (the plan doc's `0003_incidents.sql` reference predates B3 landing ahead of schedule).
+
+Backend 240/240 (206 baseline + 34 new), typecheck clean, `db:migrate` — no migrations to apply. Full report: `.superpowers/sdd/2026-08-26-operator-console/task-b5-report.md`. Next agent: B6 (frontend auth pages + route guard) — no backend blocker beyond what B4 already shipped.
 
 ### 2026-08-26 — impl-b4 — B4 done
 

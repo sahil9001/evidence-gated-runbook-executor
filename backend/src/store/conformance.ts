@@ -15,6 +15,7 @@ const makeRun = (id: string, overrides: Partial<RunRow> = {}): RunRow => ({
   state: "collecting",
   createdAt: T0,
   updatedAt: T0,
+  createdBy: "sahil@example.com",
   ...overrides
 });
 
@@ -127,6 +128,12 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       it("conditional updateRunState loses against a nonexistent run", async () => {
         const lost = await store.updateRunState("run-does-not-exist", "approved", T5, "awaiting_approval");
         expect(lost).toBe(false);
+      });
+
+      it("supports a null createdBy for an unattributed run", async () => {
+        const run = makeRun("run-created-by-null", { createdBy: null });
+        await store.createRun(run);
+        expect((await store.getRun("run-created-by-null"))?.createdBy).toBeNull();
       });
     });
 
@@ -288,6 +295,31 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
 
         const loaded = await store.listAudit(run.id);
         expect(loaded.map((e) => e.id)).toEqual(["audit-run8-a", "audit-run8-b", "audit-run8-c"]);
+      });
+    });
+
+    describe("listRecentAudit", () => {
+      it("returns the most recent entries across every run, newest first, capped at limit", async () => {
+        const run = makeRun("run-recent-audit-1", { incidentId: "inc-recent-audit" });
+        await store.createRun(run);
+        const other = makeRun("run-recent-audit-2", { incidentId: "inc-recent-audit" });
+        await store.createRun(other);
+
+        // Timestamps are deliberately far later than every other test's
+        // audit fixtures in this suite (all 2026-08-25T02:xx/07:xx) so this
+        // test's `limit`-based slice can't accidentally include one of
+        // theirs and vice versa.
+        const entries: AuditEntry[] = [
+          { id: "audit-recent-a", runId: run.id, at: "2026-08-25T09:00:00.000Z", kind: "run_created", detail: "a" },
+          { id: "audit-recent-b", runId: other.id, at: "2026-08-25T09:05:00.000Z", kind: "run_created", detail: "b" },
+          { id: "audit-recent-c", runId: run.id, at: "2026-08-25T09:10:00.000Z", kind: "gate_approved", detail: "c" }
+        ];
+        for (const entry of entries) {
+          await store.appendAudit(entry);
+        }
+
+        const loaded = await store.listRecentAudit(2);
+        expect(loaded.map((e) => e.id)).toEqual(["audit-recent-c", "audit-recent-b"]);
       });
     });
 

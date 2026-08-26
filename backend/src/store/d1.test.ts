@@ -19,7 +19,8 @@ const makeRun = (id: string): RunRow => ({
   service: "payment-service",
   state: "collecting",
   createdAt: T0,
-  updatedAt: T0
+  updatedAt: T0,
+  createdBy: "sahil@example.com"
 });
 
 /**

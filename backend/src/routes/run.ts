@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { apiError, type Env } from "../index";
+import { apiError } from "../index";
 import { parseJsonBody } from "./http";
 import { loadRunbook, matchRunbook } from "../domain/runbook";
 import { collectEvidence, ScopeViolationError } from "../domain/packet-builder";
@@ -8,14 +8,17 @@ import { createAction } from "../domain/action";
 import { createGate } from "../domain/approval";
 import { createD1Store } from "../store/d1";
 import { ALL_SOURCES, type EvidenceSource } from "../mcp";
+import type { AuthedEnv } from "../auth/middleware";
 import checkoutFailureRaw from "../../../testing/runbooks/checkout-failure.json";
 
 /**
  * This vertical slice ships exactly one runbook. A real deployment would
  * load every file under `testing/runbooks` (or a real runbook store); the
- * `matchRunbook` contract is unchanged either way.
+ * `matchRunbook` contract is unchanged either way. Exported so
+ * `routes/runbooks.ts` (B5) can list/serve the same bundle without a second
+ * source of truth.
  */
-const RUNBOOKS = [loadRunbook(checkoutFailureRaw)];
+export const RUNBOOKS = [loadRunbook(checkoutFailureRaw)];
 
 /**
  * No TTL was specified for the route layer by the brief. 15 minutes matches
@@ -34,14 +37,24 @@ const runBodySchema = z.object({
  * reaching into module-level state. Production wiring (`runRoutes` below,
  * mounted by index.ts) always uses the default `ALL_SOURCES`.
  */
-export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES): Hono<{ Bindings: Env }> {
-  const routes = new Hono<{ Bindings: Env }>();
+export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES): Hono<AuthedEnv> {
+  const routes = new Hono<AuthedEnv>();
 
   routes.post("/incidents/:id/run", async (c) => {
     const parsed = await parseJsonBody(c, runBodySchema);
     if (!parsed.success) return parsed.response;
     const { service, signals } = parsed.data;
     const incidentId = c.req.param("id");
+
+    const store = createD1Store(c.env.DB);
+
+    // B5: incidents are a real, listable entity now, not just a string a
+    // caller could invent. A run against one that was never created (via
+    // POST /incidents) is refused before any evidence is collected.
+    const incident = await store.getIncident(incidentId);
+    if (incident === null) {
+      return c.json(apiError("not_found", `No incident found for id "${incidentId}"`), 404);
+    }
 
     const runbook = matchRunbook(RUNBOOKS, { service, signals });
     if (runbook === null) {
@@ -59,7 +72,6 @@ export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES
     const now = (): string => new Date().toISOString();
     const nowIso = now();
 
-    const store = createD1Store(c.env.DB);
     const runId = crypto.randomUUID();
 
     let collected: Awaited<ReturnType<typeof collectEvidence>>;
@@ -103,7 +115,10 @@ export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES
       service,
       state: "awaiting_approval",
       createdAt: nowIso,
-      updatedAt: nowIso
+      updatedAt: nowIso,
+      // From the session requireAuth resolved, never client-suppliable —
+      // same discipline as approvals' `by` (B4).
+      createdBy: c.var.user.email
     });
     await store.savePacket(packet, runId);
     await store.saveAction(action, runId);

@@ -1,13 +1,14 @@
 import { env, applyD1Migrations, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { Hono } from "hono";
 import { beforeAll, describe, it, expect } from "vitest";
-import app, { type Env } from "../index";
+import app from "../index";
 import { createD1Store } from "../store/d1";
 import { createGate } from "../domain/approval";
 import { createAction } from "../domain/action";
 import { buildPacket } from "../domain/evidence";
 import { createRunRoutes } from "./run";
 import { createLogSource, createMetricSource, createDeploySource } from "../mcp";
+import { requireAuth, type AuthedEnv } from "../auth/middleware";
 
 /**
  * Registers a fresh operator and returns its session cookie (the
@@ -30,6 +31,28 @@ async function registerAndGetCookie(email: string): Promise<string> {
   const cookiePair = setCookie.split(";")[0];
   if (cookiePair === undefined) throw new Error("registerAndGetCookie: malformed Set-Cookie header");
   return cookiePair;
+}
+
+/**
+ * B5 made `/incidents/:id/run` 404 for an incident id that isn't a real
+ * row (previously any string worked). Every test below that exercises the
+ * run endpoint now needs a real incident first; this creates one only if it
+ * doesn't already exist, so it's safe to call more than once for the same
+ * id (e.g. via `runAndGetGateId`, whose callers reuse incident ids freely).
+ */
+async function ensureIncident(id: string): Promise<void> {
+  const store = createD1Store(env.DB);
+  const existing = await store.getIncident(id);
+  if (existing !== null) return;
+  await store.createIncident({
+    id,
+    title: `Test incident ${id}`,
+    service: "payment-service",
+    signals: ["timeout", "error_rate"],
+    status: "open",
+    createdBy: "routes-test-operator@example.com",
+    createdAt: new Date().toISOString()
+  });
 }
 
 let authCookie = "";
@@ -66,6 +89,7 @@ const runBody = { service: "payment-service", signals: ["timeout", "error_rate"]
 
 describe("POST /incidents/:id/run", () => {
   it("collects evidence, creates a LOCKED gate, and executes nothing", async () => {
+    await ensureIncident("inc-happy");
     const { status, json } = await post("/incidents/inc-happy/run", runBody);
     expect(status).toBe(200);
     const body = json as ApiOk<{
@@ -82,6 +106,7 @@ describe("POST /incidents/:id/run", () => {
   });
 
   it("does not execute anything on the run endpoint (explicit check)", async () => {
+    await ensureIncident("inc-no-exec");
     const { json } = await post("/incidents/inc-no-exec/run", runBody);
     const body = json as ApiOk<{ gate: { state: string } }>;
     expect(body.data.gate.state).toBe("locked");
@@ -89,6 +114,7 @@ describe("POST /incidents/:id/run", () => {
   });
 
   it("returns 404 no_matching_runbook when the incident matches no runbook", async () => {
+    await ensureIncident("inc-nomatch");
     const { status, json } = await post("/incidents/inc-nomatch/run", {
       service: "unknown-service",
       signals: ["timeout"]
@@ -121,14 +147,20 @@ describe("POST /incidents/:id/run — evidence honesty (I1)", () => {
   // is fed a malformed fixture (the reviewer's own reproduction scenario),
   // while logs and deploys still succeed, so the packet is real but partial.
   it("names the failed source in the response and records one evidence_partial audit entry", async () => {
+    await ensureIncident("inc-i1-partial");
     const failingMetrics = createMetricSource([{ id: "bad", value: "not-a-number" }]);
-    const testApp = new Hono<{ Bindings: Env }>();
+    // This test's app is built directly from createRunRoutes rather than the
+    // shared `app`, so requireAuth (mounted centrally in index.ts) has to be
+    // added here too — otherwise `c.var.user` is never set and the route's
+    // `createdBy: c.var.user.email` throws.
+    const testApp = new Hono<AuthedEnv>();
+    testApp.use("*", requireAuth);
     testApp.route("/", createRunRoutes([createLogSource(), failingMetrics, createDeploySource()]));
 
     const request = new Request("http://localhost/incidents/inc-i1-partial/run", {
       method: "POST",
       body: JSON.stringify(runBody),
-      headers: { "content-type": "application/json" }
+      headers: { "content-type": "application/json", cookie: authCookie }
     });
     const ctx = createExecutionContext();
     const response = await testApp.fetch(request, env, ctx);
@@ -157,6 +189,7 @@ describe("POST /incidents/:id/run — evidence honesty (I1)", () => {
 
   it("emits no evidence_partial entry when every source succeeds", async () => {
     const incidentId = "inc-i1-complete";
+    await ensureIncident(incidentId);
     const { json } = await post(`/incidents/${incidentId}/run`, runBody);
     const body = json as ApiOk<{ run: { id: string }; failures: unknown[] }>;
     expect(body.data.failures).toEqual([]);
@@ -170,6 +203,7 @@ describe("POST /incidents/:id/run — evidence honesty (I1)", () => {
 describe("GET /incidents/:id/packet", () => {
   it("returns the packet and its confidence after a run", async () => {
     const incidentId = "inc-packet-1";
+    await ensureIncident(incidentId);
     await post(`/incidents/${incidentId}/run`, runBody);
 
     const { status, json } = await get(`/incidents/${incidentId}/packet`);
@@ -189,6 +223,7 @@ describe("GET /incidents/:id/packet", () => {
 
 describe("approval flow", () => {
   async function runAndGetGateId(incidentId: string): Promise<string> {
+    await ensureIncident(incidentId);
     const { json } = await post(`/incidents/${incidentId}/run`, runBody);
     const body = json as ApiOk<{ gate: { id: string } }>;
     return body.data.gate.id;
@@ -325,7 +360,8 @@ describe("approval flow", () => {
       service: "payment-service",
       state: "awaiting_approval",
       createdAt: longAgo,
-      updatedAt: longAgo
+      updatedAt: longAgo,
+      createdBy: "routes-test-operator@example.com"
     });
     await store.saveAction(action, id);
     await store.saveGate(gate, id);
@@ -369,7 +405,8 @@ describe("approval flow", () => {
       service: "payment-service",
       state: "awaiting_approval",
       createdAt: nowIso,
-      updatedAt: nowIso
+      updatedAt: nowIso,
+      createdBy: "routes-test-operator@example.com"
     });
     await store.savePacket(emptyPacket, id);
     await store.saveAction(action, id);

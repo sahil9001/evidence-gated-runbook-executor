@@ -53,6 +53,22 @@ export function buildPacket(input: {
   });
 }
 
+/**
+ * Which of a runbook's `allowedSources` produced zero cards in this packet.
+ * `collectEvidence`'s per-source `failures` (B2) are only available at the
+ * moment a run is created — nothing persists the original collector error
+ * text — so a later read (e.g. `GET /runs/:id`, B5) reconstructs the same
+ * *shape* of gap from what's actually in the packet: a source the runbook
+ * expected evidence from but that contributed nothing.
+ */
+export function missingSources(
+  packet: EvidencePacket,
+  allowedSources: readonly EvidenceSourceKind[]
+): EvidenceSourceKind[] {
+  const present = new Set(packet.cards.map((card) => card.source));
+  return allowedSources.filter((kind) => !present.has(kind));
+}
+
 export function packetConfidence(packet: EvidencePacket): Confidence {
   if (packet.cards.length === 0) return "low";
   return packet.cards.reduce<Confidence>(

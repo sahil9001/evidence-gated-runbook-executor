@@ -17,6 +17,11 @@ export type RunRow = {
   state: "collecting" | "awaiting_approval" | "approved" | "rejected" | "executed";
   createdAt: string;
   updatedAt: string;
+  /** The operator whose session started this run, or null for runs created
+   * before B5 (or via a path with no session, if one is ever added). Never
+   * client-suppliable — see `routes/run.ts`, which sets it from
+   * `c.var.user.email`, the same discipline `by` on approvals follows. */
+  createdBy: string | null;
 };
 
 export type AuditEntry = {
@@ -75,6 +80,11 @@ export interface Store {
 
   appendAudit(entry: AuditEntry): Promise<void>;
   listAudit(runId: string): Promise<AuditEntry[]>;
+  /** The most recent audit entries across every run, newest first, capped at
+   * `limit`. Backs `GET /audit` (no `runId`) and the Overview screen's
+   * recent-activity feed — both need a cross-run view `listAudit` doesn't
+   * provide. */
+  listRecentAudit(limit: number): Promise<AuditEntry[]>;
 
   listIncidents(filter?: { status?: string }): Promise<IncidentRow[]>;
   getIncident(id: string): Promise<IncidentRow | null>;

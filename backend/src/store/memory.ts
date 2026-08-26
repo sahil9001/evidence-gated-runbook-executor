@@ -155,6 +155,17 @@ export function createMemoryStore(): Store {
         .map(clone);
     },
 
+    async listRecentAudit(limit: number): Promise<AuditEntry[]> {
+      return [...auditLog.values()]
+        .sort((a, b) => {
+          if (a.at !== b.at) return a.at < b.at ? 1 : -1;
+          if (a.id !== b.id) return a.id < b.id ? 1 : -1;
+          return 0;
+        })
+        .slice(0, limit)
+        .map(clone);
+    },
+
     async listIncidents(filter?: { status?: string }): Promise<IncidentRow[]> {
       let rows = [...incidents.values()];
       if (filter?.status !== undefined) {

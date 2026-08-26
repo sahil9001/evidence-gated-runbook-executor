@@ -18,6 +18,7 @@ type RunRecord = {
   state: string;
   created_at: string;
   updated_at: string;
+  created_by: string | null;
 };
 
 function toRunRow(record: RunRecord): RunRow {
@@ -28,7 +29,8 @@ function toRunRow(record: RunRecord): RunRow {
     service: record.service,
     state: record.state as RunRow["state"],
     createdAt: record.created_at,
-    updatedAt: record.updated_at
+    updatedAt: record.updated_at,
+    createdBy: record.created_by
   };
 }
 
@@ -112,16 +114,18 @@ export function createD1Store(db: D1Database): Store {
     async createRun(run: RunRow): Promise<void> {
       await db
         .prepare(
-          `INSERT INTO runs (id, incident_id, runbook_id, service, state, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO runs (id, incident_id, runbook_id, service, state, created_at, updated_at, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(run.id, run.incidentId, run.runbookId, run.service, run.state, run.createdAt, run.updatedAt)
+        .bind(run.id, run.incidentId, run.runbookId, run.service, run.state, run.createdAt, run.updatedAt, run.createdBy)
         .run();
     },
 
     async getRun(id: string): Promise<RunRow | null> {
       const record = await db
-        .prepare(`SELECT id, incident_id, runbook_id, service, state, created_at, updated_at FROM runs WHERE id = ?`)
+        .prepare(
+          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs WHERE id = ?`
+        )
         .bind(id)
         .first<RunRecord>();
       return record === null ? null : toRunRow(record);
@@ -162,7 +166,7 @@ export function createD1Store(db: D1Database): Store {
 
       const { results } = await db
         .prepare(
-          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at FROM runs${where} ORDER BY created_at DESC${limitClause}`
+          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs${where} ORDER BY created_at DESC${limitClause}`
         )
         .bind(...params)
         .all<RunRecord>();
@@ -172,7 +176,7 @@ export function createD1Store(db: D1Database): Store {
     async listRunsByIncident(incidentId: string): Promise<RunRow[]> {
       const { results } = await db
         .prepare(
-          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at FROM runs WHERE incident_id = ? ORDER BY created_at DESC`
+          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs WHERE incident_id = ? ORDER BY created_at DESC`
         )
         .bind(incidentId)
         .all<RunRecord>();
@@ -253,6 +257,14 @@ export function createD1Store(db: D1Database): Store {
       const { results } = await db
         .prepare(`SELECT id, run_id, at, kind, detail FROM audit_log WHERE run_id = ? ORDER BY at ASC, id ASC`)
         .bind(runId)
+        .all<AuditRecord>();
+      return results.map(toAuditEntry);
+    },
+
+    async listRecentAudit(limit: number): Promise<AuditEntry[]> {
+      const { results } = await db
+        .prepare(`SELECT id, run_id, at, kind, detail FROM audit_log ORDER BY at DESC, id DESC LIMIT ?`)
+        .bind(limit)
         .all<AuditRecord>();
       return results.map(toAuditEntry);
     },

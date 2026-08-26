@@ -1,9 +1,14 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import runRoutes from "./routes/run";
+import runListRoutes from "./routes/runs";
 import packetRoutes from "./routes/packet";
 import approvalRoutes from "./routes/approvals";
 import authRoutes from "./routes/auth";
+import incidentRoutes from "./routes/incidents";
+import runbookRoutes from "./routes/runbooks";
+import auditRoutes from "./routes/audit";
+import overviewRoutes from "./routes/overview";
 import { requireAuth } from "./auth/middleware";
 
 export type Env = {
@@ -44,11 +49,18 @@ app.use("/incidents/*", requireAuth);
 app.use("/runs/*", requireAuth);
 app.use("/approvals/*", requireAuth);
 app.use("/audit/*", requireAuth);
+app.use("/runbooks/*", requireAuth);
+app.use("/overview/*", requireAuth);
 
 app.route("/", authRoutes);
+app.route("/", incidentRoutes);
 app.route("/", runRoutes);
+app.route("/", runListRoutes);
 app.route("/", packetRoutes);
 app.route("/", approvalRoutes);
+app.route("/", runbookRoutes);
+app.route("/", auditRoutes);
+app.route("/", overviewRoutes);
 
 app.notFound((c) => c.json(apiError("not_found", "Route not found"), 404));
 

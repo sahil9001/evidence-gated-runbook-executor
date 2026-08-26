@@ -22,7 +22,7 @@
 | B1 | Atomic approval (C1) + parse-on-read (C2, M9) | 0 | — | ✅ done | impl-b1 | 117/117; race reproduced [200,200] then closed [200,409] |
 | B2 | Surface `failures` (I1), server evidence gate (I3), error mapping (I2) | 0 | B1 | ✅ done | impl-b2 | 122/122 (117 baseline + 5 new); RED confirmed by stashing source fixes only |
 | B3 | Store seam + memory adapter + conformance suite | 1 | B1 | ✅ done | impl-b3 | 167/167 (122 baseline − 15 moved + 58 conformance ×2-adapters + 2 D1-only); typecheck clean; `db:migrate` applied 0002 cleanly (9 commands) |
-| B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | 🔨 in progress | impl-b4 | — |
+| B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | ✅ done | impl-b4 | 206/206 (167 baseline + 39 new: 6 password + 9 session + 4 middleware + 20 auth routes); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers users/sessions) |
 | B5 | Incidents entity + listing APIs | 1 | B4 | ⬜ not started | — | — |
 | B6 | Frontend auth pages + route guard | 2 | B4 | ⬜ not started | — | — |
 | B7 | App shell — sidebar + top bar | 2 | B6 | ⬜ not started | — | — |
@@ -32,7 +32,7 @@
 | B11 | Runbooks, History, Audit screens | 3 | B10 | ⬜ not started | — | — |
 | B12 | End-to-end verification + docs | 4 | B11 | ⬜ not started | — | — |
 
-**Progress: 3 / 12.**
+**Progress: 4 / 12.**
 
 ## Invariants — do not "fix" these
 
@@ -43,10 +43,24 @@
 | backend `compatibility_date` is 2026-08-15 | Local workerd refuses later dates. Frontend stays 2026-08-24 |
 | No `defineWorkersConfig` / no `/config` subpath | Not in `@cloudflare/vitest-pool-workers@0.22.0`. Use `cloudflareTest`; `readD1Migrations` is a root export |
 | Test bindings live in `src/test-env.d.ts` | `wrangler types` regenerates `worker-configuration.d.ts` and clobbers edits |
-| `by` is NOT accepted in approve/reject bodies (after B4) | The approver comes from the session. Absent from the payload = unforgeable |
+| `by` is NOT accepted in approve/reject bodies | The approver comes from `c.var.user.email` (the session `requireAuth` resolved). Absent from the payload = unforgeable |
 | Domain layer is pure | No `Date.now()` inside; clocks inject at the route boundary |
 
 ## Handoff Log
+
+### 2026-08-26 — impl-b4 — B4 done
+
+`auth/password.ts`: PBKDF2-SHA256 via `crypto.subtle`, 210,000 iterations, 16-byte random salt, 32-byte derived key, both base64. Constant-time compare prefers the Workers-native `crypto.subtle.timingSafeEqual` (present in `worker-configuration.d.ts` and in miniflare's own runtime) when both inputs are the same length, else falls back to a hand-rolled XOR-accumulate loop over the full length — covers both "API missing" and "a tampered hash of a different length" without branching on where the mismatch is.
+
+`auth/session.ts`: pure logic over `Store` — `createSession` (30-day `SESSION_TTL_MS` default, `crypto.randomUUID()` id, `expiresAt` from an injected `nowIso`), `resolveSession` (null for missing *or* expired, `>=` boundary matching `Store#deleteExpiredSessions`'s `<=`), `revokeSession` (idempotent `deleteSession`). No `Date.now()`/`new Date()` inside — same discipline as the rest of the domain layer, even though this lives under `src/auth/` rather than `src/domain/`.
+
+`auth/middleware.ts`: `requireAuth` via `hono/factory`'s `createMiddleware`. No cookie, an unknown session, and an expired session all produce identical `401 unauthenticated` — the same "don't distinguish reasons" discipline B4's login endpoint uses for credentials. `toPublicUser` strips `passwordHash`/`salt` before anything downstream ever sees a `UserRow`.
+
+`routes/auth.ts`: register (409 `email_taken` pre-checked *and* caught post-insert against D1's `UNIQUE` constraint on `users.email` — same TOCTOU shape B1 closed for approval claims, closed the same way; a concurrent-registration race test in `auth.test.ts` reproduces it, `Promise.all` style); login (401 `invalid_credentials`, byte-identical body for unknown-email and wrong-password, `verifyPassword` always runs — against a hardcoded dummy hash/salt when no user was found — so the unknown-email path costs the same 210k-iteration PBKDF2 derivation as the wrong-password path, closing the timing side of enumeration alongside the response-body side); logout (idempotent, works with no cookie); me (behind `requireAuth`).
+
+`by` removed from `approveBodySchema`/`rejectBodySchema` in `approvals.ts` — not validated, *absent*, so a client-supplied `by` is silently stripped by Zod and never reaches `approveGate`/`rejectGate`. Approver is `c.var.user.email`. B1's atomic-claim ordering and B2's evidence-gate/validation ordering in that file are untouched — verified via diff, only the `by` source and comments changed. `index.ts` mounts `requireAuth` on `/incidents/*`, `/runs/*`, `/approvals/*`, `/audit/*`; `/auth/*` and `/health` stay public. `routes.test.ts` updated: one operator registered in `beforeAll`, its cookie attached by the `post`/`get` test helpers by default; new test confirms approving with no cookie is 401 and leaves no audit trace.
+
+Backend 206/206 (167 baseline + 39 new), typecheck clean, `db:migrate` clean (no new migration needed — B3's `0002` already has `users`/`sessions`). Full report: `.superpowers/sdd/2026-08-26-operator-console/task-b4-report.md`. **Known gap, explicitly out of scope:** no rate limiting on `/auth/login` — first thing to add before this API is internet-facing. Next agent: B5 (incidents entity + listing APIs) — auth is fully wired, `c.var.user` is available on every protected route B5 adds.
 
 ### 2026-08-26 — impl-b3 — B3 done
 

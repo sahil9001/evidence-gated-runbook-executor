@@ -85,6 +85,30 @@ function fingerprintAction(action: Action): string {
   });
 }
 
+/**
+ * Parse an ISO timestamp and reject anything that does not resolve to a
+ * finite epoch. `Date.parse` returns `NaN` for garbage input, and `NaN`
+ * compared with anything is always `false` — left unchecked that makes an
+ * invalid `approvedAt`/`nowIso` look "not expired", the wrong direction for
+ * a safety check. Every timestamp that crosses into this module is treated
+ * as untrusted external input and validated here, the same way any other
+ * boundary value gets Zod-validated.
+ *
+ * NOTE: this only rejects malformed timestamps. It cannot detect a
+ * well-formed but backdated one — the domain layer intentionally has no
+ * access to wall-clock time (the clock is injected so it stays pure and
+ * testable). The caller that supplies `nowIso`/`decision.at` is responsible
+ * for that: the route layer MUST stamp these from the server's own clock
+ * and must NEVER accept a client-supplied timestamp for `at`/`nowIso`.
+ */
+function assertValidTimestamp(iso: string, label: string): number {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) {
+    throw new Error(`${label} is not a valid timestamp: ${JSON.stringify(iso)}`);
+  }
+  return ms;
+}
+
 export type GateState = "locked" | "approved" | "rejected";
 
 type GateBase = {
@@ -103,17 +127,20 @@ export type ApprovalGate = LockedGate | ApprovedGate | RejectedGate;
 export function createGate(input: {
   id: string; actionId: string; createdAt: string; ttlMs: number;
 }): ApprovalGate {
+  const createdAtMs = assertValidTimestamp(input.createdAt, "createdAt");
   return {
     id: input.id,
     actionId: input.actionId,
     createdAt: input.createdAt,
-    expiresAt: new Date(Date.parse(input.createdAt) + input.ttlMs).toISOString(),
+    expiresAt: new Date(createdAtMs + input.ttlMs).toISOString(),
     state: "locked"
   };
 }
 
 export function isExpired(gate: ApprovalGate, nowIso: string): boolean {
-  return Date.parse(nowIso) >= Date.parse(gate.expiresAt);
+  const now = assertValidTimestamp(nowIso, "nowIso");
+  const expiresAt = assertValidTimestamp(gate.expiresAt, "gate.expiresAt");
+  return now >= expiresAt;
 }
 
 function assertDecidable(gate: ApprovalGate, nowIso: string): void {

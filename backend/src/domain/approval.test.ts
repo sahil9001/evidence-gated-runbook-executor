@@ -68,8 +68,32 @@ describe("expiry", () => {
     expect(isExpired(gate(), T30)).toBe(true);
   });
 
+  it("is expired exactly at the expiry boundary", () => {
+    expect(isExpired(gate(), gate().expiresAt)).toBe(true);
+  });
+
   it("refuses to approve an expired gate — stale proof is not proof", () => {
     expect(() => approveGate(gate(), action(), { by: "sahil", at: T30 })).toThrow(/expired/i);
+  });
+});
+
+describe("timestamp validation", () => {
+  it("createGate throws on an unparseable createdAt instead of producing NaN", () => {
+    expect(() => createGate({ id: "g1", actionId: "a1", createdAt: "not-a-date", ttlMs: TTL })).toThrow(
+      /timestamp/i
+    );
+  });
+
+  it("isExpired throws on an unparseable nowIso instead of failing open", () => {
+    expect(() => isExpired(gate(), "not-a-date")).toThrow(/timestamp/i);
+  });
+
+  it("approveGate throws on an unparseable decision.at rather than approving", () => {
+    expect(() => approveGate(gate(), action(), { by: "sahil", at: "not-a-date" })).toThrow(/timestamp/i);
+  });
+
+  it("rejectGate throws on an unparseable decision.at rather than rejecting", () => {
+    expect(() => rejectGate(gate(), { by: "sahil", at: "not-a-date", reason: "no" })).toThrow(/timestamp/i);
   });
 });
 

@@ -41,14 +41,28 @@ type ScopeCheckArgs = { service: string; signals: string[] };
  * naming exactly what was refused, so a calling agent can act on it instead
  * of misreading an empty array as "no evidence found".
  */
-function authorizeSource(args: ScopeCheckArgs, source: EvidenceSourceKind): Runbook {
+/**
+ * Resolves the runbook that authorizes an incident's service+signals, or
+ * throws a refusal naming exactly what could not be matched. This is the one
+ * place `matchRunbook` is called from a tool handler — `authorizeSource` (the
+ * five collector/diagnostic tools) and `handleProposeRollback` (the one
+ * destructive tool) both route through it, so there is exactly one matching
+ * codepath to keep in sync with `matchRunbook` itself rather than two that
+ * can drift apart.
+ */
+function requireMatchedRunbook(args: ScopeCheckArgs, refusalContext: string): Runbook {
   const runbook = matchRunbook(ALL_RUNBOOKS, { service: args.service, signals: args.signals });
   if (!runbook) {
     throw new Error(
       `No runbook matches service "${args.service}" with signals [${args.signals.join(", ")}]. ` +
-        `Refusing to collect ${source} evidence without an authorized runbook scope.`
+        `Refusing to ${refusalContext} without an authorized runbook scope.`
     );
   }
+  return runbook;
+}
+
+function authorizeSource(args: ScopeCheckArgs, source: EvidenceSourceKind): Runbook {
+  const runbook = requireMatchedRunbook(args, `collect ${source} evidence`);
   if (!runbook.allowedSources.includes(source)) {
     throw new Error(
       `Runbook "${runbook.id}" does not authorize the "${source}" source ` +
@@ -125,7 +139,7 @@ export function handleGetDiagnosticScript(args: GetDiagnosticScriptArgs): GetDia
   };
 }
 
-export type ProposeRollbackArgs = { service: string; commit: string; reason: string };
+export type ProposeRollbackArgs = { service: string; commit: string; reason: string; signals: string[] };
 export type ProposeRollbackResult = {
   executed: false;
   action: Action;
@@ -136,11 +150,25 @@ export type ProposeRollbackResult = {
 const ROLLBACK_GATE_TTL_MS = 15 * 60 * 1000;
 
 /**
- * Proposes a rollback without performing one. TrueForge's own approval
- * checkpoint is what stops the agent from reaching this tool in the first
- * place (it is annotated `destructiveHint: true` in `server.ts`, so the
- * default `require_approval_for_tools: ["@write", "@destructive"]` catches
- * it). This handler adds a second, independent lock on top of that: it
+ * Proposes a rollback without performing one. Like every other tool here,
+ * this call is constrained by the matched runbook: it resolves a runbook
+ * from `args.service`/`args.signals` via `requireMatchedRunbook` (refusing,
+ * same as the collectors, when nothing matches) and then checks that the
+ * runbook's own `proposedAction` actually authorizes *this* rollback — same
+ * `kind` ("rollback") and same `target` as the requested service. A runbook
+ * whose proposedAction is a restart, or that targets a different service,
+ * does not license this call; it is refused before any `Action` or
+ * `ApprovalGate` is created. This is deliberately the same authorization
+ * shape as the collectors (`authorizeSource`), just checked against
+ * `proposedAction` instead of `allowedSources`, because propose_rollback is
+ * the one tool that turns a runbook's *recommendation* into a concrete,
+ * approvable action rather than reading evidence within its scope.
+ *
+ * TrueForge's own approval checkpoint is what stops the agent from reaching
+ * this tool in the first place (it is annotated `destructiveHint: true` in
+ * `server.ts`, so the default `require_approval_for_tools: ["@write",
+ * "@destructive"]` catches it). This handler adds a second, independent lock
+ * on top of that: once a matching runbook has authorized the proposal, it
  * mints a RunProof `ApprovalGate` in the `locked` state, bound to the exact
  * action fingerprint, via the same domain machinery every other RunProof
  * action goes through. That gate is not approved here — approving it is a
@@ -148,6 +176,15 @@ const ROLLBACK_GATE_TTL_MS = 15 * 60 * 1000;
  * this call bypasses or shortcuts `approval.ts`.
  */
 export function handleProposeRollback(args: ProposeRollbackArgs): ProposeRollbackResult {
+  const runbook = requireMatchedRunbook(args, "propose a rollback");
+  if (runbook.proposedAction.kind !== "rollback" || runbook.proposedAction.target !== args.service) {
+    throw new Error(
+      `Runbook "${runbook.id}" does not authorize a rollback of "${args.service}": its proposedAction is a ` +
+        `"${runbook.proposedAction.kind}" action targeting "${runbook.proposedAction.target}". Refusing to ` +
+        `propose an action the matched runbook does not authorize.`
+    );
+  }
+
   const actionId = `mcp-rollback-${args.service}-${args.commit}-${crypto.randomUUID()}`;
   const action = createAction({
     id: actionId,

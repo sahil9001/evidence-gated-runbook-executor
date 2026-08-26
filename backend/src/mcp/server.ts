@@ -134,11 +134,20 @@ export function createRunProofMcpServer(): McpServer {
       title: "Propose rollback",
       description:
         "Propose rolling back a service to a prior commit. This is a destructive, state-changing action: " +
-        "it does not execute a rollback, and TrueForge must obtain human approval before it can even be called.",
+        "it does not execute a rollback, and TrueForge must obtain human approval before it can even be called. " +
+        "Refuses with an error if no runbook matches the given service/signals, or if the matched runbook's " +
+        "proposedAction is not a rollback of this exact service.",
       inputSchema: {
         service: z.string().min(1).describe("The service to roll back"),
         commit: z.string().min(1).describe("The commit to roll back to"),
-        reason: z.string().min(1).describe("Why this rollback is being proposed")
+        reason: z.string().min(1).describe("Why this rollback is being proposed"),
+        signals: z
+          .array(z.string().min(1))
+          .describe(
+            "Signals observed for this incident, e.g. ['timeout', 'error_rate']. Used to resolve the same " +
+              "runbook get_runbook would match, so the rollback can be refused if no matching runbook " +
+              "authorizes it."
+          )
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
     },

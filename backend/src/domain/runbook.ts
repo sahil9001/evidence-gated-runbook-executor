@@ -2,20 +2,33 @@ import { z } from "zod";
 import { evidenceSourceKindSchema } from "./evidence";
 import { actionKindSchema, jsonValueSchema } from "./action";
 
+/**
+ * A string schema that rejects blank and whitespace-only input. Plain
+ * `z.string().min(1)` measures length *before* trimming, so `"   "`
+ * satisfies it and flows through load validation as if it were real
+ * content — an agent then receives whitespace to act on (e.g. a diagnostic
+ * `script` with nothing to execute) and fails far from the actual cause.
+ * `.trim()` also normalizes otherwise-valid values so incidental leading or
+ * trailing whitespace never confuses downstream string comparisons.
+ */
+function nonBlankString(label: string) {
+  return z.string().trim().min(1, { message: `${label} must not be blank` });
+}
+
 export const runbookStepSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  detail: z.string().min(1),
+  id: nonBlankString("id"),
+  label: nonBlankString("label"),
+  detail: nonBlankString("detail"),
   source: evidenceSourceKindSchema.optional()
 });
 export type RunbookStep = z.infer<typeof runbookStepSchema>;
 
 export const runbookActionSchema = z.object({
   kind: actionKindSchema,
-  target: z.string().min(1),
+  target: nonBlankString("target"),
   params: z.record(z.string(), jsonValueSchema),
   reversible: z.boolean(),
-  description: z.string().min(1)
+  description: nonBlankString("description")
 });
 export type RunbookAction = z.infer<typeof runbookActionSchema>;
 
@@ -27,9 +40,9 @@ export type RunbookAction = z.infer<typeof runbookActionSchema>;
  * Optional so runbooks authored before this field existed stay valid.
  */
 export const runbookDiagnosticSchema = z.object({
-  description: z.string().min(1),
-  script: z.string().min(1),
-  expectedOutput: z.string().min(1)
+  description: nonBlankString("description"),
+  script: nonBlankString("script"),
+  expectedOutput: nonBlankString("expectedOutput")
 });
 export type RunbookDiagnostic = z.infer<typeof runbookDiagnosticSchema>;
 
@@ -46,11 +59,11 @@ function noDuplicates<T extends z.ZodType<string>>(schema: T) {
 }
 
 export const runbookSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
+  id: nonBlankString("id"),
+  title: nonBlankString("title"),
   trigger: z.object({
-    service: z.string().min(1),
-    signals: noDuplicates(z.string().min(1))
+    service: nonBlankString("service"),
+    signals: noDuplicates(nonBlankString("signal"))
   }),
   allowedSources: noDuplicates(evidenceSourceKindSchema),
   steps: z.array(runbookStepSchema).min(1, "a runbook must have at least one step"),

@@ -1,7 +1,18 @@
 import { Hono } from "hono";
+import { mcpRoute } from "./routes/mcp";
 
 export type Env = {
   DB: D1Database;
+  /**
+   * Comma-separated list of extra origins allowed to call /mcp, on top of
+   * the built-in localhost/127.0.0.1 dev-origin allowance. See
+   * `src/routes/mcp.ts`.
+   */
+  ALLOWED_MCP_ORIGINS?: string;
+  /** Idle-timeout for an MCP session, in milliseconds. See `src/routes/mcp.ts`. */
+  MCP_SESSION_IDLE_TTL_MS?: string;
+  /** Hard cap on concurrently held MCP sessions. See `src/routes/mcp.ts`. */
+  MCP_MAX_SESSIONS?: string;
 };
 
 export type ApiError = {
@@ -16,6 +27,8 @@ export function apiError(code: string, message: string, details?: unknown): ApiE
 const app = new Hono<{ Bindings: Env }>();
 
 app.get("/health", (c) => c.json({ status: "ok", service: "runproof-api" }));
+
+app.route("/mcp", mcpRoute);
 
 app.notFound((c) => c.json(apiError("not_found", "Route not found"), 404));
 

@@ -147,11 +147,26 @@ function assertDecidable(gate: ApprovalGate, nowIso: string): void {
   if (gate.state !== "locked") {
     throw new Error(`Gate ${gate.id} was already decided (${gate.state})`);
   }
+  const at = assertValidTimestamp(nowIso, "nowIso");
+  const createdAt = assertValidTimestamp(gate.createdAt, "gate.createdAt");
+  if (at < createdAt) {
+    throw new Error(`Decision timestamp ${nowIso} predates gate ${gate.id} created at ${gate.createdAt}`);
+  }
   if (isExpired(gate, nowIso)) {
     throw new Error(`Gate ${gate.id} expired at ${gate.expiresAt}`);
   }
 }
 
+/**
+ * `decision.at` is TRUSTED input: this function has no independent clock, so
+ * it cannot distinguish a legitimate server timestamp from a plausible but
+ * backdated one supplied by a caller. Callers MUST stamp `at` from a server
+ * clock (e.g. `new Date().toISOString()` in the Worker, never a client
+ * request body) — no route may accept a client-supplied timestamp for
+ * `at`/`nowIso`. `assertDecidable` only catches timestamps that are
+ * provably impossible (predating the gate's own `createdAt`); it cannot and
+ * does not attempt to catch a timestamp that is merely implausible.
+ */
 export function approveGate(
   gate: ApprovalGate,
   action: Action,

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createAction } from "./action";
 import { createGate, approveGate, rejectGate, isExpired, tokenAuthorizes, type ApprovalToken } from "./approval";
 
+const BEFORE_T0 = "2026-08-25T01:00:00.000Z";
 const T0 = "2026-08-25T02:00:00.000Z";
 const T5 = "2026-08-25T02:05:00.000Z";
 const T30 = "2026-08-25T02:30:00.000Z";
@@ -94,6 +95,26 @@ describe("timestamp validation", () => {
 
   it("rejectGate throws on an unparseable decision.at rather than rejecting", () => {
     expect(() => rejectGate(gate(), { by: "sahil", at: "not-a-date", reason: "no" })).toThrow(/timestamp/i);
+  });
+});
+
+describe("backdated decisions", () => {
+  it("refuses to approve with a decision timestamp before the gate existed", () => {
+    expect(() => approveGate(gate(), action(), { by: "sahil", at: BEFORE_T0 })).toThrow(/predates/i);
+  });
+
+  it("refuses to reject with a decision timestamp before the gate existed", () => {
+    expect(() => rejectGate(gate(), { by: "sahil", at: BEFORE_T0, reason: "no" })).toThrow(/predates/i);
+  });
+
+  it("accepts a decision timestamped exactly when the gate was created", () => {
+    const { gate: g } = approveGate(gate(), action(), { by: "sahil", at: T0 });
+    expect(g.state).toBe("approved");
+    expect(g.decidedAt).toBe(T0);
+  });
+
+  it("still rejects a gate exactly at its expiry boundary after the backdating guard is added", () => {
+    expect(() => approveGate(gate(), action(), { by: "sahil", at: gate().expiresAt })).toThrow(/expired/i);
   });
 });
 

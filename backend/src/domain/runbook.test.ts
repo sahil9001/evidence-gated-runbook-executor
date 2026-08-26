@@ -136,6 +136,47 @@ describe("loadRunbook", () => {
       })
     ).not.toThrow();
   });
+
+  it("loads a runbook with no diagnostic field, since diagnostic is optional", () => {
+    const input = validRunbook() as { diagnostic?: unknown };
+    expect(input.diagnostic).toBeUndefined();
+    const runbook = loadRunbook(input);
+    expect(runbook.diagnostic).toBeUndefined();
+  });
+
+  it("loads a runbook whose diagnostic field round-trips script, description, and expectedOutput", () => {
+    const input = validRunbook() as { diagnostic?: unknown };
+    input.diagnostic = {
+      description: "Reproduces the timeout in isolation and reports the likely bad commit.",
+      script: "print('timeout_ms=3000')",
+      expectedOutput: "timeout_ms=<int> / failed_requests=<int> / likely_commit=<sha> / recommendation=<rollback|none>"
+    };
+    const runbook = loadRunbook(input);
+    expect(runbook.diagnostic).toEqual(input.diagnostic);
+  });
+
+  it("throws RunbookValidationError naming diagnostic.script when script is empty", () => {
+    const input = validRunbook() as { diagnostic?: { description: string; script: string; expectedOutput: string } };
+    input.diagnostic = { description: "checks something", script: "", expectedOutput: "some output" };
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("diagnostic.script");
+    }
+  });
+
+  it("loads the shipped checkout-failure runbook's diagnostic and authorizes the sandbox source", () => {
+    const runbook = loadRunbook(checkoutFailureRaw);
+    expect(runbook.allowedSources).toContain("sandbox");
+    expect(runbook.diagnostic).toBeDefined();
+    expect(runbook.diagnostic?.script).toContain("timeout_ms=");
+    expect(runbook.diagnostic?.description.length).toBeGreaterThan(0);
+    expect(runbook.diagnostic?.expectedOutput.length).toBeGreaterThan(0);
+  });
 });
 
 describe("matchRunbook", () => {
@@ -252,7 +293,7 @@ describe("checkout-failure.json", () => {
 
     expect(runbook.trigger.service).toBe("payment-service");
     expect(runbook.trigger.signals).toEqual(expect.arrayContaining(["timeout", "error_rate"]));
-    expect(runbook.allowedSources).toEqual(["logs", "metrics", "deploys"]);
+    expect(runbook.allowedSources).toEqual(["logs", "metrics", "deploys", "sandbox"]);
     expect(runbook.steps.map((step) => step.label)).toEqual([
       "Alert received",
       "Evidence gathered",

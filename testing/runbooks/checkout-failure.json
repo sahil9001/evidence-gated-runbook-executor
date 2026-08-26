@@ -3,9 +3,17 @@
   "title": "Checkout payment-service failure",
   "trigger": {
     "service": "payment-service",
-    "signals": ["timeout", "error_rate"]
+    "signals": [
+      "timeout",
+      "error_rate"
+    ]
   },
-  "allowedSources": ["logs", "metrics", "deploys"],
+  "allowedSources": [
+    "logs",
+    "metrics",
+    "deploys",
+    "sandbox"
+  ],
   "steps": [
     {
       "id": "alert-received",
@@ -21,7 +29,8 @@
     {
       "id": "sandbox-check",
       "label": "Sandbox check",
-      "detail": "Diagnostic script reproduced timeout failure in isolation."
+      "detail": "Diagnostic script reproduced timeout failure in isolation.",
+      "source": "sandbox"
     },
     {
       "id": "approval-required",
@@ -32,8 +41,15 @@
   "proposedAction": {
     "kind": "rollback",
     "target": "payment-service",
-    "params": { "commit": "8f31c2b" },
+    "params": {
+      "commit": "8f31c2b"
+    },
     "reversible": true,
     "description": "Roll back payment-service to 8f31c2b"
+  },
+  "diagnostic": {
+    "description": "Reproduces the payment-service checkout timeout in an isolated sandbox: counts timeout-kind log lines against their fixture-recorded occurrence counts, extracts the configured request-timeout threshold from the log text, and finds the most recent risky deploy that landed before the first timeout was observed.",
+    "script": "#!/usr/bin/env python3\n\"\"\"\nDiagnostic for the checkout-failure runbook (payment-service timeout).\n\nRuns inside TrueForge's sandbox (local fallback or Daytona) -- not inside\nRunProof, which never executes code itself. No third-party imports, no\nnetwork access, no production data: LOGS and DEPLOYS below are a literal\nsnapshot of testing/fixtures/checkout-incident/{logs,deploys}.json, embedded\nso the script is self-contained and has no dependency on whatever the\nsandbox's filesystem does or does not mount. Given that fixed input, this\nalways prints the same four lines -- re-running it under plain `python3`\nreproduces the exact numbers RunProof's UI already shows.\n\"\"\"\n\nimport re\n\n# Mirrors testing/fixtures/checkout-incident/logs.json.\nLOGS = [\n    {\"kind\": \"timeout\", \"occurrenceCount\": 19,\n     \"message\": \"connect ETIMEDOUT 10.0.4.12:443 upstream=payment-gateway\",\n     \"timestamp\": \"2026-08-25T01:57:40.000Z\"},\n    {\"kind\": \"timeout\", \"occurrenceCount\": 15,\n     \"message\": \"request timeout after 3000ms calling payment-gateway/charge\",\n     \"timestamp\": \"2026-08-25T01:58:10.000Z\"},\n    {\"kind\": \"timeout\", \"occurrenceCount\": 13,\n     \"message\": \"gateway timeout on POST /v1/charges\",\n     \"timestamp\": \"2026-08-25T01:58:55.000Z\"},\n    {\"kind\": \"other\", \"occurrenceCount\": 6,\n     \"message\": \"retrying charge after transient network error\",\n     \"timestamp\": \"2026-08-25T01:59:20.000Z\"},\n]\n\n# Mirrors testing/fixtures/checkout-incident/deploys.json.\nDEPLOYS = [\n    {\"commit\": \"3aa910d\", \"deployedAt\": \"2026-08-24T20:05:00.000Z\", \"risky\": False},\n    {\"commit\": \"c92e410\", \"deployedAt\": \"2026-08-24T23:40:00.000Z\", \"risky\": False},\n    {\"commit\": \"8f31c2b\", \"deployedAt\": \"2026-08-25T01:50:00.000Z\", \"risky\": True},\n    {\"commit\": \"1204abf\", \"deployedAt\": \"2026-08-25T01:59:00.000Z\", \"risky\": False},\n]\n\n\ndef main() -> None:\n    timeout_logs = [log for log in LOGS if log[\"kind\"] == \"timeout\"]\n    failed_requests = sum(log[\"occurrenceCount\"] for log in timeout_logs)\n\n    timeout_ms = None\n    for log in timeout_logs:\n        match = re.search(r\"timeout after (\\d+)ms\", log[\"message\"])\n        if match:\n            timeout_ms = int(match.group(1))\n            break\n    if timeout_ms is None:\n        raise RuntimeError(\"no timeout-duration log line found in fixture data\")\n\n    onset = min(log[\"timestamp\"] for log in timeout_logs)\n    prior_risky_deploys = [d for d in DEPLOYS if d[\"risky\"] and d[\"deployedAt\"] < onset]\n    likely_commit = (\n        max(prior_risky_deploys, key=lambda d: d[\"deployedAt\"])[\"commit\"]\n        if prior_risky_deploys\n        else None\n    )\n    recommendation = \"rollback\" if likely_commit else \"none\"\n\n    print(f\"timeout_ms={timeout_ms}\")\n    print(f\"failed_requests={failed_requests}\")\n    print(f\"likely_commit={likely_commit if likely_commit else 'unknown'}\")\n    print(f\"recommendation={recommendation}\")\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "expectedOutput": "Four `key=value` lines on stdout, in this order: `timeout_ms` (int, the configured request-timeout threshold in ms), `failed_requests` (int, summed occurrenceCount across timeout-kind log lines), `likely_commit` (the short SHA of the most recent risky deploy before the incident's first timeout, or `unknown` if none), and `recommendation` (`rollback` if a likely_commit was found, else `none`). Deterministic: identical input, identical output, every run."
   }
 }

@@ -20,6 +20,20 @@ export const runbookActionSchema = z.object({
 export type RunbookAction = z.infer<typeof runbookActionSchema>;
 
 /**
+ * A diagnostic a runbook authorizes running in TrueForge's sandbox.
+ * RunProof never executes `script` itself — it only supplies the text (see
+ * `get_diagnostic_script` in `mcp/toolHandlers.ts`); TrueForge's own sandbox
+ * (local fallback or a configured provider) is what actually runs it.
+ * Optional so runbooks authored before this field existed stay valid.
+ */
+export const runbookDiagnosticSchema = z.object({
+  description: z.string().min(1),
+  script: z.string().min(1),
+  expectedOutput: z.string().min(1)
+});
+export type RunbookDiagnostic = z.infer<typeof runbookDiagnosticSchema>;
+
+/**
  * Rejects an array containing repeated entries. A runbook with duplicate
  * trigger signals or allowedSources is malformed: duplicates skew signal
  * overlap scoring (see `countOverlap`) and add nothing to an allow-list, so
@@ -40,7 +54,8 @@ export const runbookSchema = z.object({
   }),
   allowedSources: noDuplicates(evidenceSourceKindSchema),
   steps: z.array(runbookStepSchema).min(1, "a runbook must have at least one step"),
-  proposedAction: runbookActionSchema
+  proposedAction: runbookActionSchema,
+  diagnostic: runbookDiagnosticSchema.optional()
 });
 export type Runbook = z.infer<typeof runbookSchema>;
 

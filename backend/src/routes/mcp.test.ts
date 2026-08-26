@@ -2,6 +2,16 @@ import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:
 import { describe, it, expect, vi, afterEach } from "vitest";
 import app from "../index";
 import type { Env } from "../index";
+import { handleCollectLogs } from "../mcp/toolHandlers";
+
+// Wraps the real handler in a `vi.fn` so every test gets real collector
+// behaviour by default; only the in-flight-request lifecycle test below
+// overrides it (via `mockImplementationOnce`, which self-restores after one
+// call) to get a controllable pause point inside a live tool call.
+vi.mock("../mcp/toolHandlers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../mcp/toolHandlers")>();
+  return { ...actual, handleCollectLogs: vi.fn(actual.handleCollectLogs) };
+});
 
 const PROTOCOL_VERSION = "2025-06-18";
 
@@ -28,6 +38,21 @@ async function postMcp(body: JsonRpcRequest, options: PostMcpOptions = {}): Prom
       ...(options.origin ? { origin: options.origin } : {})
     },
     body: JSON.stringify(body)
+  });
+  const ctx = createExecutionContext();
+  const response = await app.fetch(request, options.env ?? env, ctx);
+  await waitOnExecutionContext(ctx);
+  return response;
+}
+
+async function openSseStream(sessionId: string, options: PostMcpOptions = {}): Promise<Response> {
+  const request = new Request("http://localhost/mcp", {
+    method: "GET",
+    headers: {
+      accept: "text/event-stream",
+      "mcp-session-id": sessionId,
+      ...(options.origin ? { origin: options.origin } : {})
+    }
   });
   const ctx = createExecutionContext();
   const response = await app.fetch(request, options.env ?? env, ctx);
@@ -242,5 +267,146 @@ describe("MCP session lifecycle", () => {
       { sessionId: newestId, env: cappedEnv }
     );
     expect(newestResponse.status).toBe(200);
+  });
+});
+
+describe("MCP session lifecycle — active work is not idle-evicted", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not evict a session with an open GET/SSE stream, even past the idle TTL", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const shortTtlEnv: Env = { ...env, MCP_SESSION_IDLE_TTL_MS: "1000" };
+
+    const sessionId = await initializeSession({ env: shortTtlEnv });
+
+    const stream = await openSseStream(sessionId, { env: shortTtlEnv });
+    expect(stream.status).toBe(200);
+
+    vi.setSystemTime(5000); // well past the 1000ms idle TTL, stream still open
+
+    // Any request runs pruneExpiredSessions as a side effect — this is what
+    // must skip the session above because it still has active work.
+    const followUp = await postMcp(
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      { sessionId, env: shortTtlEnv }
+    );
+    expect(followUp.status).toBe(200);
+
+    await stream.body?.cancel();
+  });
+
+  it("resumes the idle countdown once the SSE stream closes, and evicts after a further TTL elapses", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const shortTtlEnv: Env = { ...env, MCP_SESSION_IDLE_TTL_MS: "1000" };
+
+    const sessionId = await initializeSession({ env: shortTtlEnv });
+
+    const stream = await openSseStream(sessionId, { env: shortTtlEnv });
+    expect(stream.status).toBe(200);
+
+    vi.setSystemTime(5000); // past the TTL, but the stream is still open — not idle yet
+
+    // Client disconnects: cancelling the body is what a dropped connection
+    // looks like from the server's side. This must bring the session's
+    // active-work counter back to zero and stamp a fresh lastUsedAt.
+    await stream.body?.cancel();
+
+    // Immediately after the close, the session must still be usable — the
+    // idle clock only just restarted.
+    const rightAfterClose = await postMcp(
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      { sessionId, env: shortTtlEnv }
+    );
+    expect(rightAfterClose.status).toBe(200);
+
+    vi.setSystemTime(5000 + 1300); // past the TTL again, measured from the close, not from stream-open
+
+    const afterTtlFromClose = await postMcp(
+      { jsonrpc: "2.0", id: 3, method: "tools/list" },
+      { sessionId, env: shortTtlEnv }
+    );
+    expect(afterTtlFromClose.status).toBe(400);
+  });
+
+  it("does not evict a session with an in-flight non-SSE request", async () => {
+    // Real timers here, deliberately: this test needs two genuinely
+    // concurrent, overlapping `app.fetch` calls (one gated open, one that
+    // triggers pruning while the first is still in flight), and the exact
+    // elapsed time doesn't matter — only that it exceeds the TTL below
+    // while the tool call is still gated.
+    const shortTtlEnv: Env = { ...env, MCP_SESSION_IDLE_TTL_MS: "10" };
+
+    const sessionId = await initializeSession({ env: shortTtlEnv });
+
+    let signalStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    let releaseTool!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseTool = resolve;
+    });
+    vi.mocked(handleCollectLogs).mockImplementationOnce(async () => {
+      signalStarted();
+      await gate;
+      return [];
+    });
+
+    const inFlight = postMcp(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "collect_logs",
+          arguments: { incidentId: "inc-1", service: "payment-service", signals: ["timeout"] }
+        }
+      },
+      { sessionId, env: shortTtlEnv }
+    );
+
+    await started;
+    await new Promise((resolve) => setTimeout(resolve, 50)); // well past the 10ms TTL, tool call still gated
+
+    const pruneTrigger = await postMcp(
+      {
+        jsonrpc: "2.0",
+        id: 99,
+        method: "initialize",
+        params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "other", version: "0.0.1" } }
+      },
+      { env: shortTtlEnv }
+    );
+    expect(pruneTrigger.status).toBe(200);
+    await pruneTrigger.body?.cancel();
+
+    releaseTool();
+    const toolResponse = await inFlight;
+    expect(toolResponse.status).toBe(200);
+
+    const followUp = await postMcp(
+      { jsonrpc: "2.0", id: 3, method: "tools/list" },
+      { sessionId, env: shortTtlEnv }
+    );
+    expect(followUp.status).toBe(200);
+  });
+
+  it("existing idle-TTL and capacity behaviour is unaffected", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const shortTtlEnv: Env = { ...env, MCP_SESSION_IDLE_TTL_MS: "1000" };
+
+    const sessionId = await initializeSession({ env: shortTtlEnv });
+    vi.setSystemTime(5000); // idle the whole time, no stream, no in-flight request
+
+    const followUp = await postMcp(
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      { sessionId, env: shortTtlEnv }
+    );
+    expect(followUp.status).toBe(400);
   });
 });

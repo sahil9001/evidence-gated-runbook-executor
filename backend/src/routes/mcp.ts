@@ -44,6 +44,20 @@ type McpSession = {
   server: McpServer;
   transport: WebStandardStreamableHTTPServerTransport;
   lastUsedAt: number;
+  /**
+   * Count of requests/streams currently in flight against this session — a
+   * GET/SSE stream held open for the life of an agent turn, or a POST tool
+   * call still being handled. `pruneExpiredSessions` never evicts a session
+   * while this is > 0, no matter how stale `lastUsedAt` looks: a GET/SSE
+   * stream is a single request that started once and then stays open, so
+   * "time since the request started" is not the same thing as "idle".
+   *
+   * Incremented when work starts, decremented once it actually finishes —
+   * immediately after the awaited response for POST/DELETE, or when the
+   * stream closes (naturally, on error, or on client disconnect) for GET —
+   * so it cannot leak upward and make a session immortal.
+   */
+  activeRequests: number;
 };
 
 /**
@@ -110,22 +124,57 @@ function evictSession(sessionId: string, session: McpSession): void {
   void session.server.close().catch(() => {});
 }
 
-/** Removes every session idle for longer than `idleTtlMs`, as of `now`. */
+/**
+ * Removes every idle session past `idleTtlMs`, as of `now` — but never one
+ * with active work (`activeRequests > 0`). An open GET/SSE stream or an
+ * in-progress tool call is not idle no matter how long ago its request
+ * started; evicting it would sever a client mid-turn. See the
+ * `activeRequests` doc on `McpSession`.
+ */
 function pruneExpiredSessions(now: number, idleTtlMs: number): void {
   for (const [sessionId, session] of sessions) {
+    if (session.activeRequests > 0) continue;
     if (now - session.lastUsedAt > idleTtlMs) {
       evictSession(sessionId, session);
     }
   }
 }
 
-/** Evicts the least-recently-used session(s) until the map is back at or under `maxSessions`. */
+/** The least-recently-used session with no work in flight, if any. */
+function findOldestIdleSession(): readonly [string, McpSession] | undefined {
+  for (const entry of sessions) {
+    if (entry[1].activeRequests === 0) return entry;
+  }
+  return undefined;
+}
+
+/** The most-recently-inserted session — last in the map's iteration order. */
+function findNewestSession(): readonly [string, McpSession] | undefined {
+  let newest: readonly [string, McpSession] | undefined;
+  for (const entry of sessions) newest = entry;
+  return newest;
+}
+
+/**
+ * Evicts sessions until the map is back at or under `maxSessions`,
+ * preferring the least-recently-used *idle* session — capacity pressure
+ * should not sever a client mid-turn any more than the idle TTL should.
+ *
+ * If every session currently has work in flight (enough concurrent agent
+ * turns to fill the cap), there is no idle victim. Evicting a busy session
+ * to make room is worse than refusing growth, so the most-recently-admitted
+ * session is evicted instead — ordinarily the one that just pushed the map
+ * over capacity. Its `initialize` call still succeeds at the transport
+ * level (the SDK has already committed to a response by the time this
+ * runs), but the session record is gone immediately after, so its very
+ * next request is rejected as unknown: this refuses the new session rather
+ * than punishing an established, busy one.
+ */
 function evictOldestOverCapacity(maxSessions: number): void {
   while (sessions.size > maxSessions) {
-    const oldest = sessions.entries().next();
-    if (oldest.done) return;
-    const [sessionId, session] = oldest.value;
-    evictSession(sessionId, session);
+    const victim = findOldestIdleSession() ?? findNewestSession();
+    if (!victim) return;
+    evictSession(victim[0], victim[1]);
   }
 }
 
@@ -148,12 +197,112 @@ function existingSession(sessionId: string | undefined, now: number, idleTtlMs: 
   if (!sessionId) return undefined;
   const session = sessions.get(sessionId);
   if (!session) return undefined;
-  if (now - session.lastUsedAt > idleTtlMs) {
+  if (session.activeRequests === 0 && now - session.lastUsedAt > idleTtlMs) {
     evictSession(sessionId, session);
     return undefined;
   }
   touchSession(sessionId, session, now);
   return sessions.get(sessionId);
+}
+
+/** Increments a session's in-flight counter. No-op if it was already evicted (e.g. a capacity refusal). */
+function incrementActive(sessionId: string): void {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  sessions.set(sessionId, { ...session, activeRequests: session.activeRequests + 1 });
+}
+
+/**
+ * Decrements a session's in-flight counter, floored at zero. Once it
+ * reaches zero, `lastUsedAt` is stamped to `now` — the idle clock starts
+ * fresh from the moment the work actually finished, not from when the
+ * request that did that work started.
+ */
+function decrementActive(sessionId: string, now: number): void {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  const activeRequests = Math.max(0, session.activeRequests - 1);
+  sessions.set(sessionId, { ...session, activeRequests, lastUsedAt: activeRequests === 0 ? now : session.lastUsedAt });
+}
+
+/**
+ * Wraps a GET/SSE response's body so `onStreamEnd` fires exactly once,
+ * whenever the stream actually stops moving bytes: natural completion, an
+ * upstream read error, or the client cancelling (a disconnect). This is
+ * what lets `activeRequests` track a long-lived SSE stream instead of just
+ * the instant its opening request was accepted — `transport.handleRequest`
+ * for a GET resolves immediately with the stream still open, so "the
+ * request resolved" and "the work finished" are different moments here.
+ */
+function withTrackedStreamBody(response: Response, onStreamEnd: () => void): Response {
+  const body = response.body;
+  if (!body) {
+    onStreamEnd();
+    return response;
+  }
+
+  const reader = body.getReader();
+  let finished = false;
+  const finish = (): void => {
+    if (finished) return;
+    finished = true;
+    onStreamEnd();
+  };
+
+  const tracked = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          finish();
+          return;
+        }
+        controller.enqueue(value);
+      } catch (error) {
+        finish();
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      // The client disconnected. Forward the cancel to the SDK's own
+      // stream so its existing cleanup (clearing the keep-alive timer,
+      // removing the entry from the transport's internal stream map)
+      // still runs — this wrapper only adds accounting on top of it.
+      finish();
+      return reader.cancel(reason);
+    }
+  });
+
+  return new Response(tracked, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
+/**
+ * Finishes tracking a request's activity against `sessionId` once its
+ * response is available: for GET, that means waiting for the SSE stream
+ * body to actually close; for everything else, the response being ready
+ * already means the work is done.
+ */
+function finishActivity(sessionId: string, method: string, response: Response): Response {
+  if (method === "GET") {
+    return withTrackedStreamBody(response, () => decrementActive(sessionId, Date.now()));
+  }
+  decrementActive(sessionId, Date.now());
+  return response;
+}
+
+/**
+ * Runs a request against an existing session, tracking it as active work
+ * for exactly as long as it stays in flight.
+ */
+async function withSessionActivity(sessionId: string, method: string, run: () => Promise<Response>): Promise<Response> {
+  incrementActive(sessionId);
+  try {
+    return finishActivity(sessionId, method, await run());
+  } catch (error) {
+    decrementActive(sessionId, Date.now());
+    throw error;
+  }
 }
 
 /**
@@ -176,17 +325,24 @@ mcpRoute.all("/", async (c) => {
   const maxSessions = getMaxSessions(c.env);
   pruneExpiredSessions(now, idleTtlMs);
 
-  const existing = existingSession(c.req.header(SESSION_ID_HEADER), now, idleTtlMs);
-  if (existing) {
-    return await existing.transport.handleRequest(c.req.raw);
+  const method = c.req.raw.method;
+  const sessionIdHeader = c.req.header(SESSION_ID_HEADER);
+  const existing = existingSession(sessionIdHeader, now, idleTtlMs);
+  if (existing && sessionIdHeader) {
+    return await withSessionActivity(sessionIdHeader, method, () => existing.transport.handleRequest(c.req.raw));
   }
 
   const server = createRunProofMcpServer();
+  let newSessionId: string | undefined;
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: () => crypto.randomUUID(),
     enableJsonResponse: true,
     onsessioninitialized: (sessionId) => {
-      sessions.set(sessionId, { server, transport, lastUsedAt: Date.now() });
+      newSessionId = sessionId;
+      // Starts at 1, not 0: this very `initialize` call is itself active
+      // work against the session it just created, for the rest of this
+      // handler — see `finishActivity` below, which brings it back down.
+      sessions.set(sessionId, { server, transport, lastUsedAt: Date.now(), activeRequests: 1 });
       evictOldestOverCapacity(maxSessions);
     },
     onsessionclosed: async (sessionId) => {
@@ -196,5 +352,11 @@ mcpRoute.all("/", async (c) => {
   });
 
   await server.connect(transport);
-  return await transport.handleRequest(c.req.raw);
+  try {
+    const response = await transport.handleRequest(c.req.raw);
+    return newSessionId ? finishActivity(newSessionId, method, response) : response;
+  } catch (error) {
+    if (newSessionId) decrementActive(newSessionId, Date.now());
+    throw error;
+  }
 });

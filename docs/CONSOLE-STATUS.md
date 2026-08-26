@@ -26,7 +26,7 @@
 | B5 | Incidents entity + listing APIs | 1 | B4 | ✅ done | impl-b5 | 240/240 (206 baseline + 34 new); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers incidents/created_by) |
 | B6 | Frontend auth pages + route guard | 2 | B4 | ✅ done | impl-b6 | 54/54 (14 baseline + 40 new); typecheck/lint/build clean; backend 240/240 unchanged (status row was stale — corrected by impl-b7, see task-b6-report.md) |
 | B7 | App shell — sidebar + top bar | 2 | B6 | ✅ done | impl-b7 | 68/68 frontend (54 baseline + 14 new); typecheck/lint/build clean; backend 240/240 unchanged |
-| B8 | Overview screen | 3 | B5, B7 | ⬜ not started | — | — |
+| B8 | Overview screen + CORS credentials fix | 3 | B5, B7 | 🔨 in progress | impl-b8 | — |
 | B9 | Incidents list + create flow | 3 | B8 | ⬜ not started | — | — |
 | B10 | Run detail with 4 tabs | 3 | B9 | ⬜ not started | — | — |
 | B11 | Runbooks, History, Audit screens | 3 | B10 | ⬜ not started | — | — |

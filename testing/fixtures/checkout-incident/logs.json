@@ -1,0 +1,38 @@
+[
+  {
+    "id": "log-etimedout-01",
+    "service": "payment-service",
+    "level": "error",
+    "message": "connect ETIMEDOUT 10.0.4.12:443 upstream=payment-gateway",
+    "occurrenceCount": 19,
+    "kind": "timeout",
+    "timestamp": "2026-08-25T01:57:40.000Z"
+  },
+  {
+    "id": "log-request-timeout-02",
+    "service": "payment-service",
+    "level": "error",
+    "message": "request timeout after 3000ms calling payment-gateway/charge",
+    "occurrenceCount": 15,
+    "kind": "timeout",
+    "timestamp": "2026-08-25T01:58:10.000Z"
+  },
+  {
+    "id": "log-gateway-timeout-03",
+    "service": "payment-service",
+    "level": "error",
+    "message": "gateway timeout on POST /v1/charges",
+    "occurrenceCount": 13,
+    "kind": "timeout",
+    "timestamp": "2026-08-25T01:58:55.000Z"
+  },
+  {
+    "id": "log-retry-warn-04",
+    "service": "payment-service",
+    "level": "warn",
+    "message": "retrying charge after transient network error",
+    "occurrenceCount": 6,
+    "kind": "other",
+    "timestamp": "2026-08-25T01:59:20.000Z"
+  }
+]

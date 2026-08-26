@@ -15,7 +15,7 @@ export const STATE_CHANGING_KINDS: readonly ActionKind[] = ["rollback", "restart
  * boundary rather than let it flow through and produce an ambiguous or
  * crashing fingerprint later (see `stableStringify` in `./approval`).
  */
-const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
     z.string(),
     z.number().finite(),

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "d-1",
+    "service": "payment-service",
+    "commit": "3aa910d",
+    "deployedAt": "2026-08-24T20:05:00.000Z",
+    "author": "priya.k",
+    "message": "Add retry backoff for gateway client",
+    "risky": false
+  },
+  {
+    "id": "d-2",
+    "service": "payment-service",
+    "commit": "c92e410",
+    "deployedAt": "2026-08-24T23:40:00.000Z",
+    "author": "raj.m",
+    "message": "Bump payment SDK to 4.2.0",
+    "risky": false
+  },
+  {
+    "id": "d-3",
+    "service": "payment-service",
+    "commit": "8f31c2b",
+    "deployedAt": "2026-08-25T01:50:00.000Z",
+    "author": "sam.t",
+    "message": "Tighten upstream connection pool limits",
+    "risky": true
+  },
+  {
+    "id": "d-4",
+    "service": "payment-service",
+    "commit": "1204abf",
+    "deployedAt": "2026-08-25T01:59:00.000Z",
+    "author": "sam.t",
+    "message": "Add feature flag guard for new charge path",
+    "risky": false
+  }
+]

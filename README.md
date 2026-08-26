@@ -19,29 +19,33 @@ premise is that an agent should be free to gather and reason about evidence — 
 part is safe and reversible — but the moment it wants to change production state,
 a human has to look at the same evidence and explicitly sign off.
 
-That split is enforced twice, independently:
+That split is enforced today by one runtime checkpoint, backed by domain
+machinery for a second one that is not yet wired to anything:
 
-1. **TrueForge's approval checkpoint.** RunProof's `propose_rollback` MCP tool is
-   annotated `destructiveHint: true`. TrueForge's default
+1. **TrueForge's approval checkpoint (enforced).** RunProof's `propose_rollback`
+   MCP tool is annotated `destructiveHint: true`. TrueForge's default
    `require_approval_for_tools: ["@write", "@destructive"]` matches on that
    annotation and pauses the agent's turn — emitting a `ToolApprovalRequiredEvent`
    — until a human sends an explicit `allow`/`deny` decision. Read-only tools
    (`collect_logs`, `collect_metrics`, `collect_deploys`, `get_runbook`,
    `get_diagnostic_script`) are all `readOnlyHint: true` and are never gated.
-2. **RunProof's own domain-level gate**, behind that checkpoint. Even after
-   TrueForge's human approves the tool call, RunProof does not execute anything —
-   it mints an `ApprovalGate` in the **locked** state and returns it. Actually
-   flipping that gate to approved, and then executing the change, requires a
-   branded `ApprovalToken` that only `approveGate()` can mint
-   (`backend/src/domain/approval.ts`). Calling the state-changing executor without
-   one is a **compile error**, not a runtime check that could be forgotten —
-   `executeStateChanging` is typed to accept nothing else.
+2. **RunProof's own gate (data today, not yet an enforcement layer).** Even
+   after TrueForge's human approves the tool call, RunProof does not execute
+   anything — it mints an `ApprovalGate` in the **locked** state and returns
+   it. `backend/src/domain/approval.ts` also defines a branded `ApprovalToken`
+   that only `approveGate()` can mint, non-forgeable at runtime via a
+   `WeakSet` identity check (the `unique symbol` brand TypeScript uses is
+   erased at runtime and can't stop a hand-built object from type-casting its
+   way past a naive check on its own). That machinery is real and
+   unit-tested, but **no route calls `approveGate` and no executor consumes
+   an `ApprovalToken` on `main`** — a token-gated executor exists only on an
+   unmerged branch, not in this submission.
 
-Two independent locks, not one swapped for the other. See
-[`docs/writeup.md`](docs/writeup.md) for the full argument, including how the
-token is made non-forgeable at runtime (a `WeakSet` identity check, since the
-`unique symbol` brand TypeScript uses is erased at runtime and can't stop a
-hand-built object from type-casting its way past a naive check).
+So today there is exactly one enforced checkpoint before `propose_rollback`
+can even be called, and RunProof's own handler returns a locked gate and
+executes nothing after that — full stop. See [`docs/writeup.md`](docs/writeup.md)
+for the full argument and what the unwired domain machinery does and doesn't
+give you yet.
 
 ## Architecture
 
@@ -109,16 +113,17 @@ hand-built object from type-casting its way past a naive check).
 │   └── tests/
 └── docs/
     ├── trueforge-setup.md    # step-by-step TrueForge integration + judge walkthrough
-    ├── writeup.md            # the agent's job, and the two-gate safety argument
+    ├── writeup.md            # the agent's job, and what's enforced today vs. not yet
     ├── runbook-format.md
     └── cloudflare-deployment.md
 ```
 
 ## How to run it
 
-You need: Node 18+, a local [TrueForge](https://github.com) instance (verified
-against v0.1.4), and — only for a full end-to-end agent turn — a free Gemini API
-key. No API keys are committed anywhere in this repo.
+You need: Node 22 LTS, a local [TrueForge](https://trueforge.dev) instance
+(`npx @truefoundry/trueforge`, verified against v0.1.4), and — only for a full
+end-to-end agent turn — a free Gemini API key. No API keys are committed
+anywhere in this repo.
 
 **1. Start TrueForge** on `http://localhost:8790`. No Daytona account is needed —
 TrueForge logs a "local sandbox fallback is available" message at startup and
@@ -164,8 +169,8 @@ each stage (tool discovery → a read-only call → the sandboxed diagnostic →
 ### Verification
 
 ```bash
-cd backend && npm test && npm run typecheck   # 168 tests, clean typecheck
-cd frontend && npm run lint && npm run typecheck && npm run build
+cd backend && npm test && npm run typecheck   # 171 tests, clean typecheck
+cd ../frontend && npm run lint && npm run typecheck && npm run build
 ```
 
 ## Qodo Code Review Evidence
@@ -219,6 +224,16 @@ everything else in the submission:
 - **The rollback is simulated.** `propose_rollback` never touches a real
   production system. Even after TrueForge's human approves the tool call, it
   only mints a locked RunProof `ApprovalGate` — no infrastructure API is called.
+- **RunProof's second approval gate is unimplemented.** `backend/src/domain/approval.ts`
+  has real, unit-tested machinery for it — a branded `ApprovalToken` only
+  `approveGate()` can mint, made non-forgeable by a runtime `WeakSet` and bound
+  to an action fingerprint — but no HTTP route calls `approveGate`, and there
+  is no `executeStateChanging` function or any other code path that consumes
+  an `ApprovalToken` to perform a rollback. That executor exists only on an
+  unmerged branch, not in this submission. Today the only thing that stops
+  `propose_rollback` from running is TrueForge's own `@destructive` checkpoint;
+  RunProof's contribution is that the call it lets through returns a locked
+  gate and executes nothing.
 - **The UI risk score is a disclosed display heuristic**, not a computed risk
   model. It's derived from evidence confidence for presentation purposes; it is
   not a statistical or ML-based risk assessment.

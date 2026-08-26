@@ -29,7 +29,7 @@
 | B8 | Overview screen + CORS credentials fix | 3 | B5, B7 | 🔨 in progress | impl-b8 | — |
 | B9 | Incidents list + create flow | 3 | B8 | 🔨 in progress | impl-b9 | — |
 | B10 | Run detail with 4 tabs | 3 | B9 | 🔨 in progress | impl-b10 | — |
-| B11 | Runbooks, History, Audit screens | 3 | B10 | ⬜ not started | — | — |
+| B11 | Runbooks, History, Audit screens | 3 | B10 | 🔨 in progress | impl-b11 | — |
 | B12 | End-to-end verification + docs | 4 | B11 | ⬜ not started | — | — |
 
 **Progress: 7 / 12.**

@@ -1,124 +1,271 @@
 # RunProof
 
-RunProof is an evidence-gated runbook executor for incident response.
+RunProof is an evidence-gated runbook executor for incident response, built for
+**The Agent Harness Hackathon** ("Give AI models a License to act").
 
-It helps an operations team move from alert to action without letting an AI agent make risky production changes on its own. The agent follows a scoped runbook, gathers evidence, runs diagnostics in a sandbox, explains the recommended action, and waits for human approval before anything sensitive happens.
+When an alert fires, an agent follows a runbook the team already wrote: it reads
+logs, metrics, and deploy history, runs a diagnostic in a sandbox, assembles an
+evidence packet, and proposes a remediation — which stays **locked** until a human
+approves it.
 
-## Why It Exists
+> Looking is free. Touching needs a signature.
 
-Production incidents are stressful. Teams need speed, but they also need control.
+## Why the approval gate is the point
 
-RunProof is built around one simple rule:
+Incident response is exactly the place an autonomous agent is most tempting and
+most dangerous: the pressure to act fast is highest, and the actions available
+(rollback a deploy, restart a service, page someone) are hard to undo. RunProof's
+premise is that an agent should be free to gather and reason about evidence — that
+part is safe and reversible — but the moment it wants to change production state,
+a human has to look at the same evidence and explicitly sign off.
 
-> Prove first. Act only after approval.
+That split is enforced today by one runtime checkpoint, backed by domain
+machinery for a second one that is not yet wired to anything:
 
-Instead of asking an AI assistant to improvise, RunProof gives it a controlled path:
+1. **TrueForge's approval checkpoint (enforced).** RunProof's `propose_rollback`
+   MCP tool is annotated `destructiveHint: true`. TrueForge's default
+   `require_approval_for_tools: ["@write", "@destructive"]` matches on that
+   annotation and pauses the agent's turn — emitting a `ToolApprovalRequiredEvent`
+   — until a human sends an explicit `allow`/`deny` decision. Read-only tools
+   (`collect_logs`, `collect_metrics`, `collect_deploys`, `get_runbook`,
+   `get_diagnostic_script`) are all `readOnlyHint: true` and are never gated.
+2. **RunProof's own gate (data today, not yet an enforcement layer).** Even
+   after TrueForge's human approves the tool call, RunProof does not execute
+   anything — it mints an `ApprovalGate` in the **locked** state and returns
+   it. `backend/src/domain/approval.ts` also defines a branded `ApprovalToken`
+   that only `approveGate()` can mint, non-forgeable at runtime via a
+   `WeakSet` identity check (the `unique symbol` brand TypeScript uses is
+   erased at runtime and can't stop a hand-built object from type-casting its
+   way past a naive check on its own). That machinery is real and
+   unit-tested, but **no route calls `approveGate` and no executor consumes
+   an `ApprovalToken` on `main`** — a token-gated executor exists only on an
+   unmerged branch, not in this submission.
 
-1. Start from a known runbook.
-2. Read logs, metrics, deploy history, and related context.
-3. Run diagnostic checks in isolation.
-4. Produce an evidence packet.
-5. Recommend a safe next step.
-6. Keep production actions locked until an operator approves.
+So today there is exactly one enforced checkpoint before `propose_rollback`
+can even be called, and RunProof's own handler returns a locked gate and
+executes nothing after that — full stop. See [`docs/writeup.md`](docs/writeup.md)
+for the full argument and what the unwired domain machinery does and doesn't
+give you yet.
 
-## Product Surface
+## Architecture
 
-The current repository contains a polished Next.js frontend that presents RunProof as a standalone SaaS product.
+```text
+                     ┌─────────────────────────┐
+   incident alert →  │   TrueForge (harness)    │
+                     │  - runs the agent turn   │
+                     │  - discovers MCP tools    │
+                     │  - @destructive approval  │  ← human stops it here
+                     │    checkpoint             │
+                     │  - sandbox (local /       │
+                     │    Daytona) for code exec │
+                     └────────────┬─────────────┘
+                                  │ MCP over HTTP (/mcp)
+                     ┌────────────▼─────────────┐
+                     │   RunProof (this repo)    │
+                     │   Cloudflare Worker,       │
+                     │   no execution surface     │
+                     │                            │
+                     │  MCP tools (backend/src/mcp)│
+                     │  - collect_logs            │
+                     │  - collect_metrics         │
+                     │  - collect_deploys         │
+                     │  - get_runbook             │
+                     │  - get_diagnostic_script    │
+                     │  - propose_rollback (💥)    │
+                     │                            │
+                     │  Domain layer (backend/src/domain)
+                     │  - runbook matching + scope │
+                     │  - evidence packet assembly │
+                     │  - ApprovalToken / gate     │
+                     └────────────────────────────┘
+```
 
-Current frontend sections:
+- **TrueForge is the harness.** It runs the agent loop, discovers RunProof's
+  tools over MCP, decides which tool calls need a human in the loop (via the
+  `destructiveHint`/`readOnlyHint` annotations RunProof's tools declare), and
+  provides the sandbox that actually executes the diagnostic script RunProof
+  hands back.
+- **RunProof is a remote MCP server plus a domain layer**, not a thin wrapper
+  around TrueForge. The runbook-scope enforcement (an MCP tool call is refused
+  if the matched runbook doesn't authorize that evidence source), the evidence
+  packet assembly, and the non-forgeable approval gate are all RunProof's own
+  logic, independent of TrueForge.
+- **RunProof never executes code.** It is a Cloudflare Worker with no shell, no
+  filesystem, no subprocess. `get_diagnostic_script` only returns script text;
+  TrueForge's sandbox (local fallback, or Daytona when hosted) is what runs it.
+- A polished Next.js frontend (`frontend/`) presents the evidence packet, the
+  locked/approved gate state, and a disclosed risk-score display — see
+  [What is NOT built](#what-is-not-built) for what that score actually is.
 
-- Product hero with generated RunProof logo.
-- Incident workflow preview.
-- Runbook execution model.
-- Evidence packet illustration.
-- Governed execution path.
-- Human approval flow.
-- Product footer.
-
-Live deployment:
-
-https://runproof-frontend.sahilsilare.workers.dev
-
-## Repository Structure
+## Repository structure
 
 ```text
 .
-|-- backend/                  # Placeholder for future API, MCP, and domain logic
-|-- docs/                     # Deployment and project documentation
-|-- frontend/                 # Next.js product frontend
-|   |-- public/brand/         # Generated logo assets
-|   |-- public/illustrations/ # Product illustration assets
-|   `-- src/app/              # App routes and components
-`-- testing/                  # Placeholder for runbooks, fixtures, prompts, and tests
+├── backend/                 # RunProof: Cloudflare Worker (Hono) + MCP server
+│   ├── src/domain/          # runbook, evidence, action, approval gate
+│   ├── src/mcp/             # the 6 MCP tools + collectors
+│   ├── src/routes/mcp.ts    # /mcp transport, Origin allow-list, sessions
+│   └── scripts/             # register-mcp-server.mjs, register-model-provider.mjs
+├── frontend/                 # Next.js product UI (evidence packet, approval flow)
+├── testing/
+│   ├── runbooks/             # checkout-failure.json
+│   ├── fixtures/             # fixed logs/deploys snapshot the diagnostic reads
+│   └── tests/
+└── docs/
+    ├── trueforge-setup.md    # step-by-step TrueForge integration + judge walkthrough
+    ├── writeup.md            # the agent's job, and what's enforced today vs. not yet
+    ├── runbook-format.md
+    └── cloudflare-deployment.md
 ```
 
-## Frontend Stack
+## How to run it
 
-- Next.js 16
-- React 19
-- Tailwind CSS
-- Lucide icons
-- OpenNext for Cloudflare
-- Wrangler for deployment
+You need: Node 22 LTS, a local [TrueForge](https://trueforge.dev) instance
+(`npx @truefoundry/trueforge`, verified against v0.1.4), and — only for a full
+end-to-end agent turn — a free Gemini API key. No API keys are committed
+anywhere in this repo.
 
-## Local Development
+**1. Start TrueForge** on `http://localhost:8790`. No Daytona account is needed —
+TrueForge logs a "local sandbox fallback is available" message at startup and
+uses that instead.
 
-From the repo root:
+**2. Start the RunProof backend:**
+
+```bash
+cd backend
+npm install
+npm run dev   # wrangler dev, http://localhost:8787
+curl http://localhost:8787/health   # {"status":"ok","service":"runproof-api"}
+```
+
+**3. Register RunProof's MCP server and a model provider with TrueForge:**
+
+```bash
+cd backend
+npm run register:mcp             # PUTs the MCP manifest, verifies tool discovery
+export GEMINI_API_KEY="..."      # free, no card: https://aistudio.google.com/apikey
+npm run register:model           # registers gemini-2.0-flash as the model provider
+# or do both in one step:
+npm run trueforge:setup
+```
+
+Tool discovery works with **zero** model configuration — `GET
+/api/v1/mcp-servers/runproof/tools` will list all 6 tools right after step 3's
+first command. The model provider is only needed to drive a live agent turn.
+
+**4. (Optional) Run the frontend:**
 
 ```bash
 cd frontend
-npm ci
-npm run dev
+npm install
+npm run dev   # http://localhost:3000
 ```
 
-Open:
+Full step-by-step detail, including exactly what a judge should expect to see at
+each stage (tool discovery → a read-only call → the sandboxed diagnostic →
+`propose_rollback` pausing for approval), is in
+[`docs/trueforge-setup.md`](docs/trueforge-setup.md).
 
-```text
-http://localhost:3000
-```
-
-## Verification
-
-Run these before pushing changes:
+### Verification
 
 ```bash
-cd frontend
-npm run lint
-npm run typecheck
-npm run build
+cd backend && npm test && npm run typecheck   # 175 tests, clean typecheck
+cd ../frontend && npm run lint && npm run typecheck && npm run build
 ```
 
-## Cloudflare Deployment
+## Qodo Code Review Evidence
 
-The frontend is configured for Cloudflare Workers through OpenNext.
+All four merged PRs went through a full Qodo review cycle. This section is meant
+as evidence of a working review loop, not a trophy list — the most interesting
+fact is that **several fixes introduced the next finding**, caught by re-review
+rather than by the original author.
 
-Deploy with:
+| PR | Subject | Notable findings Qodo raised and we fixed |
+|---|---|---|
+| [#1](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1) | Backend foundation + approval gate | Forged tokens passed authorization — the `unique symbol` brand is erased at runtime, so `tokenAuthorizes` accepted any object with a matching `actionId`; fixed with a module-private `WeakSet`. Approval permitted action substitution — a token was bound only to an id; fixed with a content fingerprint. That fingerprint then collided (`undefined` vs. a function both serialized to `undefined`; `NaN` vs. `null` both to `null`) — fixed with a type-tagged serializer over JSON-safe params. Backdated approvals and `NaN` expiry failing open. |
+| [#2](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/2) | Runbooks + evidence collectors | Cross-service evidence leakage — per-entry cards weren't filtered by `ctx.service`, so another service's logs could enter an evidence packet. Duplicate signals skewed runbook matching. Invalid action params were accepted. |
+| [#3](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/3) | TrueForge MCP server | Source allow-list bypass — MCP tools called collectors directly, skipping the runbook scope check that is the product's core safety property. Missing `Origin` validation (DNS rebinding against a localhost server). Sessions never expired. Active SSE sessions got evicted mid-stream. |
+| [#4](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/4) | Sandboxed diagnostic step | Whitespace-only diagnostics were accepted. |
 
-```bash
-cd frontend
-npm run deploy
-```
+**Fixes that caused the next finding:**
+- PR #1's fingerprint serializer exists *because* fixing action substitution
+  needed a content fingerprint — and that fingerprint's own edge cases
+  (`undefined`/function, `NaN`/`null`) were the next thing Qodo caught.
+- PR #2's evidence-leakage fix tightened `createAction`'s validation, which is
+  part of what surfaced the loose `runbookSchema` gap re-review flagged.
+- PR #3's SSE eviction bug was introduced by adding the session idle-TTL that
+  the *previous* finding ("sessions never expired") required.
 
-Useful related commands:
+**Two findings we did not fix, and why:**
+- **PR #1 — "Serializer breaks strict typecheck."** Disputed: `npm run
+  typecheck` exits 0 against `tsc --noEmit`, so there was nothing to fix at the
+  time. It became moot later anyway — a subsequent rewrite removed the disputed
+  line entirely.
+- **PR #3 — "Sessions break across Worker instances."** Documented rather than
+  fixed. The MCP session map in `backend/src/routes/mcp.ts` is process-local;
+  `wrangler dev` runs a single isolate, so this is latent in local dev, and a
+  Durable Object per session is the correct fix for a horizontally scaled
+  deployment. We chose an honest, documented limitation over a rushed migration
+  this close to the deadline — see "Known limitations" in
+  [`docs/trueforge-setup.md`](docs/trueforge-setup.md#known-limitations-local-dev-scope).
 
-```bash
-npm run preview
-npx wrangler tail
-```
+## What is NOT built
 
-More details are in [docs/cloudflare-deployment.md](docs/cloudflare-deployment.md).
+Being direct about this because a judge who spots one overclaim discounts
+everything else in the submission:
 
-## Future Buildout
+- **No live end-to-end agent turn has been demonstrated.** Tool discovery is
+  verified (`GET /api/v1/mcp-servers/runproof/tools` returns all 6 tools with
+  correct annotations against a running TrueForge instance). Driving a full
+  turn — an agent actually calling the tools, hitting the approval checkpoint,
+  and having a human resolve it — requires a configured model provider, which
+  this submission does not ship a key for. `docs/trueforge-setup.md` documents
+  the exact steps and expected output for a judge to run this themselves.
+- **The rollback is simulated.** `propose_rollback` never touches a real
+  production system. Even after TrueForge's human approves the tool call, it
+  only mints a locked RunProof `ApprovalGate` — no infrastructure API is called.
+- **RunProof's second approval gate is unimplemented.** `backend/src/domain/approval.ts`
+  has real, unit-tested machinery for it — a branded `ApprovalToken` only
+  `approveGate()` can mint, made non-forgeable by a runtime `WeakSet` and bound
+  to an action fingerprint — but no HTTP route calls `approveGate`, and there
+  is no `executeStateChanging` function or any other code path that consumes
+  an `ApprovalToken` to perform a rollback. That executor exists only on an
+  unmerged branch, not in this submission. Today the only thing that stops
+  `propose_rollback` from running is TrueForge's own `@destructive` checkpoint;
+  RunProof's contribution is that the call it lets through returns a locked
+  gate and executes nothing.
+- **The UI risk score is a disclosed display heuristic**, not a computed risk
+  model. It's derived from evidence confidence for presentation purposes; it is
+  not a statistical or ML-based risk assessment.
+- **The local sandbox fallback is not real isolation.** It runs the diagnostic
+  script on the TrueForge host process with host permissions — a convenience
+  for local dev, not a security boundary. Daytona provides actual sandbox
+  isolation for hosted TrueForge deployments; RunProof works with either, but
+  only the local fallback has been exercised here.
+- **No CI workflow** runs on this repository. Tests and typecheck are run
+  manually (`npm test`, `npm run typecheck` in `backend/`).
+- **No authentication exists yet.** The domain layer's `approvedBy` field is
+  free text with no identity verification behind it (see decision D5 in
+  `docs/IMPLEMENTATION-STATUS.md`) — there is no login flow, and consequently
+  no rate limiting on one. This is a vertical-slice prototype, not a
+  production-hardened multi-tenant system.
 
-The full breakdown of remaining work — the idea in plain terms, open decisions, and a phased task list — is in [docs/roadmap.md](docs/roadmap.md).
+## Live deployment
 
-Planned backend and testing work can live in the existing placeholder folders:
+A frontend build has previously been deployed to
+`https://runproof-frontend.sahilsilare.workers.dev` via OpenNext/Wrangler; it
+serves the product UI only and is not wired to a live TrueForge instance or a
+running backend. Judges should follow "How to run it" above to see the actual
+system, not the static deployment.
 
-- `backend/src/domain`: incident, runbook, evidence, and approval models.
-- `backend/src/mcp`: tool adapters and controlled agent actions.
-- `backend/src/routes`: API endpoints.
-- `testing/runbooks`: sample runbooks.
-- `testing/fixtures`: logs, metrics, commits, and incident data.
-- `testing/tests`: workflow and safety checks.
+## Further reading
 
-The intended product direction is a system where agent actions are explainable, replayable, and gated by evidence.
+- [`docs/writeup.md`](docs/writeup.md) — the agent's job, and the full safety
+  argument for the two independent approval gates.
+- [`docs/trueforge-setup.md`](docs/trueforge-setup.md) — step-by-step TrueForge
+  integration, including exactly what a judge should expect to see.
+- [`docs/runbook-format.md`](docs/runbook-format.md) — the runbook schema and
+  why it's JSON, not YAML.
+- [`docs/cloudflare-deployment.md`](docs/cloudflare-deployment.md) — deployment
+  notes for the frontend.
+- [`docs/roadmap.md`](docs/roadmap.md) — remaining work beyond this slice.

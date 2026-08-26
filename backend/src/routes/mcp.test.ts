@@ -247,7 +247,12 @@ describe("MCP endpoint", () => {
         method: "tools/call",
         params: {
           name: "propose_rollback",
-          arguments: { service: "payment-service", commit: "8f31c2b", reason: "revert risky deploy" }
+          arguments: {
+            service: "payment-service",
+            commit: "8f31c2b",
+            reason: "revert risky deploy",
+            signals: ["timeout", "error_rate"]
+          }
         }
       },
       { sessionId }

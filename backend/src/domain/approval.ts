@@ -67,8 +67,21 @@ export function isIssuedToken(value: unknown): value is ApprovalToken {
  * Cycle detection: a `WeakSet` of objects/arrays currently being visited
  * catches a cyclic structure and throws a clear error instead of recursing
  * until the stack overflows.
+ *
+ * Exported so callers outside this module can compare arbitrary JSON-safe
+ * values with the exact same key-order-independent, type-tagged semantics
+ * `fingerprintAction` uses for `params` — e.g. `mcp/toolHandlers.ts` uses it
+ * to check a caller's requested params against what a matched runbook's
+ * `proposedAction.params` actually prescribes. `fingerprintAction` itself
+ * isn't the right tool there: it fingerprints an entire `Action` keyed to
+ * whole-record equality of `params`, but that check must compare only the
+ * subset of params a runbook prescribes (a runbook may authorize `commit`
+ * while the request also carries a free-form `reason` the runbook never
+ * sees). Reusing this primitive instead of `fingerprintAction` keeps both
+ * comparisons on one deterministic serialization so they cannot drift on
+ * what counts as "the same value".
  */
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   const seen = new WeakSet<object>();
 
   function stringify(val: unknown, path: string): string {

@@ -16,6 +16,36 @@ const NARROW_SCOPE_RUNBOOK: Runbook = {
   }
 };
 
+const RESTART_ONLY_RUNBOOK: Runbook = {
+  id: "restart-only-test-runbook",
+  title: "Restart-only proposedAction for testing propose_rollback authorization",
+  trigger: { service: "restart-only-service", signals: ["timeout"] },
+  allowedSources: ["logs"],
+  steps: [{ id: "step-1", label: "step", detail: "this runbook only authorizes a restart, never a rollback" }],
+  proposedAction: {
+    kind: "restart",
+    target: "restart-only-service",
+    params: {},
+    reversible: true,
+    description: "Restart restart-only-service"
+  }
+};
+
+const MISMATCHED_TARGET_RUNBOOK: Runbook = {
+  id: "mismatched-target-test-runbook",
+  title: "proposedAction targets a different service than the trigger, for testing propose_rollback authorization",
+  trigger: { service: "mismatched-target-service", signals: ["timeout"] },
+  allowedSources: ["logs"],
+  steps: [{ id: "step-1", label: "step", detail: "the proposed rollback targets a downstream service, not this one" }],
+  proposedAction: {
+    kind: "rollback",
+    target: "some-other-downstream-service",
+    params: {},
+    reversible: true,
+    description: "Roll back some-other-downstream-service"
+  }
+};
+
 const SANDBOX_NO_DIAGNOSTIC_RUNBOOK: Runbook = {
   id: "sandbox-no-diagnostic-test-runbook",
   title: "Sandbox-authorized but no diagnostic authored yet",
@@ -34,7 +64,15 @@ const SANDBOX_NO_DIAGNOSTIC_RUNBOOK: Runbook = {
 
 vi.mock("./runbooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./runbooks")>();
-  return { ALL_RUNBOOKS: [...actual.ALL_RUNBOOKS, NARROW_SCOPE_RUNBOOK, SANDBOX_NO_DIAGNOSTIC_RUNBOOK] };
+  return {
+    ALL_RUNBOOKS: [
+      ...actual.ALL_RUNBOOKS,
+      NARROW_SCOPE_RUNBOOK,
+      SANDBOX_NO_DIAGNOSTIC_RUNBOOK,
+      RESTART_ONLY_RUNBOOK,
+      MISMATCHED_TARGET_RUNBOOK
+    ]
+  };
 });
 
 vi.mock("./logs", async (importOriginal) => {
@@ -207,19 +245,26 @@ describe("handleGetDiagnosticScript", () => {
 });
 
 describe("handleProposeRollback", () => {
+  const VALID_ARGS = {
+    service: "payment-service",
+    commit: "8f31c2b",
+    reason: "revert risky deploy",
+    signals: ["timeout", "error_rate"]
+  };
+
   it("never marks the rollback as executed", () => {
-    const result = handleProposeRollback({ service: "payment-service", commit: "8f31c2b", reason: "revert risky deploy" });
+    const result = handleProposeRollback(VALID_ARGS);
     expect(result.executed).toBe(false);
   });
 
   it("mints a locked approval gate bound to the proposed action's id", () => {
-    const result = handleProposeRollback({ service: "payment-service", commit: "8f31c2b", reason: "revert risky deploy" });
+    const result = handleProposeRollback(VALID_ARGS);
     expect(result.gate.state).toBe("locked");
     expect(result.gate.actionId).toBe(result.action.id);
   });
 
   it("builds a state-changing rollback action carrying the commit and reason", () => {
-    const result = handleProposeRollback({ service: "payment-service", commit: "8f31c2b", reason: "revert risky deploy" });
+    const result = handleProposeRollback(VALID_ARGS);
     expect(result.action.kind).toBe("rollback");
     expect(result.action.isStateChanging).toBe(true);
     expect(result.action.target).toBe("payment-service");
@@ -227,16 +272,98 @@ describe("handleProposeRollback", () => {
   });
 
   it("describes the proposal as locked and unexecuted in the message", () => {
-    const result = handleProposeRollback({ service: "payment-service", commit: "8f31c2b", reason: "revert risky deploy" });
+    const result = handleProposeRollback(VALID_ARGS);
     expect(result.message).toContain("not executed");
     expect(result.message).toContain("LOCKED");
   });
 
   it("mints a fresh action id (and gate) on every call, even for identical arguments", () => {
-    const args = { service: "payment-service", commit: "8f31c2b", reason: "revert risky deploy" };
-    const first = handleProposeRollback(args);
-    const second = handleProposeRollback(args);
+    const first = handleProposeRollback(VALID_ARGS);
+    const second = handleProposeRollback(VALID_ARGS);
     expect(first.action.id).not.toBe(second.action.id);
     expect(first.gate.id).not.toBe(second.gate.id);
+  });
+
+  it("refuses and creates no action or gate when no runbook matches the service/signals", () => {
+    expect(() =>
+      handleProposeRollback({
+        service: "totally-unknown-service",
+        commit: "deadbee",
+        reason: "no runbook backs this",
+        signals: ["nope"]
+      })
+    ).toThrow(/No runbook matches/);
+  });
+
+  it("refuses when the matched runbook's proposedAction is not a rollback", () => {
+    expect(() =>
+      handleProposeRollback({
+        service: "restart-only-service",
+        commit: "deadbee",
+        reason: "trying to rollback anyway",
+        signals: ["timeout"]
+      })
+    ).toThrow(/does not authorize a rollback of "restart-only-service"/);
+  });
+
+  it("refuses when the matched runbook's proposedAction targets a different service", () => {
+    expect(() =>
+      handleProposeRollback({
+        service: "mismatched-target-service",
+        commit: "deadbee",
+        reason: "trying to rollback the wrong target",
+        signals: ["timeout"]
+      })
+    ).toThrow(/does not authorize a rollback of "mismatched-target-service"/);
+  });
+
+  it("still produces a locked gate for the runbook's prescribed commit", () => {
+    const result = handleProposeRollback(VALID_ARGS);
+    expect(result.gate.state).toBe("locked");
+    expect(result.action.params).toEqual({ commit: "8f31c2b", reason: "revert risky deploy" });
+  });
+
+  it("refuses and creates no action or gate when the requested commit differs from the runbook's prescribed commit", () => {
+    expect(() =>
+      handleProposeRollback({
+        service: "payment-service",
+        commit: "deadbee",
+        reason: "revert risky deploy",
+        signals: ["timeout", "error_rate"]
+      })
+    ).toThrow(/proposedAction\.params\.commit/);
+  });
+
+  it("names the requested and authorized commit values in the refusal message", () => {
+    expect(() =>
+      handleProposeRollback({
+        service: "payment-service",
+        commit: "deadbee",
+        reason: "revert risky deploy",
+        signals: ["timeout", "error_rate"]
+      })
+    ).toThrow(/deadbee/);
+    expect(() =>
+      handleProposeRollback({
+        service: "payment-service",
+        commit: "deadbee",
+        reason: "revert risky deploy",
+        signals: ["timeout", "error_rate"]
+      })
+    ).toThrow(/8f31c2b/);
+  });
+
+  it("authorizes the prescribed commit regardless of the caller-supplied reason text", () => {
+    const result = handleProposeRollback({
+      service: "payment-service",
+      commit: "8f31c2b",
+      reason: "a completely different operator-supplied reason",
+      signals: ["timeout", "error_rate"]
+    });
+    expect(result.gate.state).toBe("locked");
+    expect(result.action.params).toEqual({
+      commit: "8f31c2b",
+      reason: "a completely different operator-supplied reason"
+    });
   });
 });

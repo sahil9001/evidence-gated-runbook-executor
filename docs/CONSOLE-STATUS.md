@@ -23,7 +23,7 @@
 | B2 | Surface `failures` (I1), server evidence gate (I3), error mapping (I2) | 0 | B1 | ✅ done | impl-b2 | 122/122 (117 baseline + 5 new); RED confirmed by stashing source fixes only |
 | B3 | Store seam + memory adapter + conformance suite | 1 | B1 | ✅ done | impl-b3 | 167/167 (122 baseline − 15 moved + 58 conformance ×2-adapters + 2 D1-only); typecheck clean; `db:migrate` applied 0002 cleanly (9 commands) |
 | B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | ✅ done | impl-b4 | 206/206 (167 baseline + 39 new: 6 password + 9 session + 4 middleware + 20 auth routes); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers users/sessions) |
-| B5 | Incidents entity + listing APIs | 1 | B4 | ⬜ not started | — | — |
+| B5 | Incidents entity + listing APIs | 1 | B4 | 🔨 in progress | impl-b5 | — |
 | B6 | Frontend auth pages + route guard | 2 | B4 | ⬜ not started | — | — |
 | B7 | App shell — sidebar + top bar | 2 | B6 | ⬜ not started | — | — |
 | B8 | Overview screen | 3 | B5, B7 | ⬜ not started | — | — |

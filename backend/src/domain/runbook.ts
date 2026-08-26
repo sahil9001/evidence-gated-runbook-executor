@@ -19,14 +19,26 @@ export const runbookActionSchema = z.object({
 });
 export type RunbookAction = z.infer<typeof runbookActionSchema>;
 
+/**
+ * Rejects an array containing repeated entries. A runbook with duplicate
+ * trigger signals or allowedSources is malformed: duplicates skew signal
+ * overlap scoring (see `countOverlap`) and add nothing to an allow-list, so
+ * they fail loudly at load time instead of silently passing through.
+ */
+function noDuplicates<T extends z.ZodType<string>>(schema: T) {
+  return z.array(schema).refine((values) => new Set(values).size === values.length, {
+    message: "must not contain duplicate entries"
+  });
+}
+
 export const runbookSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   trigger: z.object({
     service: z.string().min(1),
-    signals: z.array(z.string().min(1))
+    signals: noDuplicates(z.string().min(1))
   }),
-  allowedSources: z.array(evidenceSourceKindSchema),
+  allowedSources: noDuplicates(evidenceSourceKindSchema),
   steps: z.array(runbookStepSchema).min(1, "a runbook must have at least one step"),
   proposedAction: runbookActionSchema
 });
@@ -63,7 +75,8 @@ export function loadRunbook(raw: unknown): Runbook {
 
 function countOverlap(runbookSignals: readonly string[], incidentSignals: readonly string[]): number {
   const incidentSet = new Set(incidentSignals);
-  return runbookSignals.filter((signal) => incidentSet.has(signal)).length;
+  const distinctRunbookSignals = new Set(runbookSignals);
+  return [...distinctRunbookSignals].filter((signal) => incidentSet.has(signal)).length;
 }
 
 /**

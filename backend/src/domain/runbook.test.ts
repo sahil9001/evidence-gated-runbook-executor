@@ -75,6 +75,34 @@ describe("loadRunbook", () => {
       expect(message).toContain("trigger.service");
     }
   });
+
+  it("throws RunbookValidationError naming trigger.signals when signals contain a duplicate", () => {
+    const input = validRunbook() as { trigger: { signals: string[] } };
+    input.trigger.signals = ["timeout", "timeout"];
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("trigger.signals");
+    }
+  });
+
+  it("throws RunbookValidationError naming allowedSources when allowedSources contain a duplicate", () => {
+    const input = validRunbook() as { allowedSources: string[] };
+    input.allowedSources = ["logs", "logs", "metrics"];
+
+    try {
+      loadRunbook(input);
+      throw new Error("expected loadRunbook to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunbookValidationError);
+      const message = (error as RunbookValidationError).message;
+      expect(message).toContain("allowedSources");
+    }
+  });
 });
 
 describe("matchRunbook", () => {
@@ -142,6 +170,46 @@ describe("matchRunbook", () => {
 
   it("returns null when given zero candidates", () => {
     expect(matchRunbook([], { service: "payment-service", signals: ["timeout"] })).toBeNull();
+  });
+
+  it("does not let a runbook with a duplicated signal outrank a runbook with two distinct matching signals", () => {
+    // A malformed runbook object bypassing loadRunbook's duplicate rejection
+    // (constructed directly, since loadRunbook now rejects this shape) —
+    // countOverlap itself must not double-count repeated entries. On a naive
+    // count-every-occurrence implementation this would tie or even win
+    // against "distinct" (2 vs 2), but should score only 1 distinct match.
+    const duplicated: Runbook = {
+      ...base,
+      id: "duplicated",
+      trigger: { service: "payment-service", signals: ["timeout", "timeout"] }
+    };
+    const distinct = loadRunbook({
+      ...base,
+      id: "distinct",
+      trigger: { service: "payment-service", signals: ["timeout", "error_rate"] }
+    });
+
+    const result = matchRunbook(
+      [duplicated, distinct],
+      { service: "payment-service", signals: ["timeout", "error_rate"] }
+    );
+
+    expect(result?.id).toBe("distinct");
+  });
+
+  it("counts a duplicated incident signal only once toward overlap", () => {
+    const single = loadRunbook({
+      ...base,
+      id: "single",
+      trigger: { service: "payment-service", signals: ["timeout"] }
+    });
+
+    const result = matchRunbook(
+      [single],
+      { service: "payment-service", signals: ["timeout", "timeout", "timeout"] }
+    );
+
+    expect(result?.id).toBe("single");
   });
 });
 

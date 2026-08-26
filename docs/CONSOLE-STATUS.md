@@ -24,15 +24,15 @@
 | B3 | Store seam + memory adapter + conformance suite | 1 | B1 | ✅ done | impl-b3 | 167/167 (122 baseline − 15 moved + 58 conformance ×2-adapters + 2 D1-only); typecheck clean; `db:migrate` applied 0002 cleanly (9 commands) |
 | B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | ✅ done | impl-b4 | 206/206 (167 baseline + 39 new: 6 password + 9 session + 4 middleware + 20 auth routes); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers users/sessions) |
 | B5 | Incidents entity + listing APIs | 1 | B4 | ✅ done | impl-b5 | 240/240 (206 baseline + 34 new); typecheck clean; `db:migrate` — no migrations to apply (0002 already covers incidents/created_by) |
-| B6 | Frontend auth pages + route guard | 2 | B4 | 🔨 in progress | impl-b6 | — |
-| B7 | App shell — sidebar + top bar | 2 | B6 | 🔨 in progress | impl-b7 | — |
+| B6 | Frontend auth pages + route guard | 2 | B4 | ✅ done | impl-b6 | 54/54 (14 baseline + 40 new); typecheck/lint/build clean; backend 240/240 unchanged (status row was stale — corrected by impl-b7, see task-b6-report.md) |
+| B7 | App shell — sidebar + top bar | 2 | B6 | ✅ done | impl-b7 | 68/68 frontend (54 baseline + 14 new); typecheck/lint/build clean; backend 240/240 unchanged |
 | B8 | Overview screen | 3 | B5, B7 | ⬜ not started | — | — |
 | B9 | Incidents list + create flow | 3 | B8 | ⬜ not started | — | — |
 | B10 | Run detail with 4 tabs | 3 | B9 | ⬜ not started | — | — |
 | B11 | Runbooks, History, Audit screens | 3 | B10 | ⬜ not started | — | — |
 | B12 | End-to-end verification + docs | 4 | B11 | ⬜ not started | — | — |
 
-**Progress: 5 / 12.**
+**Progress: 7 / 12.**
 
 ## Invariants — do not "fix" these
 
@@ -47,6 +47,18 @@
 | Domain layer is pure | No `Date.now()` inside; clocks inject at the route boundary |
 
 ## Handoff Log
+
+### 2026-08-26 — impl-b7 — B7 done
+
+`app/app/layout.tsx` (new, client component — needs shared state for the mobile drawer between `Sidebar` and `TopBar`'s hamburger), `app/app/components/Sidebar.tsx`, `app/app/components/TopBar.tsx`. Sidebar: exact-match active-route logic (`pathname === "/app"` for Overview, prefix match elsewhere) fixing the "every route looks active" bug called out in the task; closes itself on Escape (listener attached only while open) and on route change (`pathname`-keyed effect, `useRef` first-render guard so mount doesn't fire a spurious close); persistent at `lg+`, fixed overlay drawer below it. TopBar: awaiting-approval badge from `GET /overview` (added `getOverview()` to `lib/api.ts`, `OverviewResponse`/`AuditEntry` to `lib/types.ts`) — omitted (not zeroed) while loading or on error so it never flashes a wrong number; calm neutral pill at zero, rose pill with `rp-pulse` dot (existing keyframe, already reduced-motion-safe) when non-zero; email via `me()`; logout calls `logout()` then unconditionally `router.push("/login")` in a `finally` with an empty `catch`, so a network hiccup on logout still redirects.
+
+`app/app/page.tsx` adjustment (minimal, as pre-authorized by the task): removed its own `<main>` wrapper and `<Navbar />` import now that the shell owns both — was producing a nested `<main>` otherwise. `DashboardClient.tsx` untouched. `frontend/src/app/page.tsx` (root landing page), `App.tsx`, `RunbookPreview.tsx`, and `backend/` all confirmed byte-identical via `git diff --stat`.
+
+**Found, did not fix (out of scope, `backend/` forbidden):** `backend/src/index.ts`'s `cors()` has no `credentials: true`, so every credentialed cross-origin fetch — including login/register, not just the new `getOverview()` — is rejected by the browser in local dev (empty `Access-Control-Allow-Credentials`). Verified via Playwright against real `next dev`/`wrangler dev`; worked around only for my own visual check with a `--disable-web-security` profile. Whoever drives B8+ against local dev will hit this for real login flows until it's fixed.
+
+Also corrected B6's status row above — it was still marked 🔨 in progress despite its commit (`ccf11a9`) having landed and `task-b6-report.md` showing done (54/54); no code changes involved, just the stale handoff record.
+
+Frontend 68/68 (54 baseline + 14 new: 6 Sidebar + 5 TopBar + 2 layout + 1 api), typecheck/lint/build clean. Backend 240/240, unchanged. Full report: `.superpowers/sdd/2026-08-26-operator-console/task-b7-report.md`. Next agent: B8 (Overview screen) — replaces `app/app/page.tsx`/`DashboardClient.tsx` entirely, which fully supersedes the minimal adjustment above.
 
 ### 2026-08-26 — impl-b5 — B5 done
 

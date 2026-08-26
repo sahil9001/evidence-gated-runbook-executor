@@ -112,6 +112,23 @@ export interface User {
   readonly createdAt: string;
 }
 
+// mirrors backend/src/domain/store.ts AuditEntry
+export interface AuditEntry {
+  readonly id: string;
+  readonly runId: string;
+  readonly at: string;
+  readonly kind: string;
+  readonly detail: string;
+}
+
+// mirrors the `data` payload of GET /overview (backend/src/routes/overview.ts)
+export interface OverviewResponse {
+  readonly awaitingApproval: number;
+  readonly activeIncidents: number;
+  readonly runsToday: number;
+  readonly recentActivity: readonly AuditEntry[];
+}
+
 // mirrors backend/src/index.ts ApiError
 export interface ApiErrorBody {
   readonly ok: false;

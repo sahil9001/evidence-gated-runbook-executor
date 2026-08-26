@@ -1,4 +1,4 @@
-import type { ApiErrorBody, ApprovalResponse, PacketResponse, RunResponse } from "./types";
+import type { ApiErrorBody, ApprovalResponse, OverviewResponse, PacketResponse, RunResponse } from "./types";
 
 const DEFAULT_BASE_URL = "http://localhost:8787";
 
@@ -135,4 +135,9 @@ export async function reject(gateId: string, by: string, reason: string): Promis
     method: "POST",
     body: JSON.stringify({ by, reason })
   });
+}
+
+/** Backs the top bar's awaiting-approval badge and (eventually) the Overview screen. */
+export async function getOverview(): Promise<OverviewResponse> {
+  return request<OverviewResponse>("/overview", { method: "GET" });
 }

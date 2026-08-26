@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiClientError, approve, getPacket, reject, startRun } from "./api";
+import { ApiClientError, approve, getOverview, getPacket, reject, startRun } from "./api";
 
 const ORIGINAL_ENV = process.env.NEXT_PUBLIC_API_URL;
 
@@ -143,5 +143,16 @@ describe("api client", () => {
     const init = vi.mocked(fetch).mock.calls[0]?.[1];
     const sentBody: unknown = JSON.parse(String(init?.body));
     expect(sentBody).toEqual({ by: "alice", reason: "bad idea" });
+  });
+
+  it("unwraps the overview payload from GET /overview", async () => {
+    const data = { awaitingApproval: 2, activeIncidents: 3, runsToday: 5, recentActivity: [] };
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, data }));
+
+    const result = await getOverview();
+
+    expect(result).toEqual(data);
+    const calledUrl = vi.mocked(fetch).mock.calls[0]?.[0];
+    expect(String(calledUrl)).toBe("http://localhost:8787/overview");
   });
 });

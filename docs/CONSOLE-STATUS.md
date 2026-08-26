@@ -22,7 +22,7 @@
 | B1 | Atomic approval (C1) + parse-on-read (C2, M9) | 0 | — | ✅ done | impl-b1 | 117/117; race reproduced [200,200] then closed [200,409] |
 | B2 | Surface `failures` (I1), server evidence gate (I3), error mapping (I2) | 0 | B1 | ✅ done | impl-b2 | 122/122 (117 baseline + 5 new); RED confirmed by stashing source fixes only |
 | B3 | Store seam + memory adapter + conformance suite | 1 | B1 | ✅ done | impl-b3 | 167/167 (122 baseline − 15 moved + 58 conformance ×2-adapters + 2 D1-only); typecheck clean; `db:migrate` applied 0002 cleanly (9 commands) |
-| B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | ⬜ not started | — | — |
+| B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | 🔨 in progress | impl-b4 | — |
 | B5 | Incidents entity + listing APIs | 1 | B4 | ⬜ not started | — | — |
 | B6 | Frontend auth pages + route guard | 2 | B4 | ⬜ not started | — | — |
 | B7 | App shell — sidebar + top bar | 2 | B6 | ⬜ not started | — | — |

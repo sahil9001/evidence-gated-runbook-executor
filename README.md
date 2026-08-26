@@ -169,7 +169,7 @@ each stage (tool discovery → a read-only call → the sandboxed diagnostic →
 ### Verification
 
 ```bash
-cd backend && npm test && npm run typecheck   # 171 tests, clean typecheck
+cd backend && npm test && npm run typecheck   # 175 tests, clean typecheck
 cd ../frontend && npm run lint && npm run typecheck && npm run build
 ```
 

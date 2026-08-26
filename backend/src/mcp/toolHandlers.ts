@@ -4,8 +4,8 @@ import { createDeploySource } from "./deploys";
 import { ALL_RUNBOOKS } from "./runbooks";
 import type { EvidenceCard, EvidenceSourceKind } from "../domain/evidence";
 import { matchRunbook, type Runbook } from "../domain/runbook";
-import { createAction, type Action } from "../domain/action";
-import { createGate, type ApprovalGate } from "../domain/approval";
+import { createAction, type Action, type JsonValue } from "../domain/action";
+import { createGate, stableStringify, type ApprovalGate } from "../domain/approval";
 
 /**
  * The domain-pure collectors take an injected clock so their output stays
@@ -139,6 +139,42 @@ export function handleGetDiagnosticScript(args: GetDiagnosticScriptArgs): GetDia
   };
 }
 
+/**
+ * Confirms the caller's requested params match every field the matched
+ * runbook's `proposedAction.params` actually prescribes (e.g. `commit`).
+ * Only checks the keys the runbook names — comparing kind/target alone (as
+ * `handleProposeRollback` used to) let a caller keep the matched runbook's
+ * authorization while swapping in any params it liked, which is exactly the
+ * "Approval permits action substitution" class of bug already fixed once at
+ * the token layer (see `fingerprintAction` in `../domain/approval`) and
+ * reintroduced here one layer up by comparing only a subset of the action's
+ * fields.
+ *
+ * Deliberately does NOT compare the whole params record: a request's params
+ * may carry fields the runbook never prescribes (`reason` is free-form
+ * operator context, not something any runbook authorizes) and those must
+ * stay unconstrained. Uses `stableStringify` — the same deterministic,
+ * key-order-independent, JSON-safe serialization `fingerprintAction` uses
+ * for `params` — so this check and the token fingerprint can never drift on
+ * what counts as "the same value", without fingerprinting a synthetic
+ * `Action` this call has no real `id`/`isStateChanging` for.
+ */
+function assertRunbookAuthorizesParams(
+  runbook: Runbook,
+  requestedParams: Readonly<Record<string, JsonValue>>
+): void {
+  for (const [key, authorizedValue] of Object.entries(runbook.proposedAction.params)) {
+    const requestedValue = requestedParams[key];
+    if (stableStringify(requestedValue) !== stableStringify(authorizedValue)) {
+      throw new Error(
+        `Runbook "${runbook.id}" authorizes proposedAction.params.${key} = ${JSON.stringify(authorizedValue)}, ` +
+          `but the request specified ${JSON.stringify(requestedValue)}. Refusing to propose an action whose ` +
+          `params the matched runbook does not authorize.`
+      );
+    }
+  }
+}
+
 export type ProposeRollbackArgs = { service: string; commit: string; reason: string; signals: string[] };
 export type ProposeRollbackResult = {
   executed: false;
@@ -155,8 +191,10 @@ const ROLLBACK_GATE_TTL_MS = 15 * 60 * 1000;
  * from `args.service`/`args.signals` via `requireMatchedRunbook` (refusing,
  * same as the collectors, when nothing matches) and then checks that the
  * runbook's own `proposedAction` actually authorizes *this* rollback — same
- * `kind` ("rollback") and same `target` as the requested service. A runbook
- * whose proposedAction is a restart, or that targets a different service,
+ * `kind` ("rollback"), same `target` as the requested service, AND the same
+ * prescribed `params` (e.g. `commit`), via `assertRunbookAuthorizesParams`.
+ * A runbook whose proposedAction is a restart, that targets a different
+ * service, or that prescribes a different commit than the caller requested,
  * does not license this call; it is refused before any `Action` or
  * `ApprovalGate` is created. This is deliberately the same authorization
  * shape as the collectors (`authorizeSource`), just checked against
@@ -185,12 +223,17 @@ export function handleProposeRollback(args: ProposeRollbackArgs): ProposeRollbac
     );
   }
 
+  // `reason` is deliberately excluded: it is free-form operator context, not
+  // part of what the runbook authorizes (see `assertRunbookAuthorizesParams`).
+  const requestedParams: Record<string, JsonValue> = { commit: args.commit, reason: args.reason };
+  assertRunbookAuthorizesParams(runbook, requestedParams);
+
   const actionId = `mcp-rollback-${args.service}-${args.commit}-${crypto.randomUUID()}`;
   const action = createAction({
     id: actionId,
     kind: "rollback",
     target: args.service,
-    params: { commit: args.commit, reason: args.reason },
+    params: requestedParams,
     reversible: true,
     description: `Roll back ${args.service} to ${args.commit}`
   });

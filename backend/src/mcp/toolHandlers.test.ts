@@ -316,4 +316,54 @@ describe("handleProposeRollback", () => {
       })
     ).toThrow(/does not authorize a rollback of "mismatched-target-service"/);
   });
+
+  it("still produces a locked gate for the runbook's prescribed commit", () => {
+    const result = handleProposeRollback(VALID_ARGS);
+    expect(result.gate.state).toBe("locked");
+    expect(result.action.params).toEqual({ commit: "8f31c2b", reason: "revert risky deploy" });
+  });
+
+  it("refuses and creates no action or gate when the requested commit differs from the runbook's prescribed commit", () => {
+    expect(() =>
+      handleProposeRollback({
+        service: "payment-service",
+        commit: "deadbee",
+        reason: "revert risky deploy",
+        signals: ["timeout", "error_rate"]
+      })
+    ).toThrow(/proposedAction\.params\.commit/);
+  });
+
+  it("names the requested and authorized commit values in the refusal message", () => {
+    expect(() =>
+      handleProposeRollback({
+        service: "payment-service",
+        commit: "deadbee",
+        reason: "revert risky deploy",
+        signals: ["timeout", "error_rate"]
+      })
+    ).toThrow(/deadbee/);
+    expect(() =>
+      handleProposeRollback({
+        service: "payment-service",
+        commit: "deadbee",
+        reason: "revert risky deploy",
+        signals: ["timeout", "error_rate"]
+      })
+    ).toThrow(/8f31c2b/);
+  });
+
+  it("authorizes the prescribed commit regardless of the caller-supplied reason text", () => {
+    const result = handleProposeRollback({
+      service: "payment-service",
+      commit: "8f31c2b",
+      reason: "a completely different operator-supplied reason",
+      signals: ["timeout", "error_rate"]
+    });
+    expect(result.gate.state).toBe("locked");
+    expect(result.action.params).toEqual({
+      commit: "8f31c2b",
+      reason: "a completely different operator-supplied reason"
+    });
+  });
 });

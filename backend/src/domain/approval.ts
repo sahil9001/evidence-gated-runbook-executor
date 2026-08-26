@@ -32,6 +32,24 @@ export type RejectedGate = GateBase & { readonly state: "rejected"; readonly dec
 export type ApprovalGate = LockedGate | ApprovedGate | RejectedGate;
 
 /**
+ * Thrown for malformed approve/reject input — a blank or whitespace-only
+ * approver identity or rejection reason. Zod's `min(1)` at the route
+ * boundary accepts whitespace, so this guard is the layer that actually
+ * catches it; giving it a distinct type (rather than a bare `Error`) lets
+ * the route map it to `400 validation_failed` instead of letting it fall
+ * through to `app.onError`'s `500`. Deliberately narrower than the
+ * already-decided/expired checks in `assertDecidable`, which stay plain
+ * `Error`s — those are defence-in-depth the route already prevents via
+ * `loadDecidableGate`, not client input errors.
+ */
+export class ApprovalInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApprovalInputError";
+  }
+}
+
+/**
  * A gate's `expiresAt` decides whether it can still be decided (see
  * `isExpired`) — a corrupted or malformed value here must fail loudly on
  * read rather than silently produce a gate that can never expire (a
@@ -103,7 +121,7 @@ export function approveGate(
   decision: { by: string; at: string; reason?: string }
 ): { gate: ApprovedGate; token: ApprovalToken } {
   assertDecidable(gate, decision.at);
-  if (decision.by.trim() === "") throw new Error("Approver identity is required");
+  if (decision.by.trim() === "") throw new ApprovalInputError("Approver identity is required");
 
   const approved: ApprovedGate = {
     id: gate.id, actionId: gate.actionId, createdAt: gate.createdAt, expiresAt: gate.expiresAt,
@@ -126,8 +144,8 @@ export function rejectGate(
   decision: { by: string; at: string; reason: string }
 ): RejectedGate {
   assertDecidable(gate, decision.at);
-  if (decision.by.trim() === "") throw new Error("Approver identity is required");
-  if (decision.reason.trim() === "") throw new Error("A rejection reason is required");
+  if (decision.by.trim() === "") throw new ApprovalInputError("Approver identity is required");
+  if (decision.reason.trim() === "") throw new ApprovalInputError("A rejection reason is required");
 
   return {
     id: gate.id, actionId: gate.actionId, createdAt: gate.createdAt, expiresAt: gate.expiresAt,

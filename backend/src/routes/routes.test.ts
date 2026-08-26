@@ -1,9 +1,13 @@
 import { env, applyD1Migrations, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
+import { Hono } from "hono";
 import { beforeAll, describe, it, expect } from "vitest";
-import app from "../index";
+import app, { type Env } from "../index";
 import { createD1Store } from "../domain/store";
 import { createGate } from "../domain/approval";
 import { createAction } from "../domain/action";
+import { buildPacket } from "../domain/evidence";
+import { createRunRoutes } from "./run";
+import { createLogSource, createMetricSource, createDeploySource } from "../mcp";
 
 beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
@@ -81,6 +85,59 @@ describe("POST /incidents/:id/run", () => {
     expect(status).toBe(400);
     const body = json as ApiErr;
     expect(body.error.code).toBe("validation_failed");
+  });
+});
+
+describe("POST /incidents/:id/run — evidence honesty (I1)", () => {
+  // collectEvidence's `failures` are only observable if something can be
+  // made to fail deterministically. createRunRoutes accepts sources as a
+  // parameter for exactly this: mount a fresh app whose metrics collector
+  // is fed a malformed fixture (the reviewer's own reproduction scenario),
+  // while logs and deploys still succeed, so the packet is real but partial.
+  it("names the failed source in the response and records one evidence_partial audit entry", async () => {
+    const failingMetrics = createMetricSource([{ id: "bad", value: "not-a-number" }]);
+    const testApp = new Hono<{ Bindings: Env }>();
+    testApp.route("/", createRunRoutes([createLogSource(), failingMetrics, createDeploySource()]));
+
+    const request = new Request("http://localhost/incidents/inc-i1-partial/run", {
+      method: "POST",
+      body: JSON.stringify(runBody),
+      headers: { "content-type": "application/json" }
+    });
+    const ctx = createExecutionContext();
+    const response = await testApp.fetch(request, env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as ApiOk<{
+      run: { id: string };
+      packet: { cards: unknown[] };
+      failures: { source: string; message: string }[];
+    }>;
+
+    // The packet is still built from what succeeded — it must not be empty.
+    expect(body.data.packet.cards.length).toBeGreaterThan(0);
+
+    // But the gap must now be visible: exactly one failure, naming "metrics".
+    expect(body.data.failures.map((f) => f.source)).toEqual(["metrics"]);
+    expect(body.data.failures[0]?.message).toContain("[metrics]");
+
+    const store = createD1Store(env.DB);
+    const audit = await store.listAudit(body.data.run.id);
+    const partialEntries = audit.filter((e) => e.kind === "evidence_partial");
+    expect(partialEntries).toHaveLength(1);
+    expect(partialEntries[0]?.detail).toContain("metrics");
+  });
+
+  it("emits no evidence_partial entry when every source succeeds", async () => {
+    const incidentId = "inc-i1-complete";
+    const { json } = await post(`/incidents/${incidentId}/run`, runBody);
+    const body = json as ApiOk<{ run: { id: string }; failures: unknown[] }>;
+    expect(body.data.failures).toEqual([]);
+
+    const store = createD1Store(env.DB);
+    const audit = await store.listAudit(body.data.run.id);
+    expect(audit.some((e) => e.kind === "evidence_partial")).toBe(false);
   });
 });
 
@@ -249,5 +306,91 @@ describe("approval flow", () => {
     expect(status).toBe(409);
     const body = json as ApiErr;
     expect(body.error.code).toBe("gate_expired");
+  });
+
+  it("refuses to approve a gate whose packet has zero evidence cards (I3)", async () => {
+    // "Evidence-gated" was only enforced by a disabled button in the
+    // dashboard; the server had no equivalent check. Seed a run whose
+    // packet has cards: [] directly (every collector failing, or a fixture
+    // regression, produces exactly this on the real code path) and confirm
+    // POST /approve refuses it server-side.
+    const store = createD1Store(env.DB);
+    const id = "no-evidence-gate-1";
+    const nowIso = new Date().toISOString();
+    const action = createAction({
+      id,
+      kind: "rollback",
+      target: "payment-service",
+      params: { commit: "8f31c2b" },
+      reversible: true,
+      description: "Roll back payment-service to 8f31c2b"
+    });
+    const gate = createGate({ id, actionId: id, createdAt: nowIso, ttlMs: 15 * 60 * 1000 });
+    const emptyPacket = buildPacket({
+      id: "packet-no-evidence-1",
+      incidentId: "inc-no-evidence-1",
+      runbookId: "checkout-failure",
+      cards: [],
+      builtAt: nowIso
+    });
+
+    await store.createRun({
+      id,
+      incidentId: "inc-no-evidence-1",
+      runbookId: "checkout-failure",
+      service: "payment-service",
+      state: "awaiting_approval",
+      createdAt: nowIso,
+      updatedAt: nowIso
+    });
+    await store.savePacket(emptyPacket, id);
+    await store.saveAction(action, id);
+    await store.saveGate(gate, id);
+
+    const { status, json } = await post(`/approvals/${id}/approve`, { by: "sahil" });
+    expect(status).toBe(409);
+    const body = json as ApiErr;
+    expect(body.error.code).toBe("insufficient_evidence");
+
+    // Refused BEFORE the atomic claim: the run must still be awaiting
+    // approval, the gate must still be locked, and nothing was executed or
+    // audited — a rejected approval must leave no trace of having decided.
+    const run = await store.getRun(id);
+    expect(run?.state).toBe("awaiting_approval");
+    const persistedGate = await store.getGate(id);
+    expect(persistedGate?.state).toBe("locked");
+    const audit = await store.listAudit(id);
+    expect(audit).toHaveLength(0);
+    expect(audit.some((e) => e.kind === "action_executed")).toBe(false);
+  });
+
+  it("approving with a whitespace-only `by` returns 400 validation_failed, not 500 (I2)", async () => {
+    // Zod's z.string().min(1) accepts whitespace; the domain guard's
+    // .trim() === "" check is what actually catches this, and it must map
+    // to 400, not fall through app.onError as a 500.
+    const gateId = await runAndGetGateId("inc-approve-whitespace-by");
+
+    const { status, json } = await post(`/approvals/${gateId}/approve`, { by: "   " });
+    expect(status).toBe(400);
+    const body = json as ApiErr;
+    expect(body.error.code).toBe("validation_failed");
+
+    // The run must not be stranded in "approved" with no persisted decision.
+    const store = createD1Store(env.DB);
+    const run = await store.getRun(gateId);
+    expect(run?.state).toBe("awaiting_approval");
+  });
+
+  it("rejecting with a whitespace-only reason returns 400 validation_failed, not 500 (I2)", async () => {
+    const gateId = await runAndGetGateId("inc-reject-whitespace-reason");
+
+    const { status, json } = await post(`/approvals/${gateId}/reject`, { by: "sahil", reason: "   " });
+    expect(status).toBe(400);
+    const body = json as ApiErr;
+    expect(body.error.code).toBe("validation_failed");
+
+    const store = createD1Store(env.DB);
+    const run = await store.getRun(gateId);
+    expect(run?.state).toBe("awaiting_approval");
   });
 });

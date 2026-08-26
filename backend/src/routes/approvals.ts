@@ -3,7 +3,16 @@ import { z } from "zod";
 import { apiError, type Env } from "../index";
 import { parseJsonBody } from "./http";
 import { createD1Store, type RunRow } from "../domain/store";
-import { approveGate, rejectGate, isExpired, type ApprovalGate } from "../domain/approval";
+import {
+  approveGate,
+  rejectGate,
+  isExpired,
+  ApprovalInputError,
+  type ApprovalGate,
+  type ApprovedGate,
+  type RejectedGate,
+  type ApprovalToken
+} from "../domain/approval";
 import { isStateChanging, type Action } from "../domain/action";
 import { executeReadOnly, executeStateChanging } from "../domain/executor";
 
@@ -64,28 +73,55 @@ approvalRoutes.post("/approvals/:id/approve", async (c) => {
 
   const loaded = await loadDecidableGate(store, id, nowIso, jsonError);
   if (loaded instanceof Response) return loaded;
-  const { gate } = loaded;
+  const { gate, run } = loaded;
 
   const action = await store.getAction(id);
   if (action === null) {
     return c.json(apiError("not_found", `No action found for gate "${id}"`), 404);
   }
 
-  // Atomic claim, before minting a token or executing anything. Two
-  // concurrent approvals can both pass loadDecidableGate's read of
+  // I3: "evidence-gated" is the product's central claim, and a disabled
+  // button in the dashboard is a UI convenience, not a guarantee — anyone
+  // calling this endpoint directly bypasses it. Refuse here, before the
+  // atomic claim below, so a rejected approval never marks the run decided.
+  const packet = await store.getPacketByIncident(run.incidentId);
+  if (packet === null || packet.cards.length === 0) {
+    return c.json(
+      apiError("insufficient_evidence", `Gate "${id}" has no evidence and cannot be approved`),
+      409
+    );
+  }
+
+  // Input validation (and token minting) happens before the atomic claim
+  // too. approveGate is pure — it persists nothing and executes nothing —
+  // so computing it early costs nothing on the losing side of a race, and
+  // it means a malformed request (I2: whitespace-only `by`) is rejected
+  // before the run is ever marked decided, instead of claiming the run and
+  // then failing to persist the decision behind it.
+  let approved: { gate: ApprovedGate; token: ApprovalToken };
+  try {
+    approved = approveGate(gate, {
+      by,
+      at: nowIso,
+      ...(reason === undefined ? {} : { reason })
+    });
+  } catch (error) {
+    if (error instanceof ApprovalInputError) {
+      return c.json(apiError("validation_failed", error.message), 400);
+    }
+    throw error;
+  }
+  const { gate: approvedGate, token } = approved;
+
+  // Atomic claim, before persisting the decision or executing anything.
+  // Two concurrent approvals can both pass loadDecidableGate's read of
   // run.state — this conditional UPDATE is the only point that can only
   // ever succeed for one of them (`meta.changes === 1`). The loser gets
-  // 409 here and never reaches approveGate or executeAction.
+  // 409 here and never reaches executeAction.
   const claimed = await store.updateRunState(id, "approved", nowIso, "awaiting_approval");
   if (!claimed) {
     return c.json(apiError("gate_already_decided", `Gate "${id}" was already decided`), 409);
   }
-
-  const { gate: approvedGate, token } = approveGate(gate, {
-    by,
-    at: nowIso,
-    ...(reason === undefined ? {} : { reason })
-  });
 
   await store.saveGate(approvedGate, id);
   await store.appendAudit({
@@ -143,6 +179,19 @@ approvalRoutes.post("/approvals/:id/reject", async (c) => {
   if (loaded instanceof Response) return loaded;
   const { gate } = loaded;
 
+  // Validated before the claim, same reasoning as approve: rejectGate is
+  // pure, so a malformed request (I2: whitespace-only `by`/`reason`) is
+  // rejected before the run is ever marked decided.
+  let rejectedGate: RejectedGate;
+  try {
+    rejectedGate = rejectGate(gate, { by, at: nowIso, reason });
+  } catch (error) {
+    if (error instanceof ApprovalInputError) {
+      return c.json(apiError("validation_failed", error.message), 400);
+    }
+    throw error;
+  }
+
   // Same atomic claim as approve, for the same reason: two concurrent
   // decisions on the same gate (reject/reject, or reject racing approve)
   // must not both win.
@@ -150,8 +199,6 @@ approvalRoutes.post("/approvals/:id/reject", async (c) => {
   if (!claimed) {
     return c.json(apiError("gate_already_decided", `Gate "${id}" was already decided`), 409);
   }
-
-  const rejectedGate = rejectGate(gate, { by, at: nowIso, reason });
 
   await store.saveGate(rejectedGate, id);
   await store.appendAudit({

@@ -20,7 +20,7 @@
 | # | Task | Phase | Depends on | Status | Agent | Verified by |
 |---|---|---|---|---|---|---|
 | B1 | Atomic approval (C1) + parse-on-read (C2, M9) | 0 | — | ✅ done | impl-b1 | 117/117; race reproduced [200,200] then closed [200,409] |
-| B2 | Surface `failures` (I1), server evidence gate (I3), error mapping (I2) | 0 | B1 | 🔨 in progress | impl-b2 | — |
+| B2 | Surface `failures` (I1), server evidence gate (I3), error mapping (I2) | 0 | B1 | ✅ done | impl-b2 | 122/122 (117 baseline + 5 new); RED confirmed by stashing source fixes only |
 | B3 | Store seam + memory adapter + conformance suite | 1 | B1 | ⬜ not started | — | — |
 | B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | ⬜ not started | — | — |
 | B5 | Incidents entity + listing APIs | 1 | B4 | ⬜ not started | — | — |
@@ -32,7 +32,7 @@
 | B11 | Runbooks, History, Audit screens | 3 | B10 | ⬜ not started | — | — |
 | B12 | End-to-end verification + docs | 4 | B11 | ⬜ not started | — | — |
 
-**Progress: 1 / 12.**
+**Progress: 2 / 12.**
 
 ## Invariants — do not "fix" these
 
@@ -47,6 +47,14 @@
 | Domain layer is pure | No `Date.now()` inside; clocks inject at the route boundary |
 
 ## Handoff Log
+
+### 2026-08-26 — impl-b2 — B2 done
+
+I1: `run.ts`'s handler is now a `createRunRoutes(sources = ALL_SOURCES)` factory; response gains `failures`, one `evidence_partial` audit entry appended when non-empty. I3: approve handler loads the run's packet via `store.getPacketByIncident` and refuses 409 `insufficient_evidence` on zero cards, checked before the atomic claim. I2: new `ApprovalInputError` in `approval.ts` (pure, no HTTP concepts); route wraps `approveGate`/`rejectGate` and maps it to 400 `validation_failed`.
+
+Reordering note: in both approve and reject, `approveGate`/`rejectGate` now run *before* B1's atomic claim, not after. They're pure (mint a token/gate object, touch nothing), so this costs nothing on a race's losing side, and it means a validation failure (I2) or evidence-gate refusal (I3) never claims the run first — avoiding a strand-the-run bug the same shape as I4 that the old ordering had for whitespace-only input. B1's claim mechanism itself (`updateRunState` + `expectedState`) is untouched.
+
+Backend 122/122 (117 + 5 new), frontend 14/14, typecheck clean. Full report: `.superpowers/sdd/2026-08-26-operator-console/task-b2-report.md`. Next agent: B3 (store seam).
 
 ### 2026-08-26 — orchestrator — plan written
 

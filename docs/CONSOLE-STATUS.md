@@ -19,8 +19,8 @@
 
 | # | Task | Phase | Depends on | Status | Agent | Verified by |
 |---|---|---|---|---|---|---|
-| B1 | Atomic approval (C1) + parse-on-read (C2, M9) | 0 | — | ⬜ not started | — | — |
-| B2 | Surface `failures` (I1), server evidence gate (I3), error mapping (I2) | 0 | B1 | ⬜ not started | — | — |
+| B1 | Atomic approval (C1) + parse-on-read (C2, M9) | 0 | — | ✅ done | impl-b1 | 117/117; race reproduced [200,200] then closed [200,409] |
+| B2 | Surface `failures` (I1), server evidence gate (I3), error mapping (I2) | 0 | B1 | 🔨 in progress | impl-b2 | — |
 | B3 | Store seam + memory adapter + conformance suite | 1 | B1 | ⬜ not started | — | — |
 | B4 | Auth backend — PBKDF2, sessions, `requireAuth` | 1 | B3 | ⬜ not started | — | — |
 | B5 | Incidents entity + listing APIs | 1 | B4 | ⬜ not started | — | — |
@@ -32,7 +32,7 @@
 | B11 | Runbooks, History, Audit screens | 3 | B10 | ⬜ not started | — | — |
 | B12 | End-to-end verification + docs | 4 | B11 | ⬜ not started | — | — |
 
-**Progress: 0 / 12.**
+**Progress: 1 / 12.**
 
 ## Invariants — do not "fix" these
 

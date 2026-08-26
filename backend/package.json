@@ -1,0 +1,29 @@
+{
+  "name": "runproof-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "wrangler types",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "db:migrate": "wrangler d1 migrations apply runproof-db --local",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "hono": "^4.13.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-istanbul": "^4.1.11",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.125.0"
+  }
+}

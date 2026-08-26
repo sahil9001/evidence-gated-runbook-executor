@@ -110,6 +110,8 @@ More details are in [docs/cloudflare-deployment.md](docs/cloudflare-deployment.m
 
 ## Future Buildout
 
+The full breakdown of remaining work — the idea in plain terms, open decisions, and a phased task list — is in [docs/roadmap.md](docs/roadmap.md).
+
 Planned backend and testing work can live in the existing placeholder folders:
 
 - `backend/src/domain`: incident, runbook, evidence, and approval models.

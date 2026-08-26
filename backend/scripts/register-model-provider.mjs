@@ -18,6 +18,8 @@
 // The API key is read from the environment only. This script never logs it,
 // echoes it, or writes it to disk — not even partially, not even on failure.
 
+import { isMainModule } from "./lib/is-main.mjs";
+
 const DEFAULT_MODEL_ID = "gemini-2.0-flash";
 const DEFAULT_MODEL_NAME = "gemini-flash";
 
@@ -92,8 +94,7 @@ async function main() {
   console.log(JSON.stringify(body, null, 2));
 }
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
-if (isMain) {
+if (isMainModule(import.meta.url)) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);

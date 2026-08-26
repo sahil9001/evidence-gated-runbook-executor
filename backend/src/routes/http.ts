@@ -10,9 +10,14 @@ export type ParsedBody<T> = { success: true; data: T } | { success: false; respo
  * and a body that parses but fails schema validation — with the same
  * `400 validation_failed` shape, so neither can slip through to `app.onError`
  * as a 500.
+ *
+ * Generic over the caller's env (defaulting to the plain `{ Bindings: Env }`)
+ * so routes mounted behind `requireAuth` — whose `Context` also carries
+ * `Variables: { user: PublicUser }` — can pass their `c` straight through
+ * without a cast.
  */
-export async function parseJsonBody<T>(
-  c: Context<{ Bindings: Env }>,
+export async function parseJsonBody<T, E extends { Bindings: Env } = { Bindings: Env }>(
+  c: Context<E>,
   schema: ZodType<T>
 ): Promise<ParsedBody<T>> {
   let raw: unknown;

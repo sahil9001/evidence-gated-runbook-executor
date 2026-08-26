@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { apiError, type Env } from "../index";
+import { apiError } from "../index";
 import { parseJsonBody } from "./http";
 import { createD1Store } from "../store/d1";
 import type { RunRow } from "../domain/store";
+import type { AuthedEnv } from "../auth/middleware";
 import {
   approveGate,
   rejectGate,
@@ -17,17 +18,21 @@ import {
 import { isStateChanging, type Action } from "../domain/action";
 import { executeReadOnly, executeStateChanging } from "../domain/executor";
 
+// `by` is deliberately absent from both schemas — see the route handlers
+// below, which take the approver from `c.var.user.email` (the session
+// requireAuth resolved), never from the request body. The same reasoning
+// that makes `ApprovalToken` a branded type nobody outside `approval.ts` can
+// construct: if the approver identity isn't in the payload, it cannot be
+// forged by whoever sends the request.
 const approveBodySchema = z.object({
-  by: z.string().min(1),
   reason: z.string().min(1).optional()
 });
 
 const rejectBodySchema = z.object({
-  by: z.string().min(1),
   reason: z.string().min(1)
 });
 
-export const approvalRoutes = new Hono<{ Bindings: Env }>();
+export const approvalRoutes = new Hono<AuthedEnv>();
 
 /**
  * Shared lookup for both approve and reject: resolves the gate and its run
@@ -64,7 +69,10 @@ async function loadDecidableGate(
 approvalRoutes.post("/approvals/:id/approve", async (c) => {
   const parsed = await parseJsonBody(c, approveBodySchema);
   if (!parsed.success) return parsed.response;
-  const { by, reason } = parsed.data;
+  const { reason } = parsed.data;
+  // The approver is the session `requireAuth` resolved, never something the
+  // client sent — see the schema comment above.
+  const by = c.var.user.email;
   const id = c.req.param("id");
   const nowIso = new Date().toISOString();
 
@@ -95,10 +103,11 @@ approvalRoutes.post("/approvals/:id/approve", async (c) => {
 
   // Input validation (and token minting) happens before the atomic claim
   // too. approveGate is pure — it persists nothing and executes nothing —
-  // so computing it early costs nothing on the losing side of a race, and
-  // it means a malformed request (I2: whitespace-only `by`) is rejected
-  // before the run is ever marked decided, instead of claiming the run and
-  // then failing to persist the decision behind it.
+  // so computing it early costs nothing on the losing side of a race. `by`
+  // can no longer be malformed (it comes from the session, not the request
+  // body), but approveGate's guard is defence in depth either way, and
+  // keeping validation ahead of the claim means it still can't strand the
+  // run mid-decision.
   let approved: { gate: ApprovedGate; token: ApprovalToken };
   try {
     approved = approveGate(gate, {
@@ -168,7 +177,10 @@ async function executeAction(
 approvalRoutes.post("/approvals/:id/reject", async (c) => {
   const parsed = await parseJsonBody(c, rejectBodySchema);
   if (!parsed.success) return parsed.response;
-  const { by, reason } = parsed.data;
+  const { reason } = parsed.data;
+  // The approver is the session `requireAuth` resolved, never something the
+  // client sent — see the schema comment near approveBodySchema.
+  const by = c.var.user.email;
   const id = c.req.param("id");
   const nowIso = new Date().toISOString();
 
@@ -181,8 +193,9 @@ approvalRoutes.post("/approvals/:id/reject", async (c) => {
   const { gate } = loaded;
 
   // Validated before the claim, same reasoning as approve: rejectGate is
-  // pure, so a malformed request (I2: whitespace-only `by`/`reason`) is
-  // rejected before the run is ever marked decided.
+  // pure, so a malformed request (I2: whitespace-only `reason` — `by` can no
+  // longer be malformed, see above) is rejected before the run is ever
+  // marked decided.
   let rejectedGate: RejectedGate;
   try {
     rejectedGate = rejectGate(gate, { by, at: nowIso, reason });

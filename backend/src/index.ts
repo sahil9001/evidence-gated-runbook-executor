@@ -3,6 +3,8 @@ import { cors } from "hono/cors";
 import runRoutes from "./routes/run";
 import packetRoutes from "./routes/packet";
 import approvalRoutes from "./routes/approvals";
+import authRoutes from "./routes/auth";
+import { requireAuth } from "./auth/middleware";
 
 export type Env = {
   DB: D1Database;
@@ -34,6 +36,16 @@ app.use(
 
 app.get("/health", (c) => c.json({ status: "ok", service: "runproof-api" }));
 
+// /auth/* and /health are the only public routes. Everything that touches
+// incident, run, approval, or audit data requires a valid session cookie —
+// requireAuth is mounted here, once, ahead of every protected router, so no
+// individual route file can forget it.
+app.use("/incidents/*", requireAuth);
+app.use("/runs/*", requireAuth);
+app.use("/approvals/*", requireAuth);
+app.use("/audit/*", requireAuth);
+
+app.route("/", authRoutes);
 app.route("/", runRoutes);
 app.route("/", packetRoutes);
 app.route("/", approvalRoutes);

@@ -9,8 +9,34 @@ import { buildPacket } from "../domain/evidence";
 import { createRunRoutes } from "./run";
 import { createLogSource, createMetricSource, createDeploySource } from "../mcp";
 
+/**
+ * Registers a fresh operator and returns its session cookie (the
+ * `rp_session=<id>` pair, ready to send as a `cookie` header) — every route
+ * this file exercises now sits behind `requireAuth`, so every request needs
+ * one. One operator, registered once in `beforeAll`, is reused across every
+ * test below except the dedicated "no cookie" test.
+ */
+async function registerAndGetCookie(email: string): Promise<string> {
+  const request = new Request("http://localhost/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password: "a-very-secure-password-123" }),
+    headers: { "content-type": "application/json" }
+  });
+  const ctx = createExecutionContext();
+  const response = await app.fetch(request, env, ctx);
+  await waitOnExecutionContext(ctx);
+  const setCookie = response.headers.get("set-cookie");
+  if (setCookie === null) throw new Error(`registerAndGetCookie: no Set-Cookie header registering ${email}`);
+  const cookiePair = setCookie.split(";")[0];
+  if (cookiePair === undefined) throw new Error("registerAndGetCookie: malformed Set-Cookie header");
+  return cookiePair;
+}
+
+let authCookie = "";
+
 beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+  authCookie = await registerAndGetCookie("routes-test-operator@example.com");
 });
 
 type ApiOk<T> = { ok: true; data: T };
@@ -20,7 +46,7 @@ async function post(path: string, body: unknown): Promise<{ status: number; json
   const request = new Request(`http://localhost${path}`, {
     method: "POST",
     body: typeof body === "string" ? body : JSON.stringify(body),
-    headers: { "content-type": "application/json" }
+    headers: { "content-type": "application/json", cookie: authCookie }
   });
   const ctx = createExecutionContext();
   const response = await app.fetch(request, env, ctx);
@@ -29,7 +55,7 @@ async function post(path: string, body: unknown): Promise<{ status: number; json
 }
 
 async function get(path: string): Promise<{ status: number; json: unknown }> {
-  const request = new Request(`http://localhost${path}`);
+  const request = new Request(`http://localhost${path}`, { headers: { cookie: authCookie } });
   const ctx = createExecutionContext();
   const response = await app.fetch(request, env, ctx);
   await waitOnExecutionContext(ctx);
@@ -171,7 +197,7 @@ describe("approval flow", () => {
   it("approving moves the gate to approved and returns an execution result", async () => {
     const gateId = await runAndGetGateId("inc-approve-1");
 
-    const { status, json } = await post(`/approvals/${gateId}/approve`, { by: "sahil", reason: "looks good" });
+    const { status, json } = await post(`/approvals/${gateId}/approve`, { reason: "looks good" });
     expect(status).toBe(200);
     const body = json as ApiOk<{ gate: { state: string }; execution: { executed: boolean } }>;
     expect(body.data.gate.state).toBe("approved");
@@ -182,7 +208,7 @@ describe("approval flow", () => {
   it("persists the approved gate in the store, not just in the response", async () => {
     const gateId = await runAndGetGateId("inc-approve-persist");
 
-    const { status } = await post(`/approvals/${gateId}/approve`, { by: "sahil", reason: "looks good" });
+    const { status } = await post(`/approvals/${gateId}/approve`, { reason: "looks good" });
     expect(status).toBe(200);
 
     const store = createD1Store(env.DB);
@@ -190,14 +216,16 @@ describe("approval flow", () => {
     expect(persisted?.state).not.toBe("locked");
     expect(persisted?.state).toBe("approved");
     if (persisted?.state !== "approved") throw new Error("expected approved gate");
-    expect(persisted.decidedBy).toBe("sahil");
+    // The approver is the session's email — proof it came from `c.var.user`,
+    // not a client-suppliable `by` field (which no longer exists).
+    expect(persisted.decidedBy).toBe("routes-test-operator@example.com");
   });
 
   it("approving twice returns 409 gate_already_decided", async () => {
     const gateId = await runAndGetGateId("inc-approve-twice");
-    await post(`/approvals/${gateId}/approve`, { by: "sahil" });
+    await post(`/approvals/${gateId}/approve`, {});
 
-    const { status, json } = await post(`/approvals/${gateId}/approve`, { by: "sahil" });
+    const { status, json } = await post(`/approvals/${gateId}/approve`, {});
     expect(status).toBe(409);
     const body = json as ApiErr;
     expect(body.error.code).toBe("gate_already_decided");
@@ -211,8 +239,8 @@ describe("approval flow", () => {
     const gateId = await runAndGetGateId("inc-approve-race");
 
     const [first, second] = await Promise.all([
-      post(`/approvals/${gateId}/approve`, { by: "sahil" }),
-      post(`/approvals/${gateId}/approve`, { by: "priya" })
+      post(`/approvals/${gateId}/approve`, {}),
+      post(`/approvals/${gateId}/approve`, {})
     ]);
 
     const statuses = [first.status, second.status].sort();
@@ -233,7 +261,7 @@ describe("approval flow", () => {
   });
 
   it("approving an unknown gate id returns 404 not_found", async () => {
-    const { status, json } = await post("/approvals/no-such-gate/approve", { by: "sahil" });
+    const { status, json } = await post("/approvals/no-such-gate/approve", {});
     expect(status).toBe(404);
     const body = json as ApiErr;
     expect(body.error.code).toBe("not_found");
@@ -242,7 +270,7 @@ describe("approval flow", () => {
   it("rejecting without a reason returns 400 validation_failed", async () => {
     const gateId = await runAndGetGateId("inc-reject-no-reason");
 
-    const { status, json } = await post(`/approvals/${gateId}/reject`, { by: "sahil" });
+    const { status, json } = await post(`/approvals/${gateId}/reject`, {});
     expect(status).toBe(400);
     const body = json as ApiErr;
     expect(body.error.code).toBe("validation_failed");
@@ -251,7 +279,7 @@ describe("approval flow", () => {
   it("rejecting with an empty reason returns 400 validation_failed", async () => {
     const gateId = await runAndGetGateId("inc-reject-empty-reason");
 
-    const { status, json } = await post(`/approvals/${gateId}/reject`, { by: "sahil", reason: "" });
+    const { status, json } = await post(`/approvals/${gateId}/reject`, { reason: "" });
     expect(status).toBe(400);
     const body = json as ApiErr;
     expect(body.error.code).toBe("validation_failed");
@@ -260,14 +288,14 @@ describe("approval flow", () => {
   it("rejecting leaves execution absent and the run state rejected", async () => {
     const gateId = await runAndGetGateId("inc-reject-ok");
 
-    const { status, json } = await post(`/approvals/${gateId}/reject`, { by: "sahil", reason: "not safe" });
+    const { status, json } = await post(`/approvals/${gateId}/reject`, { reason: "not safe" });
     expect(status).toBe(200);
     const body = json as ApiOk<{ gate: { state: string } }>;
     expect(body.data.gate.state).toBe("rejected");
     expect(body.data).not.toHaveProperty("execution");
 
     // a second decision (approve) must now see it as already decided
-    const second = await post(`/approvals/${gateId}/approve`, { by: "sahil" });
+    const second = await post(`/approvals/${gateId}/approve`, {});
     expect(second.status).toBe(409);
   });
 
@@ -302,7 +330,7 @@ describe("approval flow", () => {
     await store.saveAction(action, id);
     await store.saveGate(gate, id);
 
-    const { status, json } = await post(`/approvals/${id}/approve`, { by: "sahil" });
+    const { status, json } = await post(`/approvals/${id}/approve`, {});
     expect(status).toBe(409);
     const body = json as ApiErr;
     expect(body.error.code).toBe("gate_expired");
@@ -347,7 +375,7 @@ describe("approval flow", () => {
     await store.saveAction(action, id);
     await store.saveGate(gate, id);
 
-    const { status, json } = await post(`/approvals/${id}/approve`, { by: "sahil" });
+    const { status, json } = await post(`/approvals/${id}/approve`, {});
     expect(status).toBe(409);
     const body = json as ApiErr;
     expect(body.error.code).toBe("insufficient_evidence");
@@ -364,33 +392,53 @@ describe("approval flow", () => {
     expect(audit.some((e) => e.kind === "action_executed")).toBe(false);
   });
 
-  it("approving with a whitespace-only `by` returns 400 validation_failed, not 500 (I2)", async () => {
-    // Zod's z.string().min(1) accepts whitespace; the domain guard's
-    // .trim() === "" check is what actually catches this, and it must map
-    // to 400, not fall through app.onError as a 500.
-    const gateId = await runAndGetGateId("inc-approve-whitespace-by");
+  // The whitespace-only-`by` (I2) test that used to live here is gone: `by`
+  // is no longer part of the request body at all (B4), so there is no
+  // client-suppliable value left to send as whitespace. approveGate's
+  // `.trim() === ""` guard on `by` is still exercised — via
+  // `c.var.user.email`, which requireAuth guarantees is a real, non-blank
+  // string — so the guard is defence in depth now rather than reachable
+  // client input.
 
-    const { status, json } = await post(`/approvals/${gateId}/approve`, { by: "   " });
+  it("rejecting with a whitespace-only reason returns 400 validation_failed, not 500 (I2)", async () => {
+    const gateId = await runAndGetGateId("inc-reject-whitespace-reason");
+
+    const { status, json } = await post(`/approvals/${gateId}/reject`, { reason: "   " });
     expect(status).toBe(400);
     const body = json as ApiErr;
     expect(body.error.code).toBe("validation_failed");
 
-    // The run must not be stranded in "approved" with no persisted decision.
     const store = createD1Store(env.DB);
     const run = await store.getRun(gateId);
     expect(run?.state).toBe("awaiting_approval");
   });
 
-  it("rejecting with a whitespace-only reason returns 400 validation_failed, not 500 (I2)", async () => {
-    const gateId = await runAndGetGateId("inc-reject-whitespace-reason");
+  it("approving without a session cookie returns 401 unauthenticated and writes no audit entry (B4)", async () => {
+    // The point of B4: a valid session is the ONLY way to approve. Hitting
+    // the endpoint with no `rp_session` cookie at all must never reach the
+    // approve handler — requireAuth rejects it first, so the run stays
+    // awaiting approval and the audit log gains no trace of a decision.
+    const gateId = await runAndGetGateId("inc-approve-no-session");
 
-    const { status, json } = await post(`/approvals/${gateId}/reject`, { by: "sahil", reason: "   " });
-    expect(status).toBe(400);
-    const body = json as ApiErr;
-    expect(body.error.code).toBe("validation_failed");
+    const request = new Request(`http://localhost/approvals/${gateId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "looks good" }),
+      headers: { "content-type": "application/json" } // deliberately no cookie
+    });
+    const ctx = createExecutionContext();
+    const response = await app.fetch(request, env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as ApiErr;
+    expect(body.error.code).toBe("unauthenticated");
 
     const store = createD1Store(env.DB);
     const run = await store.getRun(gateId);
     expect(run?.state).toBe("awaiting_approval");
+    const persistedGate = await store.getGate(gateId);
+    expect(persistedGate?.state).toBe("locked");
+    const audit = await store.listAudit(gateId);
+    expect(audit.some((e) => e.kind === "gate_approved" || e.kind === "action_executed")).toBe(false);
   });
 });

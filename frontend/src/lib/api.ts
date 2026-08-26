@@ -8,7 +8,8 @@ import type {
   PacketResponse,
   Runbook,
   RunDetailResponse,
-  RunResponse
+  RunResponse,
+  RunRow
 } from "./types";
 
 const DEFAULT_BASE_URL = "http://localhost:8787";
@@ -188,4 +189,27 @@ export async function getRun(id: string): Promise<RunDetailResponse> {
 /** Backs the run detail screen's Audit tab — this run's entries, in order. */
 export async function listAudit(runId: string): Promise<AuditEntry[]> {
   return request<AuditEntry[]>(`/audit?runId=${encodeURIComponent(runId)}`, { method: "GET" });
+}
+
+/** Backs the History screen (B11). `state` filters server-side (undefined = every state). */
+export async function listRuns(filter?: { state?: RunRow["state"]; limit?: number }): Promise<RunRow[]> {
+  const params = new URLSearchParams();
+  if (filter?.state !== undefined) params.set("state", filter.state);
+  if (filter?.limit !== undefined) params.set("limit", String(filter.limit));
+  const query = params.toString();
+  return request<RunRow[]>(`/runs${query.length > 0 ? `?${query}` : ""}`, { method: "GET" });
+}
+
+/**
+ * Backs the standalone Audit screen (B11) — distinct from `listAudit` above
+ * (which always scopes to one run for the run-detail Audit tab): here
+ * `runId` is optional, matching `GET /audit`'s own contract of "recent
+ * entries across every run" when omitted.
+ */
+export async function listAuditLog(filter?: { runId?: string; limit?: number }): Promise<AuditEntry[]> {
+  const params = new URLSearchParams();
+  if (filter?.runId !== undefined) params.set("runId", filter.runId);
+  if (filter?.limit !== undefined) params.set("limit", String(filter.limit));
+  const query = params.toString();
+  return request<AuditEntry[]>(`/audit${query.length > 0 ? `?${query}` : ""}`, { method: "GET" });
 }

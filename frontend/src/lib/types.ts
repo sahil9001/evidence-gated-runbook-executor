@@ -35,6 +35,14 @@ export interface EvidencePacket {
 // mirrors backend/src/domain/action.ts ActionKind
 export type ActionKind = "rollback" | "restart" | "scale" | "read_logs" | "read_metrics" | "run_diagnostic";
 
+// mirrors backend/src/domain/action.ts STATE_CHANGING_KINDS — the runbooks
+// screen (B11) needs this because RunbookAction (below) has no
+// `isStateChanging` field of its own: that flag only exists on the concrete
+// `Action` a run creates, derived server-side by `createAction`. Displaying
+// a runbook's *proposed* action honestly before any run exists means
+// re-deriving the same classification here.
+export const STATE_CHANGING_ACTION_KINDS: readonly ActionKind[] = ["rollback", "restart", "scale"];
+
 // mirrors backend/src/domain/action.ts Action (ReadOnlyAction | StateChangingAction,
 // collapsed to one shape client-side since the frontend never constructs an
 // Action — it only ever displays one received from the API).

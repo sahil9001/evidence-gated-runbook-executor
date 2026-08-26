@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { mcpRoute } from "./routes/mcp";
 
 export type Env = {
   DB: D1Database;
@@ -16,6 +17,8 @@ export function apiError(code: string, message: string, details?: unknown): ApiE
 const app = new Hono<{ Bindings: Env }>();
 
 app.get("/health", (c) => c.json({ status: "ok", service: "runproof-api" }));
+
+app.route("/mcp", mcpRoute);
 
 app.notFound((c) => c.json(apiError("not_found", "Route not found"), 404));
 

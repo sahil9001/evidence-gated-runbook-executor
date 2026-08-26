@@ -12,9 +12,11 @@
     "typecheck": "tsc --noEmit",
     "cf-typegen": "wrangler types",
     "db:migrate": "wrangler d1 migrations apply runproof-db --local",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "register:mcp": "node scripts/register-mcp-server.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "hono": "^4.13.4",
     "zod": "^4.4.3"
   },

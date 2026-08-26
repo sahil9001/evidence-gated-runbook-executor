@@ -1,0 +1,122 @@
+import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
+import { describe, it, expect } from "vitest";
+import app from "../index";
+
+const PROTOCOL_VERSION = "2025-06-18";
+
+type JsonRpcRequest = {
+  jsonrpc: "2.0";
+  id?: number;
+  method: string;
+  params?: Record<string, unknown>;
+};
+
+async function postMcp(body: JsonRpcRequest, sessionId?: string): Promise<Response> {
+  const request = new Request("http://localhost/mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      ...(sessionId ? { "mcp-session-id": sessionId } : {})
+    },
+    body: JSON.stringify(body)
+  });
+  const ctx = createExecutionContext();
+  const response = await app.fetch(request, env, ctx);
+  await waitOnExecutionContext(ctx);
+  return response;
+}
+
+async function initializeSession(): Promise<string> {
+  const response = await postMcp({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: PROTOCOL_VERSION,
+      capabilities: {},
+      clientInfo: { name: "test-client", version: "0.0.1" }
+    }
+  });
+  expect(response.status).toBe(200);
+  const sessionId = response.headers.get("mcp-session-id");
+  expect(sessionId).toBeTruthy();
+  await response.body?.cancel();
+
+  await postMcp({ jsonrpc: "2.0", method: "notifications/initialized" }, sessionId ?? undefined);
+
+  return sessionId as string;
+}
+
+describe("MCP endpoint", () => {
+  it("rejects a non-initialize call with no known session", async () => {
+    const response = await postMcp({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect(response.status).toBe(400);
+  });
+
+  it("issues a session id on initialize", async () => {
+    const sessionId = await initializeSession();
+    expect(sessionId).toMatch(/.+/);
+  });
+
+  it("discovers every tool this slice registers, with the destructive one annotated for approval", async () => {
+    const sessionId = await initializeSession();
+    const response = await postMcp({ jsonrpc: "2.0", id: 2, method: "tools/list" }, sessionId);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      result: { tools: { name: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } }[] };
+    };
+    const names = body.result.tools.map((tool) => tool.name).sort();
+    expect(names).toEqual(["collect_deploys", "collect_logs", "collect_metrics", "get_runbook", "propose_rollback"]);
+
+    const readOnlyTools = body.result.tools.filter((tool) => tool.name !== "propose_rollback");
+    expect(readOnlyTools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
+
+    const rollback = body.result.tools.find((tool) => tool.name === "propose_rollback");
+    expect(rollback?.annotations?.readOnlyHint).toBe(false);
+    expect(rollback?.annotations?.destructiveHint).toBe(true);
+  });
+
+  it("calls a read-only tool and returns evidence cards", async () => {
+    const sessionId = await initializeSession();
+    const response = await postMcp(
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "collect_logs", arguments: { incidentId: "inc-mcp-1", service: "payment-service" } }
+      },
+      sessionId
+    );
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { result: { content: { type: string; text: string }[]; isError?: boolean } };
+    expect(body.result.isError).toBeFalsy();
+    const cards = JSON.parse(body.result.content[0]?.text ?? "[]") as { source: string }[];
+    expect(cards.length).toBeGreaterThan(0);
+    expect(cards.every((card) => card.source === "logs")).toBe(true);
+  });
+
+  it("calls propose_rollback and confirms nothing was executed", async () => {
+    const sessionId = await initializeSession();
+    const response = await postMcp(
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: {
+          name: "propose_rollback",
+          arguments: { service: "payment-service", commit: "8f31c2b", reason: "revert risky deploy" }
+        }
+      },
+      sessionId
+    );
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { result: { content: { type: string; text: string }[] } };
+    const payload = JSON.parse(body.result.content[0]?.text ?? "{}") as { executed: boolean; gate: { state: string } };
+    expect(payload.executed).toBe(false);
+    expect(payload.gate.state).toBe("locked");
+  });
+});

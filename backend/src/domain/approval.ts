@@ -54,19 +54,65 @@ export function isIssuedToken(value: unknown): value is ApprovalToken {
  * Deterministically stringify a value with object keys sorted, so two
  * objects that differ only in key insertion order produce identical output.
  * Arrays keep their given order (order is semantically meaningful there).
+ *
+ * This is total (every input produces a string, never throwing on a value it
+ * merely dislikes) and unambiguous: every primitive is type-tagged so that
+ * no two distinct values — regardless of type — can ever serialize to the
+ * same string. `undefined` and `NaN`/`null` in particular must NOT collide;
+ * an action's `params` is expected to be pre-validated as JSON-safe by
+ * `createAction` (see `./action`'s `jsonValueSchema`), but this function is
+ * defence in depth and must stay safe even if something slips past that
+ * boundary — it never trusts the caller to have done that validation.
+ *
+ * Cycle detection: a `WeakSet` of objects/arrays currently being visited
+ * catches a cyclic structure and throws a clear error instead of recursing
+ * until the stack overflows.
  */
 function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
+  const seen = new WeakSet<object>();
+
+  function stringify(val: unknown, path: string): string {
+    if (val === null) return "z";
+    if (val === undefined) return "u";
+    const type = typeof val;
+
+    if (type === "boolean") return `b:${val}`;
+    if (type === "number") {
+      const n = val as number;
+      if (Number.isNaN(n)) return "n:NaN";
+      if (n === Infinity) return "n:Infinity";
+      if (n === -Infinity) return "n:-Infinity";
+      return `n:${n}`;
+    }
+    if (type === "bigint") return `g:${(val as bigint).toString()}`;
+    if (type === "string") return `s:${JSON.stringify(val)}`;
+    if (type === "function" || type === "symbol") {
+      throw new Error(`Cannot fingerprint a ${type} value at ${path || "<root>"}`);
+    }
+
+    // type === "object" from here on (arrays included).
+    const obj = val as object;
+    if (seen.has(obj)) {
+      throw new Error(`Cannot fingerprint a cyclic structure at ${path || "<root>"}`);
+    }
+    seen.add(obj);
+    try {
+      if (Array.isArray(val)) {
+        return `[${val.map((item, index) => stringify(item, `${path}[${index}]`)).join(",")}]`;
+      }
+      const sortedEntries = Object.entries(val as Record<string, unknown>).sort(([a], [b]) =>
+        a < b ? -1 : a > b ? 1 : 0
+      );
+      const body = sortedEntries
+        .map(([key, entryVal]) => `${JSON.stringify(key)}:${stringify(entryVal, `${path}.${key}`)}`)
+        .join(",");
+      return `{${body}}`;
+    } finally {
+      seen.delete(obj);
+    }
   }
-  if (value !== null && typeof value === "object") {
-    const sortedEntries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-      a < b ? -1 : a > b ? 1 : 0
-    );
-    const body = sortedEntries.map(([key, val]) => `${JSON.stringify(key)}:${stableStringify(val)}`).join(",");
-    return `{${body}}`;
-  }
-  return JSON.stringify(value);
+
+  return stringify(value, "");
 }
 
 /**

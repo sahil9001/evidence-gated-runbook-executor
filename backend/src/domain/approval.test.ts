@@ -187,6 +187,100 @@ describe("token content binding", () => {
     expect(tokenAuthorizes(token, tampered)).toBe(false);
   });
 
+  it("rejects an action whose params contain undefined before it ever reaches a gate", () => {
+    expect(() =>
+      createAction({
+        id: "a1", kind: "rollback", target: "payment-service",
+        params: { x: undefined }, reversible: true, description: "Roll back"
+      })
+    ).toThrow();
+  });
+
+  it("rejects an action whose params contain a function before it ever reaches a gate", () => {
+    expect(() =>
+      createAction({
+        id: "a1", kind: "rollback", target: "payment-service",
+        params: { x: () => 1 }, reversible: true, description: "Roll back"
+      })
+    ).toThrow();
+  });
+
+  it("does not let an undefined-valued param and a function-valued param collide, because both are rejected at creation", () => {
+    let undefinedRejected = false;
+    let functionRejected = false;
+    try {
+      createAction({
+        id: "a1", kind: "rollback", target: "payment-service",
+        params: { x: undefined }, reversible: true, description: "Roll back"
+      });
+    } catch {
+      undefinedRejected = true;
+    }
+    try {
+      createAction({
+        id: "a1", kind: "rollback", target: "payment-service",
+        params: { x: (): number => 1 }, reversible: true, description: "Roll back"
+      });
+    } catch {
+      functionRejected = true;
+    }
+    expect(undefinedRejected).toBe(true);
+    expect(functionRejected).toBe(true);
+  });
+
+  it("rejects NaN params at creation so NaN and null can never collide", () => {
+    expect(() =>
+      createAction({
+        id: "a1", kind: "rollback", target: "payment-service",
+        params: { x: NaN }, reversible: true, description: "Roll back"
+      })
+    ).toThrow();
+  });
+
+  it("distinguishes null params from each other via the type-tagged fingerprint (NaN excluded by schema)", () => {
+    const withNull = createAction({
+      id: "a1", kind: "rollback", target: "payment-service",
+      params: { x: null }, reversible: true, description: "Roll back"
+    });
+    const { token } = approveGate(gate(), withNull, { by: "sahil", at: T5 });
+    expect(tokenAuthorizes(token, withNull)).toBe(true);
+  });
+
+  it("rejects bigint params at creation instead of crashing the serializer with a TypeError", () => {
+    expect(() =>
+      createAction({
+        id: "a1", kind: "rollback", target: "payment-service",
+        params: { x: 1n }, reversible: true, description: "Roll back"
+      })
+    ).toThrow();
+    // and specifically not a raw serializer TypeError about BigInt
+    try {
+      createAction({
+        id: "a1", kind: "rollback", target: "payment-service",
+        params: { x: 1n }, reversible: true, description: "Roll back"
+      });
+    } catch (err) {
+      expect(err).not.toBeInstanceOf(TypeError);
+    }
+  });
+
+  it("throws a clear error instead of overflowing the stack on a cyclic params object", () => {
+    type Cyclic = { self?: Cyclic };
+    const cyclic: Cyclic = {};
+    cyclic.self = cyclic;
+    const withCycle = createAction({
+      id: "a1", kind: "rollback", target: "payment-service",
+      params: {}, reversible: true, description: "Roll back"
+    });
+    // Bypass createAction's JSON-safety validation (which would itself reject
+    // a cycle) to exercise stableStringify's own cycle guard directly, since
+    // approveGate/tokenAuthorizes call it via fingerprintAction.
+    const withForcedCycle = { ...withCycle, params: cyclic as unknown as Record<string, never> };
+    expect(() => approveGate(gate(), withForcedCycle as unknown as Parameters<typeof approveGate>[1], { by: "sahil", at: T5 })).toThrow(
+      /cyclic/i
+    );
+  });
+
   it("still accepts the same params in a different key order", () => {
     const original = createAction({
       id: "a1", kind: "rollback", target: "payment-service",

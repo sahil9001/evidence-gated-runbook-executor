@@ -29,3 +29,43 @@ describe("createAction", () => {
     expect(action.isStateChanging).toBe(true);
   });
 });
+
+describe("createAction params validation", () => {
+  const base = {
+    id: "a1", kind: "rollback", target: "payment-service",
+    reversible: true, description: "Roll back"
+  };
+
+  it("rejects undefined param values", () => {
+    expect(() => createAction({ ...base, params: { x: undefined } })).toThrow(/x/);
+  });
+
+  it("rejects function param values", () => {
+    expect(() => createAction({ ...base, params: { x: () => 1 } })).toThrow(/x/);
+  });
+
+  it("rejects NaN param values", () => {
+    expect(() => createAction({ ...base, params: { x: NaN } })).toThrow(/x/);
+  });
+
+  it("rejects Infinity param values", () => {
+    expect(() => createAction({ ...base, params: { x: Infinity } })).toThrow(/x/);
+  });
+
+  it("rejects bigint param values instead of letting them reach the serializer", () => {
+    expect(() => createAction({ ...base, params: { x: 1n } })).toThrow(/x/);
+  });
+
+  it("accepts null param values", () => {
+    const action = createAction({ ...base, params: { x: null } });
+    expect(action.params.x).toBe(null);
+  });
+
+  it("accepts nested objects and arrays", () => {
+    const action = createAction({
+      ...base,
+      params: { list: [1, "two", { three: 3 }], nested: { deep: { value: true } } }
+    });
+    expect(action.params.list).toEqual([1, "two", { three: 3 }]);
+  });
+});

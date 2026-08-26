@@ -35,7 +35,16 @@ app.use(
   cors({
     origin: ALLOWED_ORIGINS,
     allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["Content-Type"]
+    allowHeaders: ["Content-Type"],
+    // The frontend sends the `rp_session` cookie cross-origin
+    // (`credentials: "include"` in frontend/src/lib/api.ts). Without this,
+    // the browser neither stores nor sends that cookie, so every protected
+    // request 401s even after a successful login. Hono's cors() only ever
+    // echoes back one origin from `ALLOWED_ORIGINS` (never "*") when
+    // `origin` is an array, which is required for `credentials: true` to be
+    // valid in the first place — a wildcard plus credentials is rejected by
+    // browsers, and would be a real hole even if it weren't.
+    credentials: true
   })
 );
 

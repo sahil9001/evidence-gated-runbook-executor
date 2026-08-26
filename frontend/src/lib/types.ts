@@ -129,6 +129,57 @@ export interface OverviewResponse {
   readonly recentActivity: readonly AuditEntry[];
 }
 
+// mirrors backend/src/domain/store.ts IncidentRow
+export interface IncidentRow {
+  readonly id: string;
+  readonly title: string;
+  readonly service: string;
+  readonly signals: readonly string[];
+  readonly status: string;
+  readonly createdBy: string;
+  readonly createdAt: string;
+}
+
+// mirrors the `data` payload of GET /incidents/:id (backend/src/routes/incidents.ts)
+export interface IncidentDetailResponse {
+  readonly incident: IncidentRow;
+  readonly runs: readonly RunRow[];
+}
+
+// mirrors backend/src/domain/runbook.ts RunbookStep
+export interface RunbookStep {
+  readonly id: string;
+  readonly label: string;
+  readonly detail: string;
+  readonly source?: EvidenceSourceKind;
+}
+
+// mirrors backend/src/domain/runbook.ts RunbookAction — the proposed action a
+// runbook recommends. Distinct from `Action` above, which is the concrete,
+// already-created instance a run's gate is locked around.
+export interface RunbookAction {
+  readonly kind: ActionKind;
+  readonly target: string;
+  readonly params: Readonly<Record<string, unknown>>;
+  readonly reversible: boolean;
+  readonly description: string;
+}
+
+// mirrors backend/src/domain/runbook.ts Runbook — served by GET /runbooks.
+// `allowedSources` is the scope contract shown to operators before a run
+// starts: the only evidence sources the agent will be permitted to read.
+export interface Runbook {
+  readonly id: string;
+  readonly title: string;
+  readonly trigger: {
+    readonly service: string;
+    readonly signals: readonly string[];
+  };
+  readonly allowedSources: readonly EvidenceSourceKind[];
+  readonly steps: readonly RunbookStep[];
+  readonly proposedAction: RunbookAction;
+}
+
 // mirrors backend/src/index.ts ApiError
 export interface ApiErrorBody {
   readonly ok: false;

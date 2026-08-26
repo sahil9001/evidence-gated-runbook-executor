@@ -1,4 +1,13 @@
-import type { ApiErrorBody, ApprovalResponse, OverviewResponse, PacketResponse, RunResponse } from "./types";
+import type {
+  ApiErrorBody,
+  ApprovalResponse,
+  IncidentDetailResponse,
+  IncidentRow,
+  OverviewResponse,
+  PacketResponse,
+  Runbook,
+  RunResponse
+} from "./types";
 
 const DEFAULT_BASE_URL = "http://localhost:8787";
 
@@ -140,4 +149,27 @@ export async function reject(gateId: string, by: string, reason: string): Promis
 /** Backs the top bar's awaiting-approval badge and (eventually) the Overview screen. */
 export async function getOverview(): Promise<OverviewResponse> {
   return request<OverviewResponse>("/overview", { method: "GET" });
+}
+
+/** Backs the incidents list. `status` filters server-side (undefined = every status). */
+export async function listIncidents(status?: string): Promise<IncidentRow[]> {
+  const query = status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
+  return request<IncidentRow[]>(`/incidents${query}`, { method: "GET" });
+}
+
+export async function createIncident(body: {
+  title: string;
+  service: string;
+  signals: string[];
+}): Promise<IncidentRow> {
+  return request<IncidentRow>("/incidents", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function getIncident(id: string): Promise<IncidentDetailResponse> {
+  return request<IncidentDetailResponse>(`/incidents/${encodeURIComponent(id)}`, { method: "GET" });
+}
+
+/** Backs the create-incident screen's runbook-match preview and the runbooks screen (B11). */
+export async function listRunbooks(): Promise<Runbook[]> {
+  return request<Runbook[]>("/runbooks", { method: "GET" });
 }

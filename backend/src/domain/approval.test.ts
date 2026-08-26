@@ -19,7 +19,7 @@ describe("gate lifecycle", () => {
   });
 
   it("approving yields an approved gate and a token", () => {
-    const { gate: g, token } = approveGate(gate(), { by: "sahil", at: T5 });
+    const { gate: g, token } = approveGate(gate(), action(), { by: "sahil", at: T5 });
     expect(g.state).toBe("approved");
     expect(g.decidedBy).toBe("sahil");
     expect(token.actionId).toBe("a1");
@@ -33,24 +33,24 @@ describe("gate lifecycle", () => {
 
   it("does not mutate the gate it was given", () => {
     const original = gate();
-    approveGate(original, { by: "sahil", at: T5 });
+    approveGate(original, action(), { by: "sahil", at: T5 });
     expect(original.state).toBe("locked");
   });
 });
 
 describe("illegal transitions", () => {
   it("cannot approve twice", () => {
-    const { gate: approved } = approveGate(gate(), { by: "sahil", at: T5 });
-    expect(() => approveGate(approved, { by: "other", at: T5 })).toThrow(/already decided/i);
+    const { gate: approved } = approveGate(gate(), action(), { by: "sahil", at: T5 });
+    expect(() => approveGate(approved, action(), { by: "other", at: T5 })).toThrow(/already decided/i);
   });
 
   it("cannot approve a rejected gate", () => {
     const rejected = rejectGate(gate(), { by: "sahil", at: T5, reason: "no" });
-    expect(() => approveGate(rejected, { by: "sahil", at: T5 })).toThrow(/already decided/i);
+    expect(() => approveGate(rejected, action(), { by: "sahil", at: T5 })).toThrow(/already decided/i);
   });
 
   it("cannot reject an approved gate", () => {
-    const { gate: approved } = approveGate(gate(), { by: "sahil", at: T5 });
+    const { gate: approved } = approveGate(gate(), action(), { by: "sahil", at: T5 });
     expect(() => rejectGate(approved, { by: "sahil", at: T5, reason: "changed mind" })).toThrow(/already decided/i);
   });
 
@@ -69,18 +69,18 @@ describe("expiry", () => {
   });
 
   it("refuses to approve an expired gate — stale proof is not proof", () => {
-    expect(() => approveGate(gate(), { by: "sahil", at: T30 })).toThrow(/expired/i);
+    expect(() => approveGate(gate(), action(), { by: "sahil", at: T30 })).toThrow(/expired/i);
   });
 });
 
 describe("token scope", () => {
   it("authorizes exactly the action it was minted for", () => {
-    const { token } = approveGate(gate(), { by: "sahil", at: T5 });
+    const { token } = approveGate(gate(), action(), { by: "sahil", at: T5 });
     expect(tokenAuthorizes(token, action())).toBe(true);
   });
 
   it("does not authorize a different action", () => {
-    const { token } = approveGate(gate(), { by: "sahil", at: T5 });
+    const { token } = approveGate(gate(), action(), { by: "sahil", at: T5 });
     const other = createAction({
       id: "a2", kind: "restart", target: "payment-service",
       params: {}, reversible: true, description: "Restart"
@@ -96,8 +96,62 @@ describe("token scope", () => {
   });
 
   it("rejects a token that round-tripped through structuredClone", () => {
-    const { token } = approveGate(gate(), { by: "sahil", at: T5 });
+    const { token } = approveGate(gate(), action(), { by: "sahil", at: T5 });
     const cloned = structuredClone(token);
     expect(tokenAuthorizes(cloned, action())).toBe(false);
+  });
+
+  it("throws if the action's id does not match the gate's actionId", () => {
+    const mismatched = createAction({
+      id: "a2", kind: "rollback", target: "payment-service",
+      params: {}, reversible: true, description: "Roll back"
+    });
+    expect(() => approveGate(gate(), mismatched, { by: "sahil", at: T5 })).toThrow(/actionId/i);
+  });
+});
+
+describe("token content binding", () => {
+  it("rejects a same-id action whose target changed", () => {
+    const { token } = approveGate(gate(), action(), { by: "sahil", at: T5 });
+    const retargeted = createAction({
+      id: "a1", kind: "rollback", target: "billing-service",
+      params: {}, reversible: true, description: "Roll back"
+    });
+    expect(tokenAuthorizes(token, retargeted)).toBe(false);
+  });
+
+  it("rejects a same-id action whose kind changed", () => {
+    const { token } = approveGate(gate(), action(), { by: "sahil", at: T5 });
+    const recast = createAction({
+      id: "a1", kind: "restart", target: "payment-service",
+      params: {}, reversible: true, description: "Restart"
+    });
+    expect(tokenAuthorizes(token, recast)).toBe(false);
+  });
+
+  it("rejects a same-id action whose params changed", () => {
+    const withParams = createAction({
+      id: "a1", kind: "rollback", target: "payment-service",
+      params: { version: "17" }, reversible: true, description: "Roll back"
+    });
+    const { token } = approveGate(gate(), withParams, { by: "sahil", at: T5 });
+    const tampered = createAction({
+      id: "a1", kind: "rollback", target: "payment-service",
+      params: { version: "18" }, reversible: true, description: "Roll back"
+    });
+    expect(tokenAuthorizes(token, tampered)).toBe(false);
+  });
+
+  it("still accepts the same params in a different key order", () => {
+    const original = createAction({
+      id: "a1", kind: "rollback", target: "payment-service",
+      params: { version: "17", region: "us-east" }, reversible: true, description: "Roll back"
+    });
+    const { token } = approveGate(gate(), original, { by: "sahil", at: T5 });
+    const reordered = createAction({
+      id: "a1", kind: "rollback", target: "payment-service",
+      params: { region: "us-east", version: "17" }, reversible: true, description: "Roll back"
+    });
+    expect(tokenAuthorizes(token, reordered)).toBe(true);
   });
 });

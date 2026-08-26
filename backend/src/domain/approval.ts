@@ -10,6 +10,14 @@ declare const tokenBrand: unique symbol;
 export type ApprovalToken = {
   readonly gateId: string;
   readonly actionId: string;
+  /**
+   * Deterministic fingerprint of the action's material content at the moment
+   * of approval (see `fingerprintAction`). Binds the token to what a human
+   * actually saw and approved, not merely to an id — an action recreated
+   * with the same id but a different target/kind/params must not inherit
+   * approval.
+   */
+  readonly actionFingerprint: string;
   readonly approvedBy: string;
   readonly approvedAt: string;
   readonly [tokenBrand]: true;
@@ -40,6 +48,41 @@ const issuedTokens = new WeakSet<ApprovalToken>();
 export function isIssuedToken(value: unknown): value is ApprovalToken {
   if (typeof value !== "object" || value === null) return false;
   return issuedTokens.has(value as ApprovalToken);
+}
+
+/**
+ * Deterministically stringify a value with object keys sorted, so two
+ * objects that differ only in key insertion order produce identical output.
+ * Arrays keep their given order (order is semantically meaningful there).
+ */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    const sortedEntries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0
+    );
+    const body = sortedEntries.map(([key, val]) => `${JSON.stringify(key)}:${stableStringify(val)}`).join(",");
+    return `{${body}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * Fingerprint the material content of an action: id, kind, target,
+ * isStateChanging, and params, with keys sorted so key order never changes
+ * the result. A token is bound to this fingerprint, not just the action id,
+ * so an action recreated with the same id but different content is rejected.
+ */
+function fingerprintAction(action: Action): string {
+  return stableStringify({
+    id: action.id,
+    kind: action.kind,
+    target: action.target,
+    isStateChanging: action.isStateChanging,
+    params: action.params
+  });
 }
 
 export type GateState = "locked" | "approved" | "rejected";
@@ -84,9 +127,15 @@ function assertDecidable(gate: ApprovalGate, nowIso: string): void {
 
 export function approveGate(
   gate: ApprovalGate,
+  action: Action,
   decision: { by: string; at: string; reason?: string }
 ): { gate: ApprovedGate; token: ApprovalToken } {
   assertDecidable(gate, decision.at);
+  if (gate.actionId !== action.id) {
+    throw new Error(
+      `Gate ${gate.id} is bound to actionId ${gate.actionId}, not ${action.id}`
+    );
+  }
   if (decision.by.trim() === "") throw new Error("Approver identity is required");
 
   const approved: ApprovedGate = {
@@ -98,6 +147,7 @@ export function approveGate(
   const token = {
     gateId: gate.id,
     actionId: gate.actionId,
+    actionFingerprint: fingerprintAction(action),
     approvedBy: decision.by,
     approvedAt: decision.at
   } as ApprovalToken;
@@ -122,5 +172,6 @@ export function rejectGate(
 
 export function tokenAuthorizes(token: ApprovalToken, action: Action): boolean {
   if (!isIssuedToken(token)) return false;
-  return token.actionId === action.id;
+  if (token.actionId !== action.id) return false;
+  return token.actionFingerprint === fingerprintAction(action);
 }

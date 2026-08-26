@@ -15,6 +15,33 @@ export type ApprovalToken = {
   readonly [tokenBrand]: true;
 };
 
+/**
+ * Runtime identity for minted tokens. The `unique symbol` brand above is a
+ * compile-time-only construct — it is erased by the TypeScript compiler and
+ * leaves no trace on the object at runtime, so it cannot by itself stop a
+ * hand-built object (or JSON/D1/any untyped boundary value) with a matching
+ * shape from type-casting its way into `ApprovalToken` and passing authorization.
+ *
+ * This WeakSet is the actual non-forgeability mechanism: it is module-private
+ * and identity-based, so only objects that were produced by `approveGate` in
+ * this process can ever be members, regardless of shape.
+ *
+ * Consequence: tokens are in-process only and must NEVER be serialized and
+ * rehydrated (JSON.stringify/parse, structuredClone, storing in D1/KV, etc).
+ * A token that round-trips through serialization legitimately loses its
+ * runtime identity and will be rejected by `tokenAuthorizes` — that is
+ * correct behaviour, not a bug. If a caller needs to persist an approval
+ * durably, persist the GATE (which is plain, serializable data), not the
+ * token.
+ */
+const issuedTokens = new WeakSet<ApprovalToken>();
+
+/** True only for objects actually minted by `approveGate` in this process. */
+export function isIssuedToken(value: unknown): value is ApprovalToken {
+  if (typeof value !== "object" || value === null) return false;
+  return issuedTokens.has(value as ApprovalToken);
+}
+
 export type GateState = "locked" | "approved" | "rejected";
 
 type GateBase = {
@@ -74,6 +101,7 @@ export function approveGate(
     approvedBy: decision.by,
     approvedAt: decision.at
   } as ApprovalToken;
+  issuedTokens.add(token);
 
   return { gate: approved, token };
 }
@@ -93,5 +121,6 @@ export function rejectGate(
 }
 
 export function tokenAuthorizes(token: ApprovalToken, action: Action): boolean {
+  if (!isIssuedToken(token)) return false;
   return token.actionId === action.id;
 }

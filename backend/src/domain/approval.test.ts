@@ -88,9 +88,16 @@ describe("token scope", () => {
     expect(tokenAuthorizes(token, other)).toBe(false);
   });
 
-  it("cannot be forged by hand", () => {
-    // @ts-expect-error ApprovalToken is branded and only approveGate can mint one.
-    const forged: ApprovalToken = { gateId: "g1", actionId: "a1", approvedBy: "attacker", approvedAt: T5 };
-    expect(forged).toBeDefined();
+  it("rejects a hand-built object with a matching actionId shape", () => {
+    const forged = {
+      gateId: "g1", actionId: "a1", approvedBy: "attacker", approvedAt: T5
+    } as unknown as ApprovalToken;
+    expect(tokenAuthorizes(forged, action())).toBe(false);
+  });
+
+  it("rejects a token that round-tripped through structuredClone", () => {
+    const { token } = approveGate(gate(), { by: "sahil", at: T5 });
+    const cloned = structuredClone(token);
+    expect(tokenAuthorizes(cloned, action())).toBe(false);
   });
 });

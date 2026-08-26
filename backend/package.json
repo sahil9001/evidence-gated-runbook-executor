@@ -13,7 +13,9 @@
     "cf-typegen": "wrangler types",
     "db:migrate": "wrangler d1 migrations apply runproof-db --local",
     "deploy": "wrangler deploy",
-    "register:mcp": "node scripts/register-mcp-server.mjs"
+    "register:mcp": "node scripts/register-mcp-server.mjs",
+    "register:model": "node scripts/register-model-provider.mjs",
+    "trueforge:setup": "npm run register:mcp && npm run register:model"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

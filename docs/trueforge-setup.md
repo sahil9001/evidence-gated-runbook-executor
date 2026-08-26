@@ -73,6 +73,37 @@ discovered the tools. Override `TRUEFORGE_URL`, `RUNPROOF_MCP_URL`, or
    TrueForge's checkpoint and RunProof's gate are independent locks, not one
    swapped for the other.
 
+## 4. Register a model provider
+
+TrueForge needs at least one model provider configured before any agent can run —
+without one, the MCP tools registered in step 3 are never called. **No key is ever
+committed to this repo.**
+
+1. Get a free Google AI Studio API key (no credit card required):
+   `https://aistudio.google.com/apikey`
+2. Export it and run the registration script:
+
+```bash
+cd backend
+export GEMINI_API_KEY="your-key-here"
+npm run register:model
+```
+
+This `POST`s a manifest to `POST /api/v1/settings/model-providers` registering
+Gemini's free-tier `gemini-2.0-flash` model. Override `TRUEFORGE_URL` or
+`GEMINI_MODEL_ID` as env vars if you're not running the defaults.
+
+Any TrueForge-supported provider works — `anthropic`, `openai`, or `custom` (with a
+`base_url`, e.g. for OpenRouter). Gemini is the documented default because its free
+tier needs no card; swap `backend/scripts/register-model-provider.mjs` for another
+provider's manifest shape if you'd rather use one of those.
+
+Run both registration steps in one command with:
+
+```bash
+npm run trueforge:setup
+```
+
 ## Attaching RunProof to an agent
 
 ```jsonc
@@ -92,11 +123,11 @@ Then `POST /api/v1/sessions/{id}/turns` with a user message describing the incid
 and watch `GET /api/v1/sessions/{id}/turns/{turn_id}/events` for the
 `ToolApprovalRequiredEvent` on `propose_rollback`.
 
-**Note:** driving a full turn requires at least one model provider configured
-(`PUT /api/v1/settings/model-providers`) — a fresh TrueForge instance ships with none
-(`GET /api/v1/models` returns `{"data":[]}`). Tool registration and discovery (steps 1–3
-above) work with zero model configuration; only the last "watch it actually run" step
-needs an LLM API key.
+**Note:** driving a full turn requires at least one model provider configured — a
+fresh TrueForge instance ships with none (`GET /api/v1/models` returns `{"data":[]}`).
+Tool registration and discovery (steps 1–3 above) work with zero model configuration;
+only the last "watch it actually run" step needs an LLM API key. See step 4 above
+(`npm run register:model`).
 
 ## Origin allow-list
 

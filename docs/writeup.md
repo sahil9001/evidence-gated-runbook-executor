@@ -75,8 +75,8 @@ the entire tool result — `executed` is always `false`. Nothing approves it as
 part of this call, and nothing in this codebase turns a locked gate into a
 production change.
 
-**The domain layer has real, tested machinery for a second gate — it just
-isn't wired to anything yet.** `backend/src/domain/approval.ts` defines an
+**RunProof's own evidence-gated approval API is the second gate, and it is
+now wired end to end.** `backend/src/domain/approval.ts` defines an
 `ApprovalToken`, a branded type only `approveGate()` can produce:
 
 ```typescript
@@ -103,15 +103,47 @@ type-tagged deterministic serializer over the action's content, so approval
 granted for one action's exact parameters can't be silently reused for a
 different action that happens to share an id.
 
-**That machinery is real and unit-tested, but that's as far as it goes on
-`main`.** There is no HTTP route that calls `approveGate`, and there is no
-`executeStateChanging` function or any other code path that takes an
-`ApprovalToken` and performs a rollback. A second, token-gated enforcement
-layer built on top of this machinery exists only on an unmerged branch, not
-in this submission — **it is not implemented here.** Until it lands, the
-only thing standing between an agent and an executed `propose_rollback` is
-TrueForge's `@destructive` checkpoint above: `propose_rollback` itself
-returns a locked gate and executes nothing, full stop.
+**That machinery now backs a real HTTP API.** `POST /incidents/:id/run`
+collects evidence within the matched runbook's scope, builds the `Action`,
+and opens a locked `ApprovalGate` — same as `propose_rollback`, and it
+executes nothing either: the response has no `execution` field. `POST
+/approvals/:id/approve` is the only thing that can change that. It:
+
+1. Refuses with `409 insufficient_evidence` if the incident's evidence packet
+   has zero cards — evidence-gated is enforced server-side, not just by
+   disabling a button in the UI.
+2. Atomically claims the run (a conditional `updateRunState` that only one of
+   two concurrent approvals can win) before minting a token or executing
+   anything, so a losing request gets `409 gate_already_decided` and never
+   reaches the executor.
+3. Calls `approveGate()` to mint the `ApprovalToken`, then hands it to
+   `backend/src/domain/executor.ts`'s `executeStateChanging` — the only
+   function that can perform a state-changing action, and one that makes a
+   token a **mandatory** second positional argument with no overload or
+   wrapper that omits it. Calling it without a token, or with a hand-built
+   object shaped like one, is a compile error, not a runtime check a route
+   author could forget. `executeStateChanging` also re-validates the token
+   against the action's exact fingerprint at execution time, so a token
+   minted for one action is rejected if replayed against another — see
+   `testing/tests/safety/bypass.test.ts`, which tries to defeat this gate
+   every way a caller might attempt it (including a JSON round-trip of a
+   real token, which loses the `WeakSet` identity `tokenAuthorizes` checks)
+   and asserts each attempt fails.
+
+Execution is still simulated — `executeStateChanging` returns a descriptive
+string and touches nothing real; see [Honesty](#honesty) below.
+
+**What this does not yet do: connect to the live MCP flow.**
+`handleProposeRollback` still mints its own `Action`/`ApprovalGate` purely in
+memory and returns them in the tool result — it never calls RunProof's
+store, so that gate cannot currently be looked up or approved through `POST
+/approvals/:id`. An agent-proposed rollback (via MCP) and an operator
+run/approve (via this HTTP API) are two separate flows built on the same
+domain machinery, not one connected pipeline yet. Today, an agent-proposed
+rollback is still stopped only by TrueForge's `@destructive` checkpoint
+above — `propose_rollback` itself still returns a locked gate and executes
+nothing. The new second gate is real and enforced, but it is reached through
+RunProof's own API, not (yet) through `propose_rollback`.
 
 ## Honesty
 

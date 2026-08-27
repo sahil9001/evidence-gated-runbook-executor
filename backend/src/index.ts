@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { mcpRoute } from "./routes/mcp";
 import { authRoutes } from "./routes/auth";
+import { runRoutes } from "./routes/run";
+import { packetRoutes } from "./routes/packet";
+import { approvalRoutes } from "./routes/approvals";
 import { requireAuth, type AuthedVariables } from "./auth/middleware";
 
 export type Env = {
@@ -44,6 +47,10 @@ app.use("/incidents/*", requireAuth);
 app.use("/runs/*", requireAuth);
 app.use("/approvals/*", requireAuth);
 app.use("/audit/*", requireAuth);
+
+app.route("/", runRoutes);
+app.route("/", packetRoutes);
+app.route("/", approvalRoutes);
 
 app.notFound((c) => c.json(apiError("not_found", "Route not found"), 404));
 

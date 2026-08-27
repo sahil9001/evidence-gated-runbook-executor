@@ -145,12 +145,29 @@ export function createMemoryStore(): Store {
           `createRunWithArtifacts: gate.actionId ("${gate.actionId}") does not match action.id ("${action.id}")`
         );
       }
+      const seenAuditIds = new Set<string>();
       for (const entry of auditEntries) {
         if (entry.runId !== run.id) {
           throw new Error(
             `createRunWithArtifacts: audit entry "${entry.id}" has runId ("${entry.runId}") that does not match run.id ("${run.id}")`
           );
         }
+        // D1's `audit_log.id` PRIMARY KEY rejects a second INSERT with the
+        // same id even within the SAME batch — including two rows that
+        // both come from THIS call's own `auditEntries` array, not just a
+        // collision with a row already on disk. The per-entry
+        // `auditLog.has(entry.id)` check below only catches the latter: it
+        // asks the map about one id at a time, so two fresh, never-before
+        // seen duplicate ids in the same array both pass it, and the
+        // `auditLog.set` loop that follows would then silently keep only
+        // the last one — a real divergence from D1, which rolls back the
+        // whole aggregate instead. Checked here, before anything is
+        // written, so this is caught identically to every cross-row
+        // mismatch above.
+        if (seenAuditIds.has(entry.id)) {
+          throw new Error(`createRunWithArtifacts: duplicate audit entry id "${entry.id}" within the same aggregate`);
+        }
+        seenAuditIds.add(entry.id);
       }
 
       // Every conflict check for every row runs before any map is touched —

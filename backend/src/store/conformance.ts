@@ -314,6 +314,49 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         expect(await store.getGate(gate.id)).toBeNull();
         expect(await store.listAudit("some-other-run-id")).toEqual([]);
       });
+
+      it("rejects an aggregate with two audit entries sharing the same id, writing NOTHING", async () => {
+        // D1's `audit_log.id` PRIMARY KEY rejects the second INSERT in the
+        // batch outright, rolling back the whole transaction. A store that
+        // only checks each incoming entry's runId (not intra-array
+        // uniqueness) would let this reach `Map.set` twice, which silently
+        // keeps only the last of the two — this must be caught and rejected
+        // BEFORE anything is written, matching what D1's schema enforces.
+        const run = makeRun("run-atomic-dup-audit", { incidentId: "inc-atomic-dup-audit" });
+        const packet = makePacket("packet-atomic-dup-audit", "inc-atomic-dup-audit");
+        const action = makeAction("action-atomic-dup-audit");
+        const gate = createGate({ id: run.id, actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-dup", runId: run.id, at: T0, kind: "run_created", detail: "first" },
+          { id: "audit-atomic-dup", runId: run.id, at: T5, kind: "run_created", detail: "second" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getPacketByRun(run.id)).toBeNull();
+        expect(await store.getAction(action.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit(run.id)).toEqual([]);
+      });
+
+      it("commits a valid aggregate with distinct audit entry ids", async () => {
+        const run = makeRun("run-atomic-distinct-audit", { incidentId: "inc-atomic-distinct-audit" });
+        const packet = makePacket("packet-atomic-distinct-audit", "inc-atomic-distinct-audit");
+        const action = makeAction("action-atomic-distinct-audit");
+        const gate = createGate({ id: run.id, actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-distinct-1", runId: run.id, at: T0, kind: "run_created", detail: "first" },
+          { id: "audit-atomic-distinct-2", runId: run.id, at: T5, kind: "run_created", detail: "second" }
+        ];
+
+        await store.createRunWithArtifacts({ run, packet, action, gate, auditEntries });
+
+        expect((await store.listAudit(run.id)).map((e) => e.id)).toEqual([
+          "audit-atomic-distinct-1",
+          "audit-atomic-distinct-2"
+        ]);
+      });
     });
 
     describe("packets", () => {

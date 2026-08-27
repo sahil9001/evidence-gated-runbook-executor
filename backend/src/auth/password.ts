@@ -80,10 +80,26 @@ export async function hashPassword(plain: string): Promise<{ hash: string; salt:
   return { hash: toBase64(derived), salt: toBase64(saltBytes) };
 }
 
-/** Re-derives from `plain` + `salt` and compares to `hash` in constant time. */
+/**
+ * Re-derives from `plain` + `salt` and compares to `hash` in constant time.
+ *
+ * Never throws: a stored `hash`/`salt` that fails to base64-decode (or any
+ * other malformed-input error `deriveKeyBits`/`fromBase64` can raise) is
+ * treated as a verification failure, not an exception. A corrupted
+ * credential row must be indistinguishable from a wrong password — letting
+ * a decode error escape here would surface as the caller's global 500
+ * instead of the normal 401, turning row corruption into a durable,
+ * account-specific outage AND an oracle (one account 500s, everyone else
+ * 401s) distinct from the "wrong password" case this function otherwise
+ * guarantees is indistinguishable from "unknown email".
+ */
 export async function verifyPassword(plain: string, hash: string, salt: string): Promise<boolean> {
-  const saltBytes = fromBase64(salt);
-  const derived = await deriveKeyBits(plain, saltBytes);
-  const expected = fromBase64(hash);
-  return constantTimeEqual(derived, expected);
+  try {
+    const saltBytes = fromBase64(salt);
+    const derived = await deriveKeyBits(plain, saltBytes);
+    const expected = fromBase64(hash);
+    return constantTimeEqual(derived, expected);
+  } catch {
+    return false;
+  }
 }

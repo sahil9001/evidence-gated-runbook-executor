@@ -217,6 +217,40 @@ describe("POST /auth/login", () => {
     hashSpy.mockRestore();
     verifySpy.mockRestore();
   });
+
+  it("returns 401 invalid_credentials (not 500) when the stored hash is corrupted, malformed base64", async () => {
+    const corruptEmail = "corrupt-hash@example.com";
+    await post("/auth/register", { email: corruptEmail, password: STRONG_PASSWORD });
+    await env.DB.prepare(`UPDATE users SET password_hash = ? WHERE email = ?`)
+      .bind("not-valid-base64!!!", corruptEmail)
+      .run();
+
+    const { status, json } = await post("/auth/login", { email: corruptEmail, password: STRONG_PASSWORD });
+    expect(status).toBe(401);
+    expect((json as ApiErr).error.code).toBe("invalid_credentials");
+  });
+
+  it("returns 401 invalid_credentials (not 500) when the stored salt is corrupted, malformed base64", async () => {
+    const corruptEmail = "corrupt-salt@example.com";
+    await post("/auth/register", { email: corruptEmail, password: STRONG_PASSWORD });
+    await env.DB.prepare(`UPDATE users SET salt = ? WHERE email = ?`).bind("not-valid-base64!!!", corruptEmail).run();
+
+    const { status, json } = await post("/auth/login", { email: corruptEmail, password: STRONG_PASSWORD });
+    expect(status).toBe(401);
+    expect((json as ApiErr).error.code).toBe("invalid_credentials");
+  });
+
+  it("returns 401 invalid_credentials (not 500) when the stored hash is the wrong length", async () => {
+    const corruptEmail = "corrupt-length@example.com";
+    await post("/auth/register", { email: corruptEmail, password: STRONG_PASSWORD });
+    await env.DB.prepare(`UPDATE users SET password_hash = ? WHERE email = ?`)
+      .bind("dG9vc2hvcnQ=", corruptEmail)
+      .run();
+
+    const { status, json } = await post("/auth/login", { email: corruptEmail, password: STRONG_PASSWORD });
+    expect(status).toBe(401);
+    expect((json as ApiErr).error.code).toBe("invalid_credentials");
+  });
 });
 
 describe("POST /auth/logout", () => {

@@ -56,4 +56,18 @@ describe("verifyPassword", () => {
     const { salt } = await hashPassword("correct horse battery staple");
     expect(await verifyPassword("correct horse battery staple", "dG9vc2hvcnQ=", salt)).toBe(false);
   });
+
+  it("returns false instead of throwing when the stored hash is not valid base64", async () => {
+    const { salt } = await hashPassword("correct horse battery staple");
+    await expect(verifyPassword("correct horse battery staple", "not-valid-base64!!!", salt)).resolves.toBe(false);
+  });
+
+  it("returns false instead of throwing when the stored salt is not valid base64", async () => {
+    const { hash } = await hashPassword("correct horse battery staple");
+    await expect(verifyPassword("correct horse battery staple", hash, "not-valid-base64!!!")).resolves.toBe(false);
+  });
+
+  it("returns false instead of throwing when both hash and salt are malformed", async () => {
+    await expect(verifyPassword("correct horse battery staple", "!!!", "!!!")).resolves.toBe(false);
+  });
 });

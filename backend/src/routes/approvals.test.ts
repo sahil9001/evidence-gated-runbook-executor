@@ -5,9 +5,10 @@ import { createD1Store } from "../store/d1";
 import { createSession } from "../auth/session";
 import { requireAuth, type AuthedEnv } from "../auth/middleware";
 import { createRunRoutes } from "./run";
-import { approvalRoutes } from "./approvals";
+import { createApprovalRoutes } from "./approvals";
 import { ALL_SOURCES } from "../mcp";
-import type { IncidentRow } from "../domain/store";
+import type { IncidentRow, Store } from "../domain/store";
+import type { ApprovedGate, RejectedGate } from "../domain/approval";
 
 beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
@@ -21,7 +22,36 @@ function buildApp(sources = ALL_SOURCES): Hono<AuthedEnv> {
   app.use("/incidents/*", requireAuth);
   app.use("/approvals/*", requireAuth);
   app.route("/", createRunRoutes(sources));
-  app.route("/", approvalRoutes);
+  app.route("/", createApprovalRoutes());
+  return app;
+}
+
+/**
+ * Builds an app whose approval routes see a `Store` wrapping the real D1
+ * store but with `decideGate` forced to always refuse (return `false`
+ * without mutating anything) — simulating the D1 write being rejected (a
+ * lost race, a dropped connection, ...) at exactly the point Finding 1
+ * describes, deterministically rather than by trying to win a real
+ * concurrency race. `/incidents/*` still uses the real store so evidence
+ * collection and run creation behave normally; only the approve/reject
+ * decision itself is made to fail.
+ */
+function buildAppWithFailingDecide(sources = ALL_SOURCES): Hono<AuthedEnv> {
+  const app = new Hono<AuthedEnv>();
+  app.use("/incidents/*", requireAuth);
+  app.use("/approvals/*", requireAuth);
+  app.route("/", createRunRoutes(sources));
+  app.route(
+    "/",
+    createApprovalRoutes((env) => {
+      const real = createD1Store(env.DB);
+      const failing: Store = {
+        ...real,
+        decideGate: async (_gate: ApprovedGate | RejectedGate, _runId: string, _at: string) => false
+      };
+      return failing;
+    })
+  );
   return app;
 }
 
@@ -239,6 +269,42 @@ describe("POST /approvals/:id/approve", () => {
       expect((await store.getRun(runId))?.state).toBe("executed");
     }
   );
+
+  // Finding 1: a refused gate decision must not report success, must not
+  // strand the run approved-but-undecided, and must leave a trace.
+  it("a refused decideGate does not produce a 200, leaves the run awaiting_approval, and is audited", async () => {
+    const { cookie } = await registeredCookie();
+    const app = buildAppWithFailingDecide();
+    const id = await seedAwaitingApprovalGate(app, cookie);
+
+    const { status, json } = await post(app, `/approvals/${id}/approve`, {}, cookie);
+    expect(status).not.toBe(200);
+    expect((json as ApiErr).error.code).toBe("gate_already_decided");
+
+    const store = createD1Store(env.DB);
+    // The run must never end up "approved" (or any other decided state)
+    // while its gate stays locked — a state no retry could resolve, since a
+    // retry's loadDecidableGate refuses as soon as run.state isn't
+    // awaiting_approval.
+    const run = await store.getRun(id);
+    expect(run?.state).toBe("awaiting_approval");
+    const gate = await store.getGate(id);
+    expect(gate?.state).toBe("locked");
+
+    // The audit trail shows what happened, and nothing claims the action
+    // executed.
+    const audit = await store.listAudit(id);
+    expect(audit.some((entry) => entry.kind === "gate_decision_failed")).toBe(true);
+    expect(audit.some((entry) => entry.kind === "gate_approved")).toBe(false);
+    expect(audit.some((entry) => entry.kind === "action_executed")).toBe(false);
+
+    // And a retry against a store that actually works succeeds cleanly —
+    // the run was never stranded.
+    const workingApp = buildApp();
+    const retry = await post(workingApp, `/approvals/${id}/approve`, {}, cookie);
+    expect(retry.status).toBe(200);
+    expect((await store.getRun(id))?.state).toBe("executed");
+  });
 });
 
 describe("POST /approvals/:id/reject", () => {
@@ -280,5 +346,24 @@ describe("POST /approvals/:id/reject", () => {
     const { status, json } = await post(app, `/approvals/${id}/reject`, { reason: "too late" }, cookie);
     expect(status).toBe(409);
     expect((json as ApiErr).error.code).toBe("gate_already_decided");
+  });
+
+  // Finding 1, reject side: same requirement as approve — a refused
+  // decideGate must not report success and must not strand the run.
+  it("a refused decideGate does not produce a 200 and leaves the run awaiting_approval", async () => {
+    const { cookie } = await registeredCookie();
+    const app = buildAppWithFailingDecide();
+    const id = await seedAwaitingApprovalGate(app, cookie);
+
+    const { status, json } = await post(app, `/approvals/${id}/reject`, { reason: "no" }, cookie);
+    expect(status).not.toBe(200);
+    expect((json as ApiErr).error.code).toBe("gate_already_decided");
+
+    const store = createD1Store(env.DB);
+    expect((await store.getRun(id))?.state).toBe("awaiting_approval");
+    expect((await store.getGate(id))?.state).toBe("locked");
+    const audit = await store.listAudit(id);
+    expect(audit.some((entry) => entry.kind === "gate_decision_failed")).toBe(true);
+    expect(audit.some((entry) => entry.kind === "gate_rejected")).toBe(false);
   });
 });

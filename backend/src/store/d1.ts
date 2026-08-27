@@ -1,6 +1,6 @@
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
 import { createAction, type Action } from "../domain/action";
-import { approvalGateSchema, type ApprovalGate } from "../domain/approval";
+import { approvalGateSchema, type ApprovalGate, type ApprovedGate, type RejectedGate } from "../domain/approval";
 import type {
   Store,
   RunRow,
@@ -282,6 +282,53 @@ export function createD1Store(db: D1Database): Store {
       // that isExpired can never report as expired (Date.parse on garbage
       // is NaN, and every comparison against NaN is false).
       return approvalGateSchema.parse(JSON.parse(record.data));
+    },
+
+    async decideGate(gate: ApprovedGate | RejectedGate, runId: string, at: string): Promise<boolean> {
+      // Both statements run inside one db.batch() transaction, and each is
+      // additionally conditioned on the OTHER statement's target outcome via
+      // a correlated subquery — not just each row's own prior state. This is
+      // what makes the pair genuinely joint: a plain db.batch() of two
+      // independently-conditioned writes only guarantees "both applied, or
+      // an exception rolled both back" — it does nothing to stop one
+      // conditional write succeeding (`meta.changes === 1`) while the other
+      // is silently skipped (`meta.changes === 0`), which is exactly the
+      // split-brain this method exists to prevent. See the doc comment on
+      // Store#decideGate.
+      //
+      // Statement 1 (the run claim) additionally requires the gate to
+      // currently be `locked` — read from its PRE-transaction value, since
+      // this runs first.
+      //
+      // Statement 2 (the gate decision) additionally requires the run to
+      // now equal the gate's own decided state — read AFTER statement 1 has
+      // applied (statements inside one transaction observe each other's
+      // writes), so this only takes effect once the claim above has
+      // actually landed.
+      const results = await db.batch([
+        db
+          .prepare(
+            `UPDATE runs SET state = ?, updated_at = ?
+             WHERE id = ? AND state = 'awaiting_approval'
+               AND (SELECT json_extract(data, '$.state') FROM gates WHERE id = ?) = 'locked'`
+          )
+          .bind(gate.state, at, runId, gate.id),
+        db
+          .prepare(
+            `INSERT INTO gates (id, run_id, data) VALUES (?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET data = excluded.data
+             WHERE json_extract(gates.data, '$.state') = 'locked'
+               AND json_extract(gates.data, '$.actionId') = json_extract(excluded.data, '$.actionId')
+               AND json_extract(gates.data, '$.createdAt') = json_extract(excluded.data, '$.createdAt')
+               AND json_extract(gates.data, '$.expiresAt') = json_extract(excluded.data, '$.expiresAt')
+               AND gates.run_id = excluded.run_id
+               AND (SELECT state FROM runs WHERE id = excluded.run_id) = ?`
+          )
+          .bind(gate.id, runId, JSON.stringify(gate), gate.state)
+      ]);
+      const [runResult, gateResult] = results;
+      if (runResult === undefined || gateResult === undefined) return false;
+      return runResult.meta.changes === 1 && gateResult.meta.changes === 1;
     },
 
     async appendAudit(entry: AuditEntry): Promise<void> {

@@ -456,6 +456,93 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       });
     });
 
+    describe("decideGate", () => {
+      it("atomically transitions run to approved AND the gate to approved", async () => {
+        const run = makeRun("run-decide-1", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        const won = await store.decideGate(approved, run.id, T5);
+
+        expect(won).toBe(true);
+        expect((await store.getRun(run.id))?.state).toBe("approved");
+        expect(await store.getGate(run.id)).toEqual(approved);
+      });
+
+      it("atomically transitions run to rejected AND the gate to rejected", async () => {
+        const run = makeRun("run-decide-2", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const rejected = rejectGate(locked, { by: "sahil", at: T5, reason: "not confident" });
+        const won = await store.decideGate(rejected, run.id, T5);
+
+        expect(won).toBe(true);
+        expect((await store.getRun(run.id))?.state).toBe("rejected");
+        expect(await store.getGate(run.id)).toEqual(rejected);
+      });
+
+      it("refuses — leaving BOTH run and gate untouched — when the run is not awaiting_approval", async () => {
+        const run = makeRun("run-decide-3", { state: "collecting" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        const won = await store.decideGate(approved, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("collecting");
+        expect((await store.getGate(run.id))?.state).toBe("locked");
+      });
+
+      it("refuses — leaving BOTH run and gate untouched — when the gate is already decided", async () => {
+        const run = makeRun("run-decide-4", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+        const { gate: firstApproval } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        const firstWon = await store.decideGate(firstApproval, run.id, T5);
+        expect(firstWon).toBe(true);
+
+        // A second, conflicting decision attempt over the now-decided gate —
+        // note the run is already "approved" too, so a naive implementation
+        // that only checked the run's state (not the gate's) could wrongly
+        // let this through.
+        const secondAttempt = { ...firstApproval, decidedBy: "someone-else" };
+        const secondWon = await store.decideGate(secondAttempt, run.id, T5);
+
+        expect(secondWon).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("approved");
+        expect(await store.getGate(run.id)).toEqual(firstApproval);
+      });
+
+      it("under concurrent decideGate calls for the same gate, exactly one wins", async () => {
+        const run = makeRun("run-decide-race", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        const rejected = rejectGate(locked, { by: "someone-else", at: T5, reason: "racing" });
+
+        const [approveWon, rejectWon] = await Promise.all([
+          store.decideGate(approved, run.id, T5),
+          store.decideGate(rejected, run.id, T5)
+        ]);
+
+        expect([approveWon, rejectWon].filter(Boolean)).toHaveLength(1);
+        const finalRun = await store.getRun(run.id);
+        const finalGate = await store.getGate(run.id);
+        // Whichever won, run and gate must agree with each other — never a
+        // run claimed as one decision while the gate records the other.
+        expect(finalRun?.state).toBe(finalGate?.state);
+      });
+    });
+
     describe("audit log", () => {
       it("rejects a duplicate audit id instead of overwriting", async () => {
         const run = makeRun("run-7");

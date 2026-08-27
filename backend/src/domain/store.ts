@@ -1,6 +1,6 @@
 import type { EvidencePacket } from "./evidence";
 import type { Action } from "./action";
-import type { ApprovalGate } from "./approval";
+import type { ApprovalGate, ApprovedGate, RejectedGate } from "./approval";
 
 /**
  * Pure types and the `Store` port. No D1, no SQL, no bindings — this file
@@ -121,6 +121,28 @@ export interface Store {
    */
   saveGate(gate: ApprovalGate, runId: string): Promise<boolean>;
   getGate(id: string): Promise<ApprovalGate | null>;
+
+  /**
+   * Atomically decides a gate: transitions its run from `awaiting_approval`
+   * to the gate's own decided state (`approved`/`rejected`) AND persists
+   * that decision on the gate itself, as one unit — either both writes take
+   * effect, or neither does.
+   *
+   * This exists because `updateRunState` and `saveGate` are each
+   * individually an atomic conditional write, but calling them back to back
+   * (claim the run, then separately save the gate) is not: a failure
+   * between the two — a dropped connection, a rejected write, a genuine
+   * race — can leave the run claimed as decided while the gate is still
+   * `locked`. That run is then unrecoverable by retry: a retry's
+   * `loadDecidableGate`-style check sees `run.state !== "awaiting_approval"`
+   * and refuses before ever reaching a gate write again. Implementations
+   * MUST apply neither write unless both would succeed, returning `false`
+   * (having mutated nothing) whenever the run is not `awaiting_approval` or
+   * the gate is not decidable (same conditions `saveGate` alone already
+   * enforces: still `locked`, and every immutable field — actionId,
+   * createdAt, expiresAt, run association — equal to the stored row's).
+   */
+  decideGate(gate: ApprovedGate | RejectedGate, runId: string, at: string): Promise<boolean>;
 
   appendAudit(entry: AuditEntry): Promise<void>;
   listAudit(runId: string): Promise<AuditEntry[]>;

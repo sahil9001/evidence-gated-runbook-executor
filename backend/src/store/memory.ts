@@ -1,5 +1,5 @@
 import { createAction, type Action } from "../domain/action";
-import { approvalGateSchema, type ApprovalGate } from "../domain/approval";
+import { approvalGateSchema, type ApprovalGate, type ApprovedGate, type RejectedGate } from "../domain/approval";
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
 import {
   StoreConflictError,
@@ -190,6 +190,28 @@ export function createMemoryStore(): Store {
       // Validated on read, not cast — same defence as the D1 adapter's
       // getGate. See class doc comment.
       return approvalGateSchema.parse(clone(found.gate));
+    },
+
+    async decideGate(gate: ApprovedGate | RejectedGate, runId: string, at: string): Promise<boolean> {
+      // Check-then-mutate, entirely synchronous: every condition below is
+      // evaluated before either map is touched, so — same as
+      // createUserWithSession — a refused write can never apply one half of
+      // the pair and not the other. See the doc comment on
+      // Store#decideGate.
+      const existingRun = runs.get(runId);
+      if (existingRun === undefined || existingRun.state !== "awaiting_approval") return false;
+
+      const existingGateRecord = gates.get(gate.id);
+      if (existingGateRecord === undefined) return false;
+      if (existingGateRecord.gate.state !== "locked") return false;
+      if (existingGateRecord.gate.actionId !== gate.actionId) return false;
+      if (existingGateRecord.gate.createdAt !== gate.createdAt) return false;
+      if (existingGateRecord.gate.expiresAt !== gate.expiresAt) return false;
+      if (existingGateRecord.runId !== runId) return false;
+
+      runs.set(runId, { ...existingRun, state: gate.state, updatedAt: at });
+      gates.set(gate.id, { gate: clone(gate), runId });
+      return true;
     },
 
     async appendAudit(entry: AuditEntry): Promise<void> {

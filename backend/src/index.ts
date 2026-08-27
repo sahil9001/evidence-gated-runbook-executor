@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { mcpRoute } from "./routes/mcp";
+import { authRoutes } from "./routes/auth";
+import { requireAuth, type AuthedVariables } from "./auth/middleware";
 
 export type Env = {
   DB: D1Database;
@@ -24,11 +26,24 @@ export function apiError(code: string, message: string, details?: unknown): ApiE
   return { ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } };
 }
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env; Variables: AuthedVariables }>();
 
 app.get("/health", (c) => c.json({ status: "ok", service: "runproof-api" }));
 
+// /auth/* is how a caller establishes a session in the first place, so it
+// stays public. /mcp is how TrueForge reaches this server and validates its
+// own Origin (see routes/mcp.ts) — session auth does not apply there.
 app.route("/mcp", mcpRoute);
+app.route("/", authRoutes);
+
+// Every other API surface requires a resolved session. Mounted as path-
+// prefixed middleware (not a route) so it applies uniformly as each of
+// these surfaces grows its own handlers, without this file needing to
+// change again per-route.
+app.use("/incidents/*", requireAuth);
+app.use("/runs/*", requireAuth);
+app.use("/approvals/*", requireAuth);
+app.use("/audit/*", requireAuth);
 
 app.notFound((c) => c.json(apiError("not_found", "Route not found"), 404));
 

@@ -126,6 +126,28 @@ export interface Store {
   getUserByEmail(email: string): Promise<UserRow | null>;
   getUserById(id: string): Promise<UserRow | null>;
 
+  /**
+   * Creates a user and its first session as a single atomic write:
+   * `createUser` succeeding while the paired `createSession` fails (a
+   * distinct write, on a separate round trip) would leave a stored user
+   * with no way to reach it — and, worse, no way to ever create one, since
+   * a retry of registration reports `email_taken` for a row the caller
+   * never got a cookie for. Both rows land, or neither does. Implementations
+   * MUST enforce this atomically (D1 via `db.batch()`, which SQLite commits
+   * or rolls back as one transaction; the memory adapter by validating both
+   * rows are conflict-free before mutating either map).
+   *
+   * "Paired" is load-bearing: implementations MUST also reject when
+   * `session.userId !== user.id`, before writing anything. Nothing else
+   * enforces that the session names the SAME user being created here — a
+   * mismatched call would create the new user but hand back a session that
+   * authenticates a different, already-existing account (or an unusable
+   * session for a missing one). This is a programming-error guard, not a
+   * user-facing condition: the register route always constructs a correctly
+   * paired session, and the check exists so that stays true.
+   */
+  createUserWithSession(user: UserRow, session: SessionRow): Promise<void>;
+
   createSession(row: SessionRow): Promise<void>;
   getSession(id: string): Promise<SessionRow | null>;
   deleteSession(id: string): Promise<void>;

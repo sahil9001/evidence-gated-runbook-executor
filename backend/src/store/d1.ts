@@ -330,6 +330,39 @@ export function createD1Store(db: D1Database): Store {
         .run();
     },
 
+    async createUserWithSession(user: UserRow, session: SessionRow): Promise<void> {
+      // The whole point of this method is that a user and THEIR OWN first
+      // session commit together. Nothing about the batch below enforces
+      // that: `sessions.user_id REFERENCES users (id)` only checks that
+      // *some* row with that id exists, not that it's the row being created
+      // in this same call. Without this check, a caller passing a session
+      // whose userId names a different, already-existing user would create
+      // the new user but hand back a session that authenticates the OTHER
+      // account — an auth-bypass shape, not a data-integrity nit. This must
+      // never be reachable from the register route (buildSession always
+      // pairs userId to the freshly minted user id), so this throws rather
+      // than degrading gracefully — it's a programming error, not a
+      // user-facing condition.
+      if (session.userId !== user.id) {
+        throw new Error(
+          `createUserWithSession: session.userId ("${session.userId}") does not match user.id ("${user.id}")`
+        );
+      }
+
+      // db.batch() commits its statements as a single SQL transaction: if
+      // either INSERT fails (e.g. a duplicate email or duplicate session
+      // id), the whole batch rolls back rather than leaving a user row with
+      // no session. See the doc comment on Store#createUserWithSession.
+      await db.batch([
+        db
+          .prepare(`INSERT INTO users (id, email, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)`)
+          .bind(user.id, user.email, user.passwordHash, user.salt, user.createdAt),
+        db
+          .prepare(`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`)
+          .bind(session.id, session.userId, session.createdAt, session.expiresAt)
+      ]);
+    },
+
     async getUserByEmail(email: string): Promise<UserRow | null> {
       const record = await db
         .prepare(`SELECT id, email, password_hash, salt, created_at FROM users WHERE email = ?`)

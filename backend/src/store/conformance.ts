@@ -574,6 +574,124 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       });
     });
 
+    describe("createUserWithSession", () => {
+      const makeUser = (id: string, email: string): UserRow => ({
+        id,
+        email,
+        passwordHash: "hash",
+        salt: "salt",
+        createdAt: T0
+      });
+
+      const makeSessionFor = (id: string, userId: string): SessionRow => ({
+        id,
+        userId,
+        createdAt: T0,
+        expiresAt: "2026-09-25T02:00:00.000Z"
+      });
+
+      it("creates the user and its session as a single write", async () => {
+        const user = makeUser("user-cus-1", "cus1@example.com");
+        const session = makeSessionFor("session-cus-1", "user-cus-1");
+
+        await store.createUserWithSession(user, session);
+
+        expect(await store.getUserById("user-cus-1")).toEqual(user);
+        expect(await store.getSession("session-cus-1")).toEqual(session);
+      });
+
+      // Simulates the exact failure Finding 3 is about: the session half of
+      // the write collides (here, on a pre-existing session id) and must
+      // fail. If the two writes were independent, the user row would be
+      // left behind with no session — and a retry of registration would
+      // report `email_taken` for an account nobody can ever reach. Atomic
+      // writes rule that out: neither row lands, and a retry with a fresh
+      // session succeeds cleanly.
+      it("rejects when the session write collides, leaving no user row behind, and a retry succeeds", async () => {
+        const priorOwner = makeUser("user-cus-collider", "collider@example.com");
+        await store.createUser(priorOwner);
+        await store.createSession(makeSessionFor("session-cus-collide", priorOwner.id));
+
+        const user = makeUser("user-cus-2", "cus2@example.com");
+        const collidingSession = makeSessionFor("session-cus-collide", user.id);
+
+        await expect(store.createUserWithSession(user, collidingSession)).rejects.toThrow();
+
+        expect(await store.getUserById("user-cus-2")).toBeNull();
+        expect(await store.getUserByEmail("cus2@example.com")).toBeNull();
+
+        // A retry with a fresh (non-colliding) session must succeed — no
+        // phantom "email_taken" residue from the failed attempt above.
+        const retrySession = makeSessionFor("session-cus-2-retry", user.id);
+        await store.createUserWithSession(user, retrySession);
+
+        expect(await store.getUserById("user-cus-2")).toEqual(user);
+        expect(await store.getSession("session-cus-2-retry")).toEqual(retrySession);
+      });
+
+      it("rejects a duplicate email, leaving neither the user nor the session written", async () => {
+        const original = makeUser("user-cus-3", "cus3-dup@example.com");
+        await store.createUser(original);
+
+        const duplicate = makeUser("user-cus-4", "cus3-dup@example.com");
+        const session = makeSessionFor("session-cus-4", "user-cus-4");
+
+        await expect(store.createUserWithSession(duplicate, session)).rejects.toThrow();
+
+        expect(await store.getUserById("user-cus-4")).toBeNull();
+        expect(await store.getSession("session-cus-4")).toBeNull();
+        expect((await store.getUserByEmail("cus3-dup@example.com"))?.id).toBe("user-cus-3");
+      });
+
+      // Qodo finding: "session pairing is unenforced". Nothing checked that
+      // the session named the user being created, so a caller passing a
+      // session whose userId names a DIFFERENT, already-existing user got a
+      // session that authenticates that other account — an auth-bypass
+      // shape, not a data-integrity nit. This must never be reachable from
+      // the register route (buildSession always pairs userId to the freshly
+      // minted user id), but the store layer enforces it anyway so it stays
+      // that way: a programming error here throws instead of silently
+      // minting a working session for the wrong account.
+      it("rejects when session.userId does not match the user being created, writing neither row", async () => {
+        const otherUser = makeUser("user-cus-victim", "victim@example.com");
+        await store.createUser(otherUser);
+
+        const user = makeUser("user-cus-mismatch", "mismatch@example.com");
+        const mismatchedSession = makeSessionFor("session-cus-mismatch", otherUser.id);
+
+        await expect(store.createUserWithSession(user, mismatchedSession)).rejects.toThrow();
+
+        expect(await store.getUserById("user-cus-mismatch")).toBeNull();
+        expect(await store.getUserByEmail("mismatch@example.com")).toBeNull();
+        expect(await store.getSession("session-cus-mismatch")).toBeNull();
+      });
+
+      // Same shape, but the named user doesn't exist at all — an unusable
+      // session for nobody. D1's foreign key already rejects this; the
+      // memory adapter must too (see the `createSession` FK-parity test
+      // below for the direct case).
+      it("rejects when session.userId names a user that does not exist, writing neither row", async () => {
+        const user = makeUser("user-cus-ghost", "ghost@example.com");
+        const session = makeSessionFor("session-cus-ghost", "user-does-not-exist");
+
+        await expect(store.createUserWithSession(user, session)).rejects.toThrow();
+
+        expect(await store.getUserById("user-cus-ghost")).toBeNull();
+        expect(await store.getUserByEmail("ghost@example.com")).toBeNull();
+        expect(await store.getSession("session-cus-ghost")).toBeNull();
+      });
+
+      it("still supports the normal paired case: session.userId equals the created user's id", async () => {
+        const user = makeUser("user-cus-paired", "paired@example.com");
+        const session = makeSessionFor("session-cus-paired", user.id);
+
+        await store.createUserWithSession(user, session);
+
+        expect(await store.getUserById("user-cus-paired")).toEqual(user);
+        expect(await store.getSession("session-cus-paired")).toEqual(session);
+      });
+    });
+
     describe("sessions", () => {
       const makeSession = (id: string, overrides: Partial<SessionRow> = {}): SessionRow => ({
         id,
@@ -604,6 +722,15 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       it("rejects creating a session with a duplicate id", async () => {
         await store.createSession(makeSession("session-dup-1"));
         await expect(store.createSession(makeSession("session-dup-1", { userId: "user-2" }))).rejects.toThrow();
+      });
+
+      // `sessions.user_id REFERENCES users (id)` (migrations/0002). D1
+      // rejects an INSERT naming a nonexistent user via this foreign key;
+      // the memory adapter must reject it too instead of silently accepting
+      // a session for a user that was never created.
+      it("rejects creating a session that references a nonexistent user", async () => {
+        await expect(store.createSession(makeSession("session-fk-ghost", { userId: "user-does-not-exist" }))).rejects.toThrow();
+        expect(await store.getSession("session-fk-ghost")).toBeNull();
       });
 
       it("deleteExpiredSessions removes only sessions expired as of the given time", async () => {

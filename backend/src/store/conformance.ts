@@ -606,6 +606,94 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         expect(await store.getGate(run.id)).toEqual(firstApproval);
       });
 
+      it("refuses — leaving BOTH run and gate untouched — when the decided gate's actionId doesn't match the stored gate's", async () => {
+        const run = makeRun("run-decide-mismatch-action", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-real", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-real"), { by: "sahil", at: T5 });
+        const mismatched = { ...approved, actionId: "action-different" };
+
+        const won = await store.decideGate(mismatched, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+        expect((await store.getGate(run.id))?.state).toBe("locked");
+      });
+
+      it("refuses — leaving BOTH run and gate untouched — when the decided gate's createdAt doesn't match the stored gate's", async () => {
+        const run = makeRun("run-decide-mismatch-created", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-real", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-real"), { by: "sahil", at: T5 });
+        const mismatched = { ...approved, createdAt: "2026-08-25T01:00:00.000Z" };
+
+        const won = await store.decideGate(mismatched, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+        expect((await store.getGate(run.id))?.state).toBe("locked");
+      });
+
+      it("refuses — leaving BOTH run and gate untouched — when the decided gate's expiresAt doesn't match the stored gate's", async () => {
+        const run = makeRun("run-decide-mismatch-expires", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-real", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-real"), { by: "sahil", at: T5 });
+        const mismatched = { ...approved, expiresAt: "2026-08-25T09:00:00.000Z" };
+
+        const won = await store.decideGate(mismatched, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+        expect((await store.getGate(run.id))?.state).toBe("locked");
+      });
+
+      it("refuses — leaving BOTH runs and the gate untouched — when the gate belongs to a different run", async () => {
+        const runA = makeRun("run-decide-assoc-a", { state: "awaiting_approval" });
+        await store.createRun(runA);
+        const lockedA = createGate({ id: runA.id, actionId: "action-a", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(lockedA, runA.id);
+
+        const runB = makeRun("run-decide-assoc-b", { state: "awaiting_approval" });
+        await store.createRun(runB);
+
+        const { gate: approvedA } = approveGate(lockedA, makeAction("action-a"), { by: "sahil", at: T5 });
+
+        // Gate A's own decision, but decided against run B instead of run A.
+        const won = await store.decideGate(approvedA, runB.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(runA.id))?.state).toBe("awaiting_approval");
+        expect((await store.getRun(runB.id))?.state).toBe("awaiting_approval");
+        expect((await store.getGate(runA.id))?.state).toBe("locked");
+      });
+
+      it("a retry after a refused mismatched decideGate succeeds with the correctly-bound gate", async () => {
+        const run = makeRun("run-decide-retry-after-mismatch", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-retry", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-retry"), { by: "sahil", at: T5 });
+        const mismatched = { ...approved, actionId: "action-wrong" };
+
+        const refused = await store.decideGate(mismatched, run.id, T5);
+        expect(refused).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+
+        const retryWon = await store.decideGate(approved, run.id, T5);
+
+        expect(retryWon).toBe(true);
+        expect((await store.getRun(run.id))?.state).toBe("approved");
+        expect((await store.getGate(run.id))?.state).toBe("approved");
+      });
+
       it("under concurrent decideGate calls for the same gate, exactly one wins", async () => {
         const run = makeRun("run-decide-race", { state: "awaiting_approval" });
         await store.createRun(run);

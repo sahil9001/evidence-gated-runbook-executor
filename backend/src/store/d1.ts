@@ -346,7 +346,21 @@ export function createD1Store(db: D1Database): Store {
       //
       // Statement 1 (the run claim) additionally requires the gate to
       // currently be `locked` — read from its PRE-transaction value, since
-      // this runs first.
+      // this runs first. It is NOT enough to check `state = 'locked'` alone:
+      // that only rules out an already-decided gate, but says nothing about
+      // whether THIS particular decision is the one bound to that locked
+      // row. Without pinning every immutable field (actionId, createdAt,
+      // expiresAt) and the run association, a same-id decision for the
+      // WRONG action (or the wrong run) would pass this check and commit the
+      // run claim, while statement 2 below — which does pin those fields —
+      // is silently skipped (`meta.changes === 0`). db.batch() does not
+      // error on a conditional UPDATE that matches zero rows, so that split
+      // would commit as part of the same transaction: the run flips to
+      // approved/rejected while the gate stays locked forever, and no retry
+      // can ever repair it (loadDecidableGate refuses once `run.state !==
+      // "awaiting_approval"`). So statement 1 is conditioned on the exact
+      // same binding statement 2 enforces, via a correlated EXISTS against
+      // the gate's PRE-transaction row.
       //
       // Statement 2 (the gate decision) additionally requires the run to
       // now equal the gate's own decided state — read AFTER statement 1 has
@@ -358,9 +372,17 @@ export function createD1Store(db: D1Database): Store {
           .prepare(
             `UPDATE runs SET state = ?, updated_at = ?
              WHERE id = ? AND state = 'awaiting_approval'
-               AND (SELECT json_extract(data, '$.state') FROM gates WHERE id = ?) = 'locked'`
+               AND EXISTS (
+                 SELECT 1 FROM gates
+                 WHERE id = ?
+                   AND run_id = ?
+                   AND json_extract(data, '$.state') = 'locked'
+                   AND json_extract(data, '$.actionId') = ?
+                   AND json_extract(data, '$.createdAt') = ?
+                   AND json_extract(data, '$.expiresAt') = ?
+               )`
           )
-          .bind(gate.state, at, runId, gate.id),
+          .bind(gate.state, at, runId, gate.id, runId, gate.actionId, gate.createdAt, gate.expiresAt),
         db
           .prepare(
             `INSERT INTO gates (id, run_id, data) VALUES (?, ?, ?)

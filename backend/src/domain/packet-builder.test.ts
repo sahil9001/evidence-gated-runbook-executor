@@ -185,3 +185,59 @@ describe("collectEvidence — collection and partial results", () => {
     for (const card of packet.cards) expect(card.collectedAt).toBe(FIXED);
   });
 });
+
+describe("collectEvidence — per-collector card validation", () => {
+  it("treats a collector returning a malformed card as a failure for that source, yielding a partial packet and preserving the other collectors' cards", async () => {
+    const runbook = withAllowedSources(["logs", "metrics"]);
+
+    const logSource: EvidenceSource = { kind: "logs", collect: async (ctx) => [makeCard("logs", "log-1", ctx.now())] };
+    const malformedMetric: EvidenceSource = {
+      kind: "metrics",
+      collect: async () =>
+        [{ id: "", source: "metrics", claim: "bad card", raw: {}, collectedAt: "not-a-date", confidence: "high" }] as EvidenceCard[]
+    };
+
+    const { packet, failures } = await collectEvidence({ ...baseInput, runbook, sources: [logSource, malformedMetric] });
+
+    expect(packet.cards.map((card) => card.id)).toEqual(["log-1"]);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toBeInstanceOf(CollectorError);
+    expect(failures[0]?.kind).toBe("metrics");
+  });
+
+  it("does not abort the whole call when one collector's card fails schema validation", async () => {
+    const runbook = withAllowedSources(["logs"]);
+    const malformedLog: EvidenceSource = {
+      kind: "logs",
+      collect: async () => [{ id: "log-bad", source: "logs", claim: "", raw: {}, collectedAt: "2026-08-25T02:00:00.000Z", confidence: "high" }] as EvidenceCard[]
+    };
+
+    // Before the fix, an invalid card slipped through per-collector and was
+    // only ever caught by evidencePacketSchema.parse inside buildPacket,
+    // which throws and aborts collectEvidence entirely instead of
+    // producing the promised partial packet + failures.
+    await expect(collectEvidence({ ...baseInput, runbook, sources: [malformedLog] })).resolves.toEqual(
+      expect.objectContaining({ failures: expect.arrayContaining([expect.any(CollectorError)]) })
+    );
+  });
+
+  it("rejects a collector's cards labelled with another source, reporting a failure and keeping them out of the packet", async () => {
+    const runbook = withAllowedSources(["logs", "metrics"]);
+
+    const logSource: EvidenceSource = { kind: "logs", collect: async (ctx) => [makeCard("logs", "log-1", ctx.now())] };
+    // This collector is authorized as "metrics" but claims its cards came
+    // from "deploys" — a source-mismatch, not a scope violation.
+    const mislabeledMetric: EvidenceSource = {
+      kind: "metrics",
+      collect: async (ctx) => [makeCard("deploys", "sneaky-1", ctx.now())]
+    };
+
+    const { packet, failures } = await collectEvidence({ ...baseInput, runbook, sources: [logSource, mislabeledMetric] });
+
+    expect(packet.cards.map((card) => card.id)).toEqual(["log-1"]);
+    expect(packet.cards.some((card) => card.id === "sneaky-1")).toBe(false);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toBeInstanceOf(CollectorError);
+    expect(failures[0]?.kind).toBe("metrics");
+  });
+});

@@ -225,19 +225,26 @@ export function createD1Store(db: D1Database): Store {
       return createAction(JSON.parse(record.data));
     },
 
-    async saveGate(gate: ApprovalGate, runId: string): Promise<void> {
+    async saveGate(gate: ApprovalGate, runId: string): Promise<boolean> {
       // Gates hold current state (unlike audit_log, which holds immutable
-      // history) — a gate is created locked, then decided exactly once, and
-      // the decided variant must replace the locked row so `getGate` agrees
-      // with the caller's view of the run's state. Upsert on the `id`
-      // PRIMARY KEY.
-      await db
+      // history) — a gate is created locked, then decided exactly once
+      // (`locked -> approved` or `locked -> rejected`), never anything
+      // else, and never back to locked. The upsert is conditional on the
+      // *stored* row still being `locked`: once a row has been decided, no
+      // further write — a conflicting decision or a stale locked value —
+      // may touch it. `meta.changes` distinguishes a write that actually
+      // took effect (fresh insert, or an update that matched the WHERE
+      // clause) from one the WHERE clause silently blocked, so two callers
+      // racing to decide the same gate can never both believe they won.
+      const result = await db
         .prepare(
           `INSERT INTO gates (id, run_id, data) VALUES (?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET data = excluded.data`
+           ON CONFLICT(id) DO UPDATE SET data = excluded.data
+           WHERE json_extract(gates.data, '$.state') = 'locked'`
         )
         .bind(gate.id, runId, JSON.stringify(gate))
         .run();
+      return result.meta.changes === 1;
     },
 
     async getGate(id: string): Promise<ApprovalGate | null> {

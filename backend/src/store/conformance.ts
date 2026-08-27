@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import type { Store, RunRow, AuditEntry, IncidentRow, UserRow, SessionRow } from "../domain/store";
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
 import { createAction, type Action } from "../domain/action";
-import { createGate, approveGate } from "../domain/approval";
+import { createGate, approveGate, rejectGate } from "../domain/approval";
 
 const T0 = "2026-08-25T02:00:00.000Z";
 const T5 = "2026-08-25T02:05:00.000Z";
@@ -247,11 +247,13 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         await store.createRun(run);
         const locked = createGate({ id: "gate-3", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
 
-        await store.saveGate(locked, run.id);
+        const wonLock = await store.saveGate(locked, run.id);
+        expect(wonLock).toBe(true);
         expect((await store.getGate("gate-3"))?.state).toBe("locked");
 
         const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
-        await store.saveGate(approved, run.id);
+        const wonApprove = await store.saveGate(approved, run.id);
+        expect(wonApprove).toBe(true);
 
         const loaded = await store.getGate("gate-3");
         expect(loaded).toEqual(approved);
@@ -261,6 +263,42 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
 
       it("returns null for a missing gate", async () => {
         expect(await store.getGate("no-such-gate")).toBeNull();
+      });
+
+      it("does not overwrite an already-decided gate with a second, conflicting decision", async () => {
+        const run = makeRun("run-gate-conflict");
+        await store.createRun(run);
+        const locked = createGate({ id: "gate-conflict-1", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5, reason: "looks good" });
+        const wonFirst = await store.saveGate(approved, run.id);
+        expect(wonFirst).toBe(true);
+
+        // A second, conflicting decision over the now-decided gate.
+        const rejected = rejectGate(locked, { by: "someone-else", at: T5, reason: "actually, no" });
+        const wonSecond = await store.saveGate(rejected, run.id);
+        expect(wonSecond).toBe(false);
+
+        const loaded = await store.getGate("gate-conflict-1");
+        expect(loaded).toEqual(approved);
+      });
+
+      it("does not let a stale locked gate revert an already-decided gate", async () => {
+        const run = makeRun("run-gate-stale");
+        await store.createRun(run);
+        const locked = createGate({ id: "gate-stale-1", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        await store.saveGate(approved, run.id);
+
+        // A caller that still holds the stale, pre-decision locked value.
+        const wonStale = await store.saveGate(locked, run.id);
+        expect(wonStale).toBe(false);
+
+        const loaded = await store.getGate("gate-stale-1");
+        expect(loaded).toEqual(approved);
       });
     });
 

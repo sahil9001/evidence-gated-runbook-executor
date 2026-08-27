@@ -81,7 +81,16 @@ export interface Store {
   saveAction(action: Action, runId: string): Promise<void>;
   getAction(id: string): Promise<Action | null>;
 
-  saveGate(gate: ApprovalGate, runId: string): Promise<void>;
+  /**
+   * A gate is created locked, then decided exactly once: `locked ->
+   * approved` or `locked -> rejected`, never anything else, and never back
+   * to locked. Implementations MUST enforce this as a conditional
+   * write — the call only takes effect while the stored gate (if any) is
+   * still `locked` — and report whether it won via the returned boolean, so
+   * two callers racing to decide the same gate can never both believe they
+   * won, and a stale locked value can never revert an already-decided gate.
+   */
+  saveGate(gate: ApprovalGate, runId: string): Promise<boolean>;
   getGate(id: string): Promise<ApprovalGate | null>;
 
   appendAudit(entry: AuditEntry): Promise<void>;

@@ -123,8 +123,18 @@ export function createMemoryStore(): Store {
       return createAction(clone(found));
     },
 
-    async saveGate(gate: ApprovalGate): Promise<void> {
+    async saveGate(gate: ApprovalGate): Promise<boolean> {
+      // Same one-way rule the D1 adapter enforces via its conditional
+      // `ON CONFLICT ... WHERE` upsert (see `store/d1.ts#saveGate`): a gate
+      // already decided (approved/rejected) can never be overwritten by a
+      // conflicting decision or reverted by a stale locked value. Only a
+      // write over a missing row or a still-`locked` row takes effect.
+      const existing = gates.get(gate.id);
+      if (existing !== undefined && existing.state !== "locked") {
+        return false;
+      }
       gates.set(gate.id, clone(gate));
+      return true;
     },
 
     async getGate(id: string): Promise<ApprovalGate | null> {

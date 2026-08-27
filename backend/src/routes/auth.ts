@@ -147,6 +147,19 @@ authRoutes.post("/auth/login", async (c) => {
   const session = await createSession(store, user.id, nowIso);
   setSessionCookie(c, session.id);
 
+  // Opportunistic cleanup: a successful login is the one moment a new
+  // session row is guaranteed to be added, so it's a natural, low-overhead
+  // point to sweep rows that expiry alone (see `resolveSession`) only ever
+  // stops from being *usable*, never actually deletes. Deliberately off the
+  // critical path — a login must still succeed even if this sweep fails, so
+  // the error is logged and swallowed rather than propagated. No cron or
+  // scheduled worker exists for this; this call is the entire mechanism.
+  try {
+    await store.deleteExpiredSessions(nowIso);
+  } catch (error) {
+    console.error("deleteExpiredSessions failed during login cleanup", error);
+  }
+
   return c.json({ ok: true, data: { user: toPublicUser(user) } });
 });
 

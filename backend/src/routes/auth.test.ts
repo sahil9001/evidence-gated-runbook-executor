@@ -2,7 +2,9 @@ import { env, applyD1Migrations, createExecutionContext, waitOnExecutionContext 
 import { beforeAll, describe, it, expect, vi } from "vitest";
 import app from "../index";
 import { createD1Store } from "../store/d1";
+import * as d1StoreModule from "../store/d1";
 import * as passwordModule from "../auth/password";
+import type { Store } from "../domain/store";
 
 beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
@@ -300,6 +302,62 @@ describe("GET /auth/me", () => {
     const raw = JSON.stringify(body);
     expect(raw).not.toContain("passwordHash");
     expect(raw).not.toContain("salt");
+  });
+});
+
+describe("expired session cleanup on login", () => {
+  it("deletes an already-expired session and keeps a still-valid one, after a successful login", async () => {
+    const email = "cleanup-user@example.com";
+    await post("/auth/register", { email, password: STRONG_PASSWORD });
+
+    const store = createD1Store(env.DB);
+    const user = await store.getUserByEmail(email);
+    if (user === null) throw new Error("expected user to exist after registration");
+
+    const expiredSession = {
+      id: "session-expired-cleanup",
+      userId: user.id,
+      createdAt: "2000-01-01T00:00:00.000Z",
+      expiresAt: "2000-01-02T00:00:00.000Z"
+    };
+    const liveSession = {
+      id: "session-live-cleanup",
+      userId: user.id,
+      createdAt: "2100-01-01T00:00:00.000Z",
+      expiresAt: "2100-01-02T00:00:00.000Z"
+    };
+    await store.createSession(expiredSession);
+    await store.createSession(liveSession);
+
+    const { status } = await post("/auth/login", { email, password: STRONG_PASSWORD });
+    expect(status).toBe(200);
+
+    expect(await store.getSession("session-expired-cleanup")).toBeNull();
+    expect(await store.getSession("session-live-cleanup")).toEqual(liveSession);
+  });
+
+  it("does not fail the login when the cleanup call itself throws", async () => {
+    const email = "cleanup-throws@example.com";
+    await post("/auth/register", { email, password: STRONG_PASSWORD });
+
+    const cleanupSpy = vi.spyOn(d1StoreModule, "createD1Store").mockImplementationOnce(
+      (db: D1Database): Store => {
+        const realStore = createD1Store(db);
+        return {
+          ...realStore,
+          deleteExpiredSessions: async () => {
+            throw new Error("boom - cleanup failed");
+          }
+        };
+      }
+    );
+
+    const { status, json } = await post("/auth/login", { email, password: STRONG_PASSWORD });
+    expect(status).toBe(200);
+    const body = json as ApiOk<{ user: PublicUser }>;
+    expect(body.data.user.email).toBe(email);
+
+    cleanupSpy.mockRestore();
   });
 });
 

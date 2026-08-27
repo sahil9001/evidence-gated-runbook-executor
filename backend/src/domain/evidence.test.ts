@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evidenceCardSchema, buildPacket, packetConfidence, type EvidenceCard } from "./evidence";
+import { evidenceCardSchema, buildPacket, packetConfidence, missingSources, type EvidenceCard } from "./evidence";
 
 const card = (over: Partial<EvidenceCard> = {}): EvidenceCard => ({
   id: "card-1",
@@ -83,5 +83,33 @@ describe("packetConfidence", () => {
       builtAt: "2026-08-25T02:01:00.000Z"
     });
     expect(packetConfidence(packet)).toBe("low");
+  });
+});
+
+describe("missingSources", () => {
+  it("names an allowed source that produced no cards", () => {
+    const packet = buildPacket({
+      id: "p", incidentId: "i", runbookId: "r",
+      cards: [card({ source: "logs" })],
+      builtAt: "2026-08-25T02:01:00.000Z"
+    });
+    expect(missingSources(packet, ["logs", "metrics"])).toEqual(["metrics"]);
+  });
+
+  it("returns nothing when every allowed source has at least one card", () => {
+    const packet = buildPacket({
+      id: "p", incidentId: "i", runbookId: "r",
+      cards: [card({ source: "logs" }), card({ id: "c2", source: "metrics" })],
+      builtAt: "2026-08-25T02:01:00.000Z"
+    });
+    expect(missingSources(packet, ["logs", "metrics"])).toEqual([]);
+  });
+
+  it("returns every allowed source for an empty packet", () => {
+    const packet = buildPacket({
+      id: "p", incidentId: "i", runbookId: "r", cards: [],
+      builtAt: "2026-08-25T02:01:00.000Z"
+    });
+    expect(missingSources(packet, ["logs", "deploys"])).toEqual(["logs", "deploys"]);
   });
 });

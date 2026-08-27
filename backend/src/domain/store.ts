@@ -1,6 +1,6 @@
 import type { EvidencePacket } from "./evidence";
 import type { Action } from "./action";
-import type { ApprovalGate } from "./approval";
+import type { ApprovalGate, ApprovedGate, RejectedGate } from "./approval";
 
 /**
  * Pure types and the `Store` port. No D1, no SQL, no bindings — this file
@@ -93,8 +93,50 @@ export interface Store {
   listRuns(filter?: { limit?: number; state?: RunRow["state"] }): Promise<RunRow[]>;
   listRunsByIncident(incidentId: string): Promise<RunRow[]>;
 
+  /**
+   * Creates a run and every artifact it is born with — its evidence packet,
+   * proposed action, locked gate, and initiating audit entries — as one
+   * atomic write. The alternative (independent `createRun` / `savePacket` /
+   * `saveAction` / `saveGate` / `appendAudit` calls) can fail partway
+   * through: a later failure leaves a run with no action and no gate, which
+   * can never reach `awaiting_approval` and can't be repaired by retrying
+   * the request, since a retry mints a brand new run id rather than
+   * resuming the broken one. All rows land, or none do — mirrors
+   * `createUserWithSession`'s reasoning and (in `createD1Store`) its
+   * `db.batch()` mechanism.
+   *
+   * Atomicity alone is not enough: implementations MUST also verify the
+   * aggregate is internally consistent BEFORE writing anything —
+   * `packet.incidentId === run.incidentId`, `gate.actionId === action.id`,
+   * and every audit entry's `runId === run.id` — and reject (writing
+   * nothing) otherwise. Without this, a caller could commit a run whose
+   * parts don't belong to each other (another incident's packet, a gate
+   * that authorizes a different action, an audit entry attributed to a
+   * different run), which a later lookup would then expose as if it
+   * genuinely belonged to this run. Same reasoning as the `session.userId
+   * !== user.id` guard on `createUserWithSession`.
+   */
+  createRunWithArtifacts(input: {
+    run: RunRow;
+    packet: EvidencePacket;
+    action: Action;
+    gate: ApprovalGate;
+    auditEntries: readonly AuditEntry[];
+  }): Promise<void>;
+
   savePacket(packet: EvidencePacket, runId: string): Promise<void>;
   getPacketByIncident(incidentId: string): Promise<EvidencePacket | null>;
+  /**
+   * The packet built FOR this run, and only this run — never "whatever the
+   * incident's most recent packet happens to be". A gate must be decided on
+   * the evidence collected for the run it belongs to; resolving evidence via
+   * `getPacketByIncident` instead lets a later, unrelated run on the same
+   * incident (empty or otherwise) determine whether THIS run's gate can be
+   * approved, which defeats the evidence gate. Ordered by `builtAt DESC`
+   * like `getPacketByIncident` in case a run is ever associated with more
+   * than one packet, though the current `/run` route writes exactly one.
+   */
+  getPacketByRun(runId: string): Promise<EvidencePacket | null>;
 
   saveAction(action: Action, runId: string): Promise<void>;
   getAction(id: string): Promise<Action | null>;
@@ -110,6 +152,28 @@ export interface Store {
    */
   saveGate(gate: ApprovalGate, runId: string): Promise<boolean>;
   getGate(id: string): Promise<ApprovalGate | null>;
+
+  /**
+   * Atomically decides a gate: transitions its run from `awaiting_approval`
+   * to the gate's own decided state (`approved`/`rejected`) AND persists
+   * that decision on the gate itself, as one unit — either both writes take
+   * effect, or neither does.
+   *
+   * This exists because `updateRunState` and `saveGate` are each
+   * individually an atomic conditional write, but calling them back to back
+   * (claim the run, then separately save the gate) is not: a failure
+   * between the two — a dropped connection, a rejected write, a genuine
+   * race — can leave the run claimed as decided while the gate is still
+   * `locked`. That run is then unrecoverable by retry: a retry's
+   * `loadDecidableGate`-style check sees `run.state !== "awaiting_approval"`
+   * and refuses before ever reaching a gate write again. Implementations
+   * MUST apply neither write unless both would succeed, returning `false`
+   * (having mutated nothing) whenever the run is not `awaiting_approval` or
+   * the gate is not decidable (same conditions `saveGate` alone already
+   * enforces: still `locked`, and every immutable field — actionId,
+   * createdAt, expiresAt, run association — equal to the stored row's).
+   */
+  decideGate(gate: ApprovedGate | RejectedGate, runId: string, at: string): Promise<boolean>;
 
   appendAudit(entry: AuditEntry): Promise<void>;
   listAudit(runId: string): Promise<AuditEntry[]>;

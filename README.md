@@ -19,8 +19,7 @@ premise is that an agent should be free to gather and reason about evidence — 
 part is safe and reversible — but the moment it wants to change production state,
 a human has to look at the same evidence and explicitly sign off.
 
-That split is enforced today by one runtime checkpoint, backed by domain
-machinery for a second one that is not yet wired to anything:
+That split is now enforced by two independent runtime checkpoints:
 
 1. **TrueForge's approval checkpoint (enforced).** RunProof's `propose_rollback`
    MCP tool is annotated `destructiveHint: true`. TrueForge's default
@@ -29,23 +28,38 @@ machinery for a second one that is not yet wired to anything:
    — until a human sends an explicit `allow`/`deny` decision. Read-only tools
    (`collect_logs`, `collect_metrics`, `collect_deploys`, `get_runbook`,
    `get_diagnostic_script`) are all `readOnlyHint: true` and are never gated.
-2. **RunProof's own gate (data today, not yet an enforcement layer).** Even
-   after TrueForge's human approves the tool call, RunProof does not execute
-   anything — it mints an `ApprovalGate` in the **locked** state and returns
-   it. `backend/src/domain/approval.ts` also defines a branded `ApprovalToken`
-   that only `approveGate()` can mint, non-forgeable at runtime via a
-   `WeakSet` identity check (the `unique symbol` brand TypeScript uses is
-   erased at runtime and can't stop a hand-built object from type-casting its
-   way past a naive check on its own). That machinery is real and
-   unit-tested, but **no route calls `approveGate` and no executor consumes
-   an `ApprovalToken` on `main`** — a token-gated executor exists only on an
-   unmerged branch, not in this submission.
+   This gate stops the agent's tool call before it ever reaches RunProof's
+   code; RunProof's `propose_rollback` handler itself still only mints a
+   locked gate and returns it — it executes nothing.
+2. **RunProof's own evidence-gated approval API (enforced).** `POST
+   /incidents/:id/run` collects evidence and locks a gate but executes
+   nothing either — the response has no `execution` field. Only `POST
+   /approvals/:id/approve` can change that: it refuses with `409
+   insufficient_evidence` if the packet has zero cards, atomically claims the
+   run so two concurrent approvals can never both win, and only then calls
+   `approveGate()` — the only function in `backend/src/domain/approval.ts`
+   that can mint an `ApprovalToken`, a branded type made non-forgeable at
+   runtime via a `WeakSet` identity check (the `unique symbol` brand
+   TypeScript uses is erased at runtime and can't stop a hand-built object
+   from type-casting its way past a naive check on its own). That token is
+   the only way to call `backend/src/domain/executor.ts`'s
+   `executeStateChanging` — a **mandatory** second positional argument with
+   no overload or wrapper that omits it, so "execute without a token" is a
+   compile error, not a runtime check the route could forget. Execution is
+   simulated (see [What is NOT built](#what-is-not-built)); `executeStateChanging`
+   also re-validates the token against the action's fingerprint at the moment
+   of execution, so a token minted for one action can't be replayed against
+   another.
 
-So today there is exactly one enforced checkpoint before `propose_rollback`
-can even be called, and RunProof's own handler returns a locked gate and
-executes nothing after that — full stop. See [`docs/writeup.md`](docs/writeup.md)
-for the full argument and what the unwired domain machinery does and doesn't
-give you yet.
+This second gate lives on RunProof's own HTTP API (`/incidents/:id/run` →
+`/approvals/:id/approve`), independent of the MCP tool surface TrueForge
+drives. The two are not yet unified: `propose_rollback`'s own locked gate is
+minted in memory and returned in the tool result, but never persisted to
+RunProof's store, so it cannot currently be resolved through
+`/approvals/:id` — an agent-proposed rollback and an operator-run/approved
+one are, today, two separate flows built on the same domain machinery, not
+one connected pipeline. See [`docs/writeup.md`](docs/writeup.md) for the full
+argument.
 
 ## Architecture
 
@@ -169,7 +183,7 @@ each stage (tool discovery → a read-only call → the sandboxed diagnostic →
 ### Verification
 
 ```bash
-cd backend && npm test && npm run typecheck   # 175 tests, clean typecheck
+cd backend && npm test && npm run typecheck   # 384 tests, clean typecheck
 cd ../frontend && npm run lint && npm run typecheck && npm run build
 ```
 
@@ -223,17 +237,20 @@ everything else in the submission:
   the exact steps and expected output for a judge to run this themselves.
 - **The rollback is simulated.** `propose_rollback` never touches a real
   production system. Even after TrueForge's human approves the tool call, it
-  only mints a locked RunProof `ApprovalGate` — no infrastructure API is called.
-- **RunProof's second approval gate is unimplemented.** `backend/src/domain/approval.ts`
-  has real, unit-tested machinery for it — a branded `ApprovalToken` only
-  `approveGate()` can mint, made non-forgeable by a runtime `WeakSet` and bound
-  to an action fingerprint — but no HTTP route calls `approveGate`, and there
-  is no `executeStateChanging` function or any other code path that consumes
-  an `ApprovalToken` to perform a rollback. That executor exists only on an
-  unmerged branch, not in this submission. Today the only thing that stops
-  `propose_rollback` from running is TrueForge's own `@destructive` checkpoint;
-  RunProof's contribution is that the call it lets through returns a locked
-  gate and executes nothing.
+  only mints a locked RunProof `ApprovalGate` — no infrastructure API is
+  called. This also holds for `executeStateChanging`: once a human approves
+  through `/approvals/:id/approve`, it returns a descriptive string and
+  touches nothing real — no infrastructure API is called there either.
+- **RunProof's second approval gate is implemented, but not yet connected to
+  the live MCP flow.** `POST /incidents/:id/run` and `POST
+  /approvals/:id/approve` now call `approveGate()` and
+  `executeStateChanging()` for real — see "Why the approval gate is the
+  point" above. What's still missing: the `propose_rollback` MCP tool mints
+  its own locked gate in memory but never persists it to RunProof's store, so
+  a gate minted by a live agent turn cannot currently be resolved through
+  `/approvals/:id`. Wiring those two into one pipeline (agent proposes →
+  operator approves through the same gate) is future work, not part of this
+  submission.
 - **The UI risk score is a disclosed display heuristic**, not a computed risk
   model. It's derived from evidence confidence for presentation purposes; it is
   not a statistical or ML-based risk assessment.

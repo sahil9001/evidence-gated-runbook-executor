@@ -178,6 +178,187 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       });
     });
 
+    describe("createRunWithArtifacts", () => {
+      it("atomically creates the run, packet, action, gate, and audit entries", async () => {
+        const run = makeRun("run-atomic-1", { incidentId: "inc-atomic-1", state: "awaiting_approval" });
+        const packet = makePacket("packet-atomic-1", "inc-atomic-1");
+        const action = makeAction("action-atomic-1");
+        const gate = createGate({ id: "run-atomic-1", actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-1", runId: run.id, at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await store.createRunWithArtifacts({ run, packet, action, gate, auditEntries });
+
+        expect(await store.getRun(run.id)).toEqual(run);
+        expect(await store.getPacketByRun(run.id)).toEqual(packet);
+        expect(await store.getAction(action.id)).toEqual(action);
+        expect(await store.getGate(gate.id)).toEqual(gate);
+        expect((await store.listAudit(run.id)).map((e) => e.id)).toEqual(["audit-atomic-1"]);
+      });
+
+      it("leaves NO partial run behind when one artifact collides with an existing row", async () => {
+        // Seed a packet id that the next createRunWithArtifacts call will
+        // collide on, so its INSERT fails partway through the batch.
+        const collidingRun = makeRun("run-atomic-seed", { incidentId: "inc-atomic-2" });
+        await store.createRun(collidingRun);
+        await store.savePacket(makePacket("packet-atomic-collide", "inc-atomic-2"), collidingRun.id);
+
+        const run = makeRun("run-atomic-2", { incidentId: "inc-atomic-2", state: "awaiting_approval" });
+        const packet = makePacket("packet-atomic-collide", "inc-atomic-2"); // duplicate id
+        const action = makeAction("action-atomic-2");
+        const gate = createGate({ id: "run-atomic-2", actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-2", runId: run.id, at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        // Nothing from the failed attempt landed — not even the run row,
+        // which a naive independent-writes implementation would have
+        // created before reaching the colliding packet insert.
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getAction(action.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit(run.id)).toEqual([]);
+      });
+
+      it("a retry with fresh ids succeeds cleanly after a failed attempt", async () => {
+        const collidingRun = makeRun("run-atomic-seed-2", { incidentId: "inc-atomic-3" });
+        await store.createRun(collidingRun);
+        await store.savePacket(makePacket("packet-atomic-collide-2", "inc-atomic-3"), collidingRun.id);
+
+        const failedRun = makeRun("run-atomic-3", { incidentId: "inc-atomic-3", state: "awaiting_approval" });
+        await expect(
+          store.createRunWithArtifacts({
+            run: failedRun,
+            packet: makePacket("packet-atomic-collide-2", "inc-atomic-3"),
+            action: makeAction("action-atomic-3"),
+            gate: createGate({ id: "run-atomic-3", actionId: "action-atomic-3", createdAt: T0, ttlMs: 15 * 60 * 1000 }),
+            auditEntries: [{ id: "audit-atomic-3", runId: failedRun.id, at: T0, kind: "run_created", detail: "created" }]
+          })
+        ).rejects.toThrow();
+
+        // Retry with entirely fresh ids — not resuming the failed run id,
+        // since retrying THIS endpoint always mints a new run id.
+        const retryRun = makeRun("run-atomic-3-retry", { incidentId: "inc-atomic-3", state: "awaiting_approval" });
+        const retryPacket = makePacket("packet-atomic-3-retry", "inc-atomic-3");
+        const retryAction = makeAction("action-atomic-3-retry");
+        const retryGate = createGate({
+          id: "run-atomic-3-retry",
+          actionId: retryAction.id,
+          createdAt: T0,
+          ttlMs: 15 * 60 * 1000
+        });
+
+        await store.createRunWithArtifacts({
+          run: retryRun,
+          packet: retryPacket,
+          action: retryAction,
+          gate: retryGate,
+          auditEntries: [{ id: "audit-atomic-3-retry", runId: retryRun.id, at: T0, kind: "run_created", detail: "created" }]
+        });
+
+        expect(await store.getRun(retryRun.id)).toEqual(retryRun);
+        expect(await store.getGate(retryGate.id)).toEqual(retryGate);
+      });
+
+      it("rejects a packet whose incidentId differs from the run's, writing NOTHING", async () => {
+        const run = makeRun("run-atomic-bad-packet", { incidentId: "inc-atomic-bad-packet" });
+        const packet = makePacket("packet-atomic-bad-packet", "inc-some-other-incident");
+        const action = makeAction("action-atomic-bad-packet");
+        const gate = createGate({ id: run.id, actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-bad-packet", runId: run.id, at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getAction(action.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit(run.id)).toEqual([]);
+      });
+
+      it("rejects a gate whose actionId doesn't match the action's id, writing NOTHING", async () => {
+        const run = makeRun("run-atomic-bad-gate", { incidentId: "inc-atomic-bad-gate" });
+        const packet = makePacket("packet-atomic-bad-gate", "inc-atomic-bad-gate");
+        const action = makeAction("action-atomic-bad-gate");
+        const gate = createGate({ id: run.id, actionId: "action-does-not-match", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-bad-gate", runId: run.id, at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getPacketByRun(run.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit(run.id)).toEqual([]);
+      });
+
+      it("rejects an audit entry naming a different run, writing NOTHING", async () => {
+        const run = makeRun("run-atomic-bad-audit", { incidentId: "inc-atomic-bad-audit" });
+        const packet = makePacket("packet-atomic-bad-audit", "inc-atomic-bad-audit");
+        const action = makeAction("action-atomic-bad-audit");
+        const gate = createGate({ id: run.id, actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-bad-audit", runId: "some-other-run-id", at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getPacketByRun(run.id)).toBeNull();
+        expect(await store.getAction(action.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit("some-other-run-id")).toEqual([]);
+      });
+
+      it("rejects an aggregate with two audit entries sharing the same id, writing NOTHING", async () => {
+        // D1's `audit_log.id` PRIMARY KEY rejects the second INSERT in the
+        // batch outright, rolling back the whole transaction. A store that
+        // only checks each incoming entry's runId (not intra-array
+        // uniqueness) would let this reach `Map.set` twice, which silently
+        // keeps only the last of the two — this must be caught and rejected
+        // BEFORE anything is written, matching what D1's schema enforces.
+        const run = makeRun("run-atomic-dup-audit", { incidentId: "inc-atomic-dup-audit" });
+        const packet = makePacket("packet-atomic-dup-audit", "inc-atomic-dup-audit");
+        const action = makeAction("action-atomic-dup-audit");
+        const gate = createGate({ id: run.id, actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-dup", runId: run.id, at: T0, kind: "run_created", detail: "first" },
+          { id: "audit-atomic-dup", runId: run.id, at: T5, kind: "run_created", detail: "second" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getPacketByRun(run.id)).toBeNull();
+        expect(await store.getAction(action.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit(run.id)).toEqual([]);
+      });
+
+      it("commits a valid aggregate with distinct audit entry ids", async () => {
+        const run = makeRun("run-atomic-distinct-audit", { incidentId: "inc-atomic-distinct-audit" });
+        const packet = makePacket("packet-atomic-distinct-audit", "inc-atomic-distinct-audit");
+        const action = makeAction("action-atomic-distinct-audit");
+        const gate = createGate({ id: run.id, actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-distinct-1", runId: run.id, at: T0, kind: "run_created", detail: "first" },
+          { id: "audit-atomic-distinct-2", runId: run.id, at: T5, kind: "run_created", detail: "second" }
+        ];
+
+        await store.createRunWithArtifacts({ run, packet, action, gate, auditEntries });
+
+        expect((await store.listAudit(run.id)).map((e) => e.id)).toEqual([
+          "audit-atomic-distinct-1",
+          "audit-atomic-distinct-2"
+        ]);
+      });
+    });
+
     describe("packets", () => {
       it("round-trips a packet, surviving evidencePacketSchema.parse", async () => {
         const run = makeRun("run-3");
@@ -219,6 +400,38 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         await store.savePacket(makePacket("packet-dup-1", run.incidentId), run.id);
 
         await expect(store.savePacket(makePacket("packet-dup-1", run.incidentId), run.id)).rejects.toThrow();
+      });
+    });
+
+    describe("getPacketByRun", () => {
+      it("returns the packet for that specific run, not any other run's packet on the same incident", async () => {
+        const incidentId = "inc-packet-by-run";
+        const runA = makeRun("run-packet-by-run-a", { incidentId });
+        const runB = makeRun("run-packet-by-run-b", { incidentId });
+        await store.createRun(runA);
+        await store.createRun(runB);
+
+        // runA's packet has an EARLIER builtAt than runB's — if
+        // getPacketByRun were implemented as "latest packet on the
+        // incident" (the bug getPacketByIncident has for this use case),
+        // runA's own lookup would incorrectly return runB's packet.
+        const packetA = makePacket("packet-by-run-a", incidentId, T0);
+        const packetB = makePacket("packet-by-run-b", incidentId, T5);
+        await store.savePacket(packetA, runA.id);
+        await store.savePacket(packetB, runB.id);
+
+        expect((await store.getPacketByRun(runA.id))?.id).toBe("packet-by-run-a");
+        expect((await store.getPacketByRun(runB.id))?.id).toBe("packet-by-run-b");
+      });
+
+      it("returns null for a run with no packet of its own", async () => {
+        const run = makeRun("run-packet-by-run-none", { incidentId: "inc-packet-by-run-none" });
+        await store.createRun(run);
+        expect(await store.getPacketByRun(run.id)).toBeNull();
+      });
+
+      it("returns null for a nonexistent run id", async () => {
+        expect(await store.getPacketByRun("run-does-not-exist")).toBeNull();
       });
     });
 
@@ -421,6 +634,205 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
 
         const loaded = await store.getGate("gate-bind-run-1");
         expect(loaded).toEqual(locked);
+      });
+    });
+
+    describe("decideGate", () => {
+      it("atomically transitions run to approved AND the gate to approved", async () => {
+        const run = makeRun("run-decide-1", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        const won = await store.decideGate(approved, run.id, T5);
+
+        expect(won).toBe(true);
+        expect((await store.getRun(run.id))?.state).toBe("approved");
+        expect(await store.getGate(run.id)).toEqual(approved);
+      });
+
+      it("atomically transitions run to rejected AND the gate to rejected", async () => {
+        const run = makeRun("run-decide-2", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const rejected = rejectGate(locked, { by: "sahil", at: T5, reason: "not confident" });
+        const won = await store.decideGate(rejected, run.id, T5);
+
+        expect(won).toBe(true);
+        expect((await store.getRun(run.id))?.state).toBe("rejected");
+        expect(await store.getGate(run.id)).toEqual(rejected);
+      });
+
+      it("refuses — creating NO gate row — when the gate does not exist", async () => {
+        const run = makeRun("run-decide-missing-gate", { state: "awaiting_approval" });
+        await store.createRun(run);
+
+        // No saveGate call at all: "gate-missing" has never been written.
+        // decideGate only ever ADVANCES an existing locked gate (unlike
+        // saveGate, which may create one) — a decision for an id that was
+        // never claimed must refuse cleanly, not resurrect the gate it
+        // claims to be deciding.
+        const phantomLocked = createGate({
+          id: "gate-missing",
+          actionId: "action-1",
+          createdAt: T0,
+          ttlMs: 15 * 60 * 1000
+        });
+        const { gate: approved } = approveGate(phantomLocked, makeAction("action-1"), { by: "sahil", at: T5 });
+
+        const won = await store.decideGate(approved, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+        expect(await store.getGate("gate-missing")).toBeNull();
+      });
+
+      it("refuses — leaving BOTH run and gate untouched — when the run is not awaiting_approval", async () => {
+        const run = makeRun("run-decide-3", { state: "collecting" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        const won = await store.decideGate(approved, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("collecting");
+        expect((await store.getGate(run.id))?.state).toBe("locked");
+      });
+
+      it("refuses — leaving BOTH run and gate untouched — when the gate is already decided", async () => {
+        const run = makeRun("run-decide-4", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+        const { gate: firstApproval } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        const firstWon = await store.decideGate(firstApproval, run.id, T5);
+        expect(firstWon).toBe(true);
+
+        // A second, conflicting decision attempt over the now-decided gate —
+        // note the run is already "approved" too, so a naive implementation
+        // that only checked the run's state (not the gate's) could wrongly
+        // let this through.
+        const secondAttempt = { ...firstApproval, decidedBy: "someone-else" };
+        const secondWon = await store.decideGate(secondAttempt, run.id, T5);
+
+        expect(secondWon).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("approved");
+        expect(await store.getGate(run.id)).toEqual(firstApproval);
+      });
+
+      it("refuses — leaving BOTH run and gate untouched — when the decided gate's actionId doesn't match the stored gate's", async () => {
+        const run = makeRun("run-decide-mismatch-action", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-real", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-real"), { by: "sahil", at: T5 });
+        const mismatched = { ...approved, actionId: "action-different" };
+
+        const won = await store.decideGate(mismatched, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+        expect((await store.getGate(run.id))?.state).toBe("locked");
+      });
+
+      it("refuses — leaving BOTH run and gate untouched — when the decided gate's createdAt doesn't match the stored gate's", async () => {
+        const run = makeRun("run-decide-mismatch-created", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-real", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-real"), { by: "sahil", at: T5 });
+        const mismatched = { ...approved, createdAt: "2026-08-25T01:00:00.000Z" };
+
+        const won = await store.decideGate(mismatched, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+        expect((await store.getGate(run.id))?.state).toBe("locked");
+      });
+
+      it("refuses — leaving BOTH run and gate untouched — when the decided gate's expiresAt doesn't match the stored gate's", async () => {
+        const run = makeRun("run-decide-mismatch-expires", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-real", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-real"), { by: "sahil", at: T5 });
+        const mismatched = { ...approved, expiresAt: "2026-08-25T09:00:00.000Z" };
+
+        const won = await store.decideGate(mismatched, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+        expect((await store.getGate(run.id))?.state).toBe("locked");
+      });
+
+      it("refuses — leaving BOTH runs and the gate untouched — when the gate belongs to a different run", async () => {
+        const runA = makeRun("run-decide-assoc-a", { state: "awaiting_approval" });
+        await store.createRun(runA);
+        const lockedA = createGate({ id: runA.id, actionId: "action-a", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(lockedA, runA.id);
+
+        const runB = makeRun("run-decide-assoc-b", { state: "awaiting_approval" });
+        await store.createRun(runB);
+
+        const { gate: approvedA } = approveGate(lockedA, makeAction("action-a"), { by: "sahil", at: T5 });
+
+        // Gate A's own decision, but decided against run B instead of run A.
+        const won = await store.decideGate(approvedA, runB.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(runA.id))?.state).toBe("awaiting_approval");
+        expect((await store.getRun(runB.id))?.state).toBe("awaiting_approval");
+        expect((await store.getGate(runA.id))?.state).toBe("locked");
+      });
+
+      it("a retry after a refused mismatched decideGate succeeds with the correctly-bound gate", async () => {
+        const run = makeRun("run-decide-retry-after-mismatch", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-retry", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-retry"), { by: "sahil", at: T5 });
+        const mismatched = { ...approved, actionId: "action-wrong" };
+
+        const refused = await store.decideGate(mismatched, run.id, T5);
+        expect(refused).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+
+        const retryWon = await store.decideGate(approved, run.id, T5);
+
+        expect(retryWon).toBe(true);
+        expect((await store.getRun(run.id))?.state).toBe("approved");
+        expect((await store.getGate(run.id))?.state).toBe("approved");
+      });
+
+      it("under concurrent decideGate calls for the same gate, exactly one wins", async () => {
+        const run = makeRun("run-decide-race", { state: "awaiting_approval" });
+        await store.createRun(run);
+        const locked = createGate({ id: run.id, actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        const rejected = rejectGate(locked, { by: "someone-else", at: T5, reason: "racing" });
+
+        const [approveWon, rejectWon] = await Promise.all([
+          store.decideGate(approved, run.id, T5),
+          store.decideGate(rejected, run.id, T5)
+        ]);
+
+        expect([approveWon, rejectWon].filter(Boolean)).toHaveLength(1);
+        const finalRun = await store.getRun(run.id);
+        const finalGate = await store.getGate(run.id);
+        // Whichever won, run and gate must agree with each other — never a
+        // run claimed as one decision while the gate records the other.
+        expect(finalRun?.state).toBe(finalGate?.state);
       });
     });
 

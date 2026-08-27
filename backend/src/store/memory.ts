@@ -1,5 +1,5 @@
 import { createAction, type Action } from "../domain/action";
-import { approvalGateSchema, type ApprovalGate } from "../domain/approval";
+import { approvalGateSchema, type ApprovalGate, type ApprovedGate, type RejectedGate } from "../domain/approval";
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
 import {
   StoreConflictError,
@@ -115,6 +115,84 @@ export function createMemoryStore(): Store {
         .map(clone);
     },
 
+    async createRunWithArtifacts(input: {
+      run: RunRow;
+      packet: EvidencePacket;
+      action: Action;
+      gate: ApprovalGate;
+      auditEntries: readonly AuditEntry[];
+    }): Promise<void> {
+      const { run, packet, action, gate, auditEntries } = input;
+      const validatedPacket = evidencePacketSchema.parse(packet);
+
+      // Mirrors the D1 adapter's relationship checks (store/d1.ts) before
+      // its own conflict checks below: validating each row's own shape says
+      // nothing about whether the rows belong together, and a `Map.set`
+      // would happily accept a packet built for a different incident, a
+      // gate that authorizes a different action, or an audit entry stamped
+      // with a different run's id. Left unchecked, a later lookup
+      // (getPacketByRun, getGate, listAudit) would hand back another run's
+      // evidence, action authorization, or audit history as if it belonged
+      // to THIS run. Same class of check as createUserWithSession's
+      // session/user pairing.
+      if (validatedPacket.incidentId !== run.incidentId) {
+        throw new Error(
+          `createRunWithArtifacts: packet.incidentId ("${validatedPacket.incidentId}") does not match run.incidentId ("${run.incidentId}")`
+        );
+      }
+      if (gate.actionId !== action.id) {
+        throw new Error(
+          `createRunWithArtifacts: gate.actionId ("${gate.actionId}") does not match action.id ("${action.id}")`
+        );
+      }
+      const seenAuditIds = new Set<string>();
+      for (const entry of auditEntries) {
+        if (entry.runId !== run.id) {
+          throw new Error(
+            `createRunWithArtifacts: audit entry "${entry.id}" has runId ("${entry.runId}") that does not match run.id ("${run.id}")`
+          );
+        }
+        // D1's `audit_log.id` PRIMARY KEY rejects a second INSERT with the
+        // same id even within the SAME batch — including two rows that
+        // both come from THIS call's own `auditEntries` array, not just a
+        // collision with a row already on disk. The per-entry
+        // `auditLog.has(entry.id)` check below only catches the latter: it
+        // asks the map about one id at a time, so two fresh, never-before
+        // seen duplicate ids in the same array both pass it, and the
+        // `auditLog.set` loop that follows would then silently keep only
+        // the last one — a real divergence from D1, which rolls back the
+        // whole aggregate instead. Checked here, before anything is
+        // written, so this is caught identically to every cross-row
+        // mismatch above.
+        if (seenAuditIds.has(entry.id)) {
+          throw new Error(`createRunWithArtifacts: duplicate audit entry id "${entry.id}" within the same aggregate`);
+        }
+        seenAuditIds.add(entry.id);
+      }
+
+      // Every conflict check for every row runs before any map is touched —
+      // same discipline as createUserWithSession — so a rejected write can
+      // never leave a partial run (e.g. a run row with no action/gate)
+      // behind. See the doc comment on Store#createRunWithArtifacts.
+      if (runs.has(run.id)) throw new StoreConflictError(`run with id "${run.id}" already exists`);
+      if (packets.has(validatedPacket.id)) {
+        throw new StoreConflictError(`packet with id "${validatedPacket.id}" already exists`);
+      }
+      if (actions.has(action.id)) throw new StoreConflictError(`action with id "${action.id}" already exists`);
+      if (gates.has(gate.id)) throw new StoreConflictError(`gate with id "${gate.id}" already exists`);
+      for (const entry of auditEntries) {
+        if (auditLog.has(entry.id)) {
+          throw new Error(`audit_log entry with id "${entry.id}" already exists (append-only)`);
+        }
+      }
+
+      runs.set(run.id, clone(run));
+      packets.set(validatedPacket.id, { packet: clone(validatedPacket), runId: run.id });
+      actions.set(action.id, clone(action));
+      gates.set(gate.id, { gate: clone(gate), runId: run.id });
+      for (const entry of auditEntries) auditLog.set(entry.id, clone(entry));
+    },
+
     async savePacket(packet: EvidencePacket, runId: string): Promise<void> {
       const validated = evidencePacketSchema.parse(packet);
       if (packets.has(validated.id)) {
@@ -127,6 +205,16 @@ export function createMemoryStore(): Store {
       // Latest by `builtAt`, matching the D1 adapter's `ORDER BY built_at
       // DESC` — never by id, which carries no notion of recency.
       const matches = [...packets.values()].filter((p) => p.packet.incidentId === incidentId);
+      if (matches.length === 0) return null;
+      const latest = matches.reduce((best, current) => (current.packet.builtAt > best.packet.builtAt ? current : best));
+      return evidencePacketSchema.parse(clone(latest.packet));
+    },
+
+    async getPacketByRun(runId: string): Promise<EvidencePacket | null> {
+      // Scoped strictly to this run's own packet(s) — never any other run's,
+      // even one on the same incident. See the doc comment on
+      // Store#getPacketByRun.
+      const matches = [...packets.values()].filter((p) => p.runId === runId);
       if (matches.length === 0) return null;
       const latest = matches.reduce((best, current) => (current.packet.builtAt > best.packet.builtAt ? current : best));
       return evidencePacketSchema.parse(clone(latest.packet));
@@ -180,6 +268,28 @@ export function createMemoryStore(): Store {
       // Validated on read, not cast — same defence as the D1 adapter's
       // getGate. See class doc comment.
       return approvalGateSchema.parse(clone(found.gate));
+    },
+
+    async decideGate(gate: ApprovedGate | RejectedGate, runId: string, at: string): Promise<boolean> {
+      // Check-then-mutate, entirely synchronous: every condition below is
+      // evaluated before either map is touched, so — same as
+      // createUserWithSession — a refused write can never apply one half of
+      // the pair and not the other. See the doc comment on
+      // Store#decideGate.
+      const existingRun = runs.get(runId);
+      if (existingRun === undefined || existingRun.state !== "awaiting_approval") return false;
+
+      const existingGateRecord = gates.get(gate.id);
+      if (existingGateRecord === undefined) return false;
+      if (existingGateRecord.gate.state !== "locked") return false;
+      if (existingGateRecord.gate.actionId !== gate.actionId) return false;
+      if (existingGateRecord.gate.createdAt !== gate.createdAt) return false;
+      if (existingGateRecord.gate.expiresAt !== gate.expiresAt) return false;
+      if (existingGateRecord.runId !== runId) return false;
+
+      runs.set(runId, { ...existingRun, state: gate.state, updatedAt: at });
+      gates.set(gate.id, { gate: clone(gate), runId });
+      return true;
     },
 
     async appendAudit(entry: AuditEntry): Promise<void> {

@@ -1,6 +1,6 @@
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
 import { createAction, type Action } from "../domain/action";
-import { approvalGateSchema, type ApprovalGate } from "../domain/approval";
+import { approvalGateSchema, type ApprovalGate, type ApprovedGate, type RejectedGate } from "../domain/approval";
 import type {
   Store,
   RunRow,
@@ -187,6 +187,86 @@ export function createD1Store(db: D1Database): Store {
       return results.map(toRunRow);
     },
 
+    async createRunWithArtifacts(input: {
+      run: RunRow;
+      packet: EvidencePacket;
+      action: Action;
+      gate: ApprovalGate;
+      auditEntries: readonly AuditEntry[];
+    }): Promise<void> {
+      const { run, packet, action, gate, auditEntries } = input;
+      const validatedPacket = evidencePacketSchema.parse(packet);
+
+      // Validating each row's OWN shape (above, and implicitly via the
+      // typed parameters) says nothing about whether the rows belong
+      // together. Nothing before this point stops a caller from handing
+      // over an internally inconsistent aggregate — a packet built for a
+      // different incident, a gate that authorizes a different action, or
+      // an audit entry stamped with a different run's id — which the batch
+      // below would otherwise commit as-is: every INSERT here is
+      // unconditional, so D1 has no constraint of its own that would catch
+      // it. A later lookup (getPacketByRun, getGate, listAudit) would then
+      // hand back another run's evidence, action authorization, or audit
+      // history as if it belonged to THIS run. Same class of bug as
+      // createUserWithSession's session/user pairing check: relationships
+      // must be verified before anything is written, not left to whatever
+      // the caller happened to pass in.
+      if (validatedPacket.incidentId !== run.incidentId) {
+        throw new Error(
+          `createRunWithArtifacts: packet.incidentId ("${validatedPacket.incidentId}") does not match run.incidentId ("${run.incidentId}")`
+        );
+      }
+      if (gate.actionId !== action.id) {
+        throw new Error(
+          `createRunWithArtifacts: gate.actionId ("${gate.actionId}") does not match action.id ("${action.id}")`
+        );
+      }
+      for (const entry of auditEntries) {
+        if (entry.runId !== run.id) {
+          throw new Error(
+            `createRunWithArtifacts: audit entry "${entry.id}" has runId ("${entry.runId}") that does not match run.id ("${run.id}")`
+          );
+        }
+      }
+
+      // Every row is a plain (non-conditional) INSERT, so db.batch()'s
+      // transaction is sufficient on its own: any single INSERT failing
+      // (e.g. a duplicate id colliding with a PRIMARY KEY) throws, and D1
+      // rolls back the whole batch rather than leaving a partial run
+      // behind. See the doc comment on Store#createRunWithArtifacts.
+      await db.batch([
+        db
+          .prepare(
+            `INSERT INTO runs (id, incident_id, runbook_id, service, state, created_at, updated_at, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            run.id,
+            run.incidentId,
+            run.runbookId,
+            run.service,
+            run.state,
+            run.createdAt,
+            run.updatedAt,
+            run.createdBy
+          ),
+        db
+          .prepare(`INSERT INTO packets (id, incident_id, run_id, data, built_at) VALUES (?, ?, ?, ?, ?)`)
+          .bind(validatedPacket.id, validatedPacket.incidentId, run.id, JSON.stringify(validatedPacket), validatedPacket.builtAt),
+        db
+          .prepare(`INSERT INTO actions (id, run_id, data) VALUES (?, ?, ?)`)
+          .bind(action.id, run.id, JSON.stringify(action)),
+        db
+          .prepare(`INSERT INTO gates (id, run_id, data) VALUES (?, ?, ?)`)
+          .bind(gate.id, run.id, JSON.stringify(gate)),
+        ...auditEntries.map((entry) =>
+          db
+            .prepare(`INSERT INTO audit_log (id, run_id, at, kind, detail) VALUES (?, ?, ?, ?, ?)`)
+            .bind(entry.id, entry.runId, entry.at, entry.kind, entry.detail)
+        )
+      ]);
+    },
+
     async savePacket(packet: EvidencePacket, runId: string): Promise<void> {
       const validated = evidencePacketSchema.parse(packet);
       await db
@@ -202,6 +282,18 @@ export function createD1Store(db: D1Database): Store {
       const record = await db
         .prepare(`SELECT data FROM packets WHERE incident_id = ? ORDER BY built_at DESC LIMIT 1`)
         .bind(incidentId)
+        .first<JsonBodyRecord>();
+      if (record === null) return null;
+      return evidencePacketSchema.parse(JSON.parse(record.data));
+    },
+
+    async getPacketByRun(runId: string): Promise<EvidencePacket | null> {
+      // Scoped strictly to this run's own packet(s) — never any other run's,
+      // even one on the same incident. See the doc comment on
+      // Store#getPacketByRun.
+      const record = await db
+        .prepare(`SELECT data FROM packets WHERE run_id = ? ORDER BY built_at DESC LIMIT 1`)
+        .bind(runId)
         .first<JsonBodyRecord>();
       if (record === null) return null;
       return evidencePacketSchema.parse(JSON.parse(record.data));
@@ -270,6 +362,87 @@ export function createD1Store(db: D1Database): Store {
       // that isExpired can never report as expired (Date.parse on garbage
       // is NaN, and every comparison against NaN is false).
       return approvalGateSchema.parse(JSON.parse(record.data));
+    },
+
+    async decideGate(gate: ApprovedGate | RejectedGate, runId: string, at: string): Promise<boolean> {
+      // Both statements run inside one db.batch() transaction, and each is
+      // additionally conditioned on the OTHER statement's target outcome via
+      // a correlated subquery — not just each row's own prior state. This is
+      // what makes the pair genuinely joint: a plain db.batch() of two
+      // independently-conditioned writes only guarantees "both applied, or
+      // an exception rolled both back" — it does nothing to stop one
+      // conditional write succeeding (`meta.changes === 1`) while the other
+      // is silently skipped (`meta.changes === 0`), which is exactly the
+      // split-brain this method exists to prevent. See the doc comment on
+      // Store#decideGate.
+      //
+      // Statement 1 (the run claim) additionally requires the gate to
+      // currently be `locked` — read from its PRE-transaction value, since
+      // this runs first. It is NOT enough to check `state = 'locked'` alone:
+      // that only rules out an already-decided gate, but says nothing about
+      // whether THIS particular decision is the one bound to that locked
+      // row. Without pinning every immutable field (actionId, createdAt,
+      // expiresAt) and the run association, a same-id decision for the
+      // WRONG action (or the wrong run) would pass this check and commit the
+      // run claim, while statement 2 below — which does pin those fields —
+      // is silently skipped (`meta.changes === 0`). db.batch() does not
+      // error on a conditional UPDATE that matches zero rows, so that split
+      // would commit as part of the same transaction: the run flips to
+      // approved/rejected while the gate stays locked forever, and no retry
+      // can ever repair it (loadDecidableGate refuses once `run.state !==
+      // "awaiting_approval"`). So statement 1 is conditioned on the exact
+      // same binding statement 2 enforces, via a correlated EXISTS against
+      // the gate's PRE-transaction row.
+      //
+      // Statement 2 (the gate decision) additionally requires the run to
+      // now equal the gate's own decided state — read AFTER statement 1 has
+      // applied (statements inside one transaction observe each other's
+      // writes), so this only takes effect once the claim above has
+      // actually landed.
+      //
+      // Unlike saveGate, this is a plain UPDATE — never an upsert. saveGate
+      // is used at gate *creation* and may legitimately INSERT a fresh
+      // locked row; decideGate only ever ADVANCES a gate that some prior
+      // saveGate already locked. An `INSERT ... ON CONFLICT DO UPDATE`
+      // would take its unconditional INSERT branch whenever `gate.id` names
+      // no existing row — including a gate that was never created, or one
+      // whose creation this same decision attempt just lost the race to
+      // (statement 1's EXISTS would then also see nothing and refuse the
+      // run claim) — and persist a decided gate for a run that was never
+      // claimed. A bare UPDATE has no such branch: it simply matches zero
+      // rows and changes nothing, so `decideGate` returning `false` and the
+      // gate table being untouched stay the same fact.
+      const results = await db.batch([
+        db
+          .prepare(
+            `UPDATE runs SET state = ?, updated_at = ?
+             WHERE id = ? AND state = 'awaiting_approval'
+               AND EXISTS (
+                 SELECT 1 FROM gates
+                 WHERE id = ?
+                   AND run_id = ?
+                   AND json_extract(data, '$.state') = 'locked'
+                   AND json_extract(data, '$.actionId') = ?
+                   AND json_extract(data, '$.createdAt') = ?
+                   AND json_extract(data, '$.expiresAt') = ?
+               )`
+          )
+          .bind(gate.state, at, runId, gate.id, runId, gate.actionId, gate.createdAt, gate.expiresAt),
+        db
+          .prepare(
+            `UPDATE gates SET data = ?
+             WHERE id = ? AND run_id = ?
+               AND json_extract(data, '$.state') = 'locked'
+               AND json_extract(data, '$.actionId') = ?
+               AND json_extract(data, '$.createdAt') = ?
+               AND json_extract(data, '$.expiresAt') = ?
+               AND (SELECT state FROM runs WHERE id = ?) = ?`
+          )
+          .bind(JSON.stringify(gate), gate.id, runId, gate.actionId, gate.createdAt, gate.expiresAt, runId, gate.state)
+      ]);
+      const [runResult, gateResult] = results;
+      if (runResult === undefined || gateResult === undefined) return false;
+      return runResult.meta.changes === 1 && gateResult.meta.changes === 1;
     },
 
     async appendAudit(entry: AuditEntry): Promise<void> {

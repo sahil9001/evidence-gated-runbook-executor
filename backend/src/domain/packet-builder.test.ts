@@ -241,3 +241,25 @@ describe("collectEvidence — per-collector card validation", () => {
     expect(failures[0]?.kind).toBe("metrics");
   });
 });
+
+describe("collectEvidence — failure attribution", () => {
+  it("attributes a re-thrown CollectorError to the collector that actually threw it, not the label it carried", async () => {
+    const runbook = withAllowedSources(["logs", "metrics"]);
+    const mislabeledError = new CollectorError("deploys", "upstream exploded");
+    const logSource: EvidenceSource = {
+      kind: "logs",
+      collect: async () => {
+        throw mislabeledError;
+      }
+    };
+    const metricSource: EvidenceSource = { kind: "metrics", collect: async (ctx) => [makeCard("metrics", "metric-1", ctx.now())] };
+
+    const { packet, failures } = await collectEvidence({ ...baseInput, runbook, sources: [logSource, metricSource] });
+
+    expect(packet.cards.map((card) => card.id)).toEqual(["metric-1"]);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toBeInstanceOf(CollectorError);
+    expect(failures[0]?.kind).toBe("logs");
+    expect(failures[0]?.cause).toBe(mislabeledError);
+  });
+});

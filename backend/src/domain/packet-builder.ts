@@ -28,8 +28,20 @@ function assertInScope(sources: readonly EvidenceSource[], allowed: readonly Evi
   }
 }
 
+/**
+ * Always attributes a collector failure to the collector that actually
+ * threw. An incoming `CollectorError` is trusted only when its own `kind`
+ * already matches — otherwise (a collector-authored error mislabelled with
+ * someone else's kind, or a validation failure raised by
+ * `validateCollectorCards`, whose `kind` is always trustworthy already) it
+ * is re-wrapped under the correct `kind`, preserving the original as
+ * `cause` so nothing is lost.
+ */
 function toCollectorError(reason: unknown, kind: EvidenceSourceKind): CollectorError {
-  if (reason instanceof CollectorError) return reason;
+  if (reason instanceof CollectorError) {
+    if (reason.kind === kind) return reason;
+    return new CollectorError(kind, reason.message, { cause: reason });
+  }
   const message = reason instanceof Error ? reason.message : String(reason);
   return new CollectorError(kind, message, { cause: reason });
 }

@@ -11,15 +11,28 @@ import { createSession, revokeSession, SESSION_TTL_MS } from "../auth/session";
 import { requireAuth, toPublicUser, SESSION_COOKIE_NAME, type AuthedEnv } from "../auth/middleware";
 
 const MIN_PASSWORD_LENGTH = 12;
+// No real passphrase is anywhere near this long. Capping it here rejects
+// oversized input with 400 validation_failed BEFORE hashPassword ever runs
+// PBKDF2 (210,000 iterations) over it — without this, an attacker could
+// submit arbitrarily large passwords to an endpoint that has no rate limit,
+// amplifying per-request CPU/memory cost cheaply.
+const MAX_PASSWORD_LENGTH = 1024;
+// RFC 5321's hard limit on the total length of an email address.
+const MAX_EMAIL_LENGTH = 254;
+
+const emailSchema = z.string().email().max(MAX_EMAIL_LENGTH, `Email must be at most ${MAX_EMAIL_LENGTH} characters`);
 
 const registerBodySchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+  email: emailSchema,
+  password: z
+    .string()
+    .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+    .max(MAX_PASSWORD_LENGTH, `Password must be at most ${MAX_PASSWORD_LENGTH} characters`)
 });
 
 const loginBodySchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1)
+  email: emailSchema,
+  password: z.string().min(1).max(MAX_PASSWORD_LENGTH, `Password must be at most ${MAX_PASSWORD_LENGTH} characters`)
 });
 
 /**

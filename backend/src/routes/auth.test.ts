@@ -1,7 +1,8 @@
 import { env, applyD1Migrations, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
-import { beforeAll, describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect, vi } from "vitest";
 import app from "../index";
 import { createD1Store } from "../store/d1";
+import * as passwordModule from "../auth/password";
 
 beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
@@ -120,6 +121,34 @@ describe("POST /auth/register", () => {
     expect(status).toBe(400);
     expect((json as ApiErr).error.code).toBe("validation_failed");
   });
+
+  it("returns 400 validation_failed for an oversized password, and never runs PBKDF2 over it", async () => {
+    const hashSpy = vi.spyOn(passwordModule, "hashPassword");
+    const verifySpy = vi.spyOn(passwordModule, "verifyPassword");
+
+    const oversizedPassword = "a".repeat(1025);
+    const { status, json } = await post("/auth/register", { email: "oversized-pw@example.com", password: oversizedPassword });
+
+    expect(status).toBe(400);
+    expect((json as ApiErr).error.code).toBe("validation_failed");
+    expect(hashSpy).not.toHaveBeenCalled();
+    expect(verifySpy).not.toHaveBeenCalled();
+
+    hashSpy.mockRestore();
+    verifySpy.mockRestore();
+  });
+
+  it("returns 400 validation_failed for an oversized email", async () => {
+    const oversizedEmail = `${"a".repeat(250)}@example.com`;
+    const { status, json } = await post("/auth/register", { email: oversizedEmail, password: STRONG_PASSWORD });
+    expect(status).toBe(400);
+    expect((json as ApiErr).error.code).toBe("validation_failed");
+  });
+
+  it("still accepts a normal-length password", async () => {
+    const { status } = await post("/auth/register", { email: "normal-pw@example.com", password: STRONG_PASSWORD });
+    expect(status).toBe(200);
+  });
 });
 
 describe("POST /auth/login", () => {
@@ -171,6 +200,22 @@ describe("POST /auth/login", () => {
     const { status, json } = await post("/auth/login", "{not json");
     expect(status).toBe(400);
     expect((json as ApiErr).error.code).toBe("validation_failed");
+  });
+
+  it("returns 400 validation_failed for an oversized password, and never runs PBKDF2 over it", async () => {
+    const hashSpy = vi.spyOn(passwordModule, "hashPassword");
+    const verifySpy = vi.spyOn(passwordModule, "verifyPassword");
+
+    const oversizedPassword = "a".repeat(1025);
+    const { status, json } = await post("/auth/login", { email, password: oversizedPassword });
+
+    expect(status).toBe(400);
+    expect((json as ApiErr).error.code).toBe("validation_failed");
+    expect(hashSpy).not.toHaveBeenCalled();
+    expect(verifySpy).not.toHaveBeenCalled();
+
+    hashSpy.mockRestore();
+    verifySpy.mockRestore();
   });
 });
 

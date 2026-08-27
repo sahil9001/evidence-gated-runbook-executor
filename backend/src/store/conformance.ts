@@ -178,6 +178,92 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       });
     });
 
+    describe("createRunWithArtifacts", () => {
+      it("atomically creates the run, packet, action, gate, and audit entries", async () => {
+        const run = makeRun("run-atomic-1", { incidentId: "inc-atomic-1", state: "awaiting_approval" });
+        const packet = makePacket("packet-atomic-1", "inc-atomic-1");
+        const action = makeAction("action-atomic-1");
+        const gate = createGate({ id: "run-atomic-1", actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-1", runId: run.id, at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await store.createRunWithArtifacts({ run, packet, action, gate, auditEntries });
+
+        expect(await store.getRun(run.id)).toEqual(run);
+        expect(await store.getPacketByRun(run.id)).toEqual(packet);
+        expect(await store.getAction(action.id)).toEqual(action);
+        expect(await store.getGate(gate.id)).toEqual(gate);
+        expect((await store.listAudit(run.id)).map((e) => e.id)).toEqual(["audit-atomic-1"]);
+      });
+
+      it("leaves NO partial run behind when one artifact collides with an existing row", async () => {
+        // Seed a packet id that the next createRunWithArtifacts call will
+        // collide on, so its INSERT fails partway through the batch.
+        const collidingRun = makeRun("run-atomic-seed", { incidentId: "inc-atomic-2" });
+        await store.createRun(collidingRun);
+        await store.savePacket(makePacket("packet-atomic-collide", "inc-atomic-2"), collidingRun.id);
+
+        const run = makeRun("run-atomic-2", { incidentId: "inc-atomic-2", state: "awaiting_approval" });
+        const packet = makePacket("packet-atomic-collide", "inc-atomic-2"); // duplicate id
+        const action = makeAction("action-atomic-2");
+        const gate = createGate({ id: "run-atomic-2", actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-2", runId: run.id, at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        // Nothing from the failed attempt landed — not even the run row,
+        // which a naive independent-writes implementation would have
+        // created before reaching the colliding packet insert.
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getAction(action.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit(run.id)).toEqual([]);
+      });
+
+      it("a retry with fresh ids succeeds cleanly after a failed attempt", async () => {
+        const collidingRun = makeRun("run-atomic-seed-2", { incidentId: "inc-atomic-3" });
+        await store.createRun(collidingRun);
+        await store.savePacket(makePacket("packet-atomic-collide-2", "inc-atomic-3"), collidingRun.id);
+
+        const failedRun = makeRun("run-atomic-3", { incidentId: "inc-atomic-3", state: "awaiting_approval" });
+        await expect(
+          store.createRunWithArtifacts({
+            run: failedRun,
+            packet: makePacket("packet-atomic-collide-2", "inc-atomic-3"),
+            action: makeAction("action-atomic-3"),
+            gate: createGate({ id: "run-atomic-3", actionId: "action-atomic-3", createdAt: T0, ttlMs: 15 * 60 * 1000 }),
+            auditEntries: [{ id: "audit-atomic-3", runId: failedRun.id, at: T0, kind: "run_created", detail: "created" }]
+          })
+        ).rejects.toThrow();
+
+        // Retry with entirely fresh ids — not resuming the failed run id,
+        // since retrying THIS endpoint always mints a new run id.
+        const retryRun = makeRun("run-atomic-3-retry", { incidentId: "inc-atomic-3", state: "awaiting_approval" });
+        const retryPacket = makePacket("packet-atomic-3-retry", "inc-atomic-3");
+        const retryAction = makeAction("action-atomic-3-retry");
+        const retryGate = createGate({
+          id: "run-atomic-3-retry",
+          actionId: retryAction.id,
+          createdAt: T0,
+          ttlMs: 15 * 60 * 1000
+        });
+
+        await store.createRunWithArtifacts({
+          run: retryRun,
+          packet: retryPacket,
+          action: retryAction,
+          gate: retryGate,
+          auditEntries: [{ id: "audit-atomic-3-retry", runId: retryRun.id, at: T0, kind: "run_created", detail: "created" }]
+        });
+
+        expect(await store.getRun(retryRun.id)).toEqual(retryRun);
+        expect(await store.getGate(retryGate.id)).toEqual(retryGate);
+      });
+    });
+
     describe("packets", () => {
       it("round-trips a packet, surviving evidencePacketSchema.parse", async () => {
         const run = makeRun("run-3");

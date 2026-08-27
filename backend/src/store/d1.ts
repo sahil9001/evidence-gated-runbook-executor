@@ -187,6 +187,54 @@ export function createD1Store(db: D1Database): Store {
       return results.map(toRunRow);
     },
 
+    async createRunWithArtifacts(input: {
+      run: RunRow;
+      packet: EvidencePacket;
+      action: Action;
+      gate: ApprovalGate;
+      auditEntries: readonly AuditEntry[];
+    }): Promise<void> {
+      const { run, packet, action, gate, auditEntries } = input;
+      const validatedPacket = evidencePacketSchema.parse(packet);
+
+      // Every row is a plain (non-conditional) INSERT, so db.batch()'s
+      // transaction is sufficient on its own: any single INSERT failing
+      // (e.g. a duplicate id colliding with a PRIMARY KEY) throws, and D1
+      // rolls back the whole batch rather than leaving a partial run
+      // behind. See the doc comment on Store#createRunWithArtifacts.
+      await db.batch([
+        db
+          .prepare(
+            `INSERT INTO runs (id, incident_id, runbook_id, service, state, created_at, updated_at, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            run.id,
+            run.incidentId,
+            run.runbookId,
+            run.service,
+            run.state,
+            run.createdAt,
+            run.updatedAt,
+            run.createdBy
+          ),
+        db
+          .prepare(`INSERT INTO packets (id, incident_id, run_id, data, built_at) VALUES (?, ?, ?, ?, ?)`)
+          .bind(validatedPacket.id, validatedPacket.incidentId, run.id, JSON.stringify(validatedPacket), validatedPacket.builtAt),
+        db
+          .prepare(`INSERT INTO actions (id, run_id, data) VALUES (?, ?, ?)`)
+          .bind(action.id, run.id, JSON.stringify(action)),
+        db
+          .prepare(`INSERT INTO gates (id, run_id, data) VALUES (?, ?, ?)`)
+          .bind(gate.id, run.id, JSON.stringify(gate)),
+        ...auditEntries.map((entry) =>
+          db
+            .prepare(`INSERT INTO audit_log (id, run_id, at, kind, detail) VALUES (?, ?, ?, ?, ?)`)
+            .bind(entry.id, entry.runId, entry.at, entry.kind, entry.detail)
+        )
+      ]);
+    },
+
     async savePacket(packet: EvidencePacket, runId: string): Promise<void> {
       const validated = evidencePacketSchema.parse(packet);
       await db

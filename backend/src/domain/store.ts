@@ -93,6 +93,26 @@ export interface Store {
   listRuns(filter?: { limit?: number; state?: RunRow["state"] }): Promise<RunRow[]>;
   listRunsByIncident(incidentId: string): Promise<RunRow[]>;
 
+  /**
+   * Creates a run and every artifact it is born with — its evidence packet,
+   * proposed action, locked gate, and initiating audit entries — as one
+   * atomic write. The alternative (independent `createRun` / `savePacket` /
+   * `saveAction` / `saveGate` / `appendAudit` calls) can fail partway
+   * through: a later failure leaves a run with no action and no gate, which
+   * can never reach `awaiting_approval` and can't be repaired by retrying
+   * the request, since a retry mints a brand new run id rather than
+   * resuming the broken one. All rows land, or none do — mirrors
+   * `createUserWithSession`'s reasoning and (in `createD1Store`) its
+   * `db.batch()` mechanism.
+   */
+  createRunWithArtifacts(input: {
+    run: RunRow;
+    packet: EvidencePacket;
+    action: Action;
+    gate: ApprovalGate;
+    auditEntries: readonly AuditEntry[];
+  }): Promise<void>;
+
   savePacket(packet: EvidencePacket, runId: string): Promise<void>;
   getPacketByIncident(incidentId: string): Promise<EvidencePacket | null>;
   /**

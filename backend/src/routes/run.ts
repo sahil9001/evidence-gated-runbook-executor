@@ -109,43 +109,50 @@ export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES
 
     const gate = createGate({ id: runId, actionId: action.id, createdAt: nowIso, ttlMs: GATE_TTL_MS });
 
-    await store.createRun({
+    const run = {
       id: runId,
       incidentId,
       runbookId: runbook.id,
       service,
-      state: "awaiting_approval",
+      state: "awaiting_approval" as const,
       createdAt: nowIso,
       updatedAt: nowIso,
       // From the session requireAuth resolved, never client-suppliable.
       createdBy: c.var.user.email
-    });
-    await store.savePacket(packet, runId);
-    await store.saveAction(action, runId);
-    await store.saveGate(gate, runId);
-    await store.appendAudit({
-      id: crypto.randomUUID(),
-      runId,
-      at: nowIso,
-      kind: "run_created",
-      detail: `Evidence collected for incident ${incidentId}; action ${action.id} locked pending approval`
-    });
+    };
 
     // A source failing must be observable, not silently absorbed into a
     // packet that looks complete. One audit entry names every failed source
     // (not one per failure), giving the log a single, greppable marker for
     // "this run's evidence has a gap".
-    if (failures.length > 0) {
-      await store.appendAudit({
+    const auditEntries = [
+      {
         id: crypto.randomUUID(),
         runId,
         at: nowIso,
-        kind: "evidence_partial",
-        detail: `Evidence collection incomplete for run ${runId}: ${failures.map((f) => f.kind).join(", ")} failed`
-      });
-    }
+        kind: "run_created",
+        detail: `Evidence collected for incident ${incidentId}; action ${action.id} locked pending approval`
+      },
+      ...(failures.length > 0
+        ? [
+            {
+              id: crypto.randomUUID(),
+              runId,
+              at: nowIso,
+              kind: "evidence_partial",
+              detail: `Evidence collection incomplete for run ${runId}: ${failures.map((f) => f.kind).join(", ")} failed`
+            }
+          ]
+        : [])
+    ];
 
-    const run = await store.getRun(runId);
+    // One atomic write: the run, its packet, its action, its locked gate,
+    // and its initiating audit entries all land together, or none do. See
+    // the doc comment on Store#createRunWithArtifacts — independent writes
+    // here could leave a run with no action/gate that can never reach
+    // `awaiting_approval` and that retrying (which always mints a new run
+    // id) can never repair.
+    await store.createRunWithArtifacts({ run, packet, action, gate, auditEntries });
 
     // This route executes NOTHING — it collects evidence and locks a gate.
     // The response deliberately has no `execution` field.

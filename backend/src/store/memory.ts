@@ -115,6 +115,39 @@ export function createMemoryStore(): Store {
         .map(clone);
     },
 
+    async createRunWithArtifacts(input: {
+      run: RunRow;
+      packet: EvidencePacket;
+      action: Action;
+      gate: ApprovalGate;
+      auditEntries: readonly AuditEntry[];
+    }): Promise<void> {
+      const { run, packet, action, gate, auditEntries } = input;
+      const validatedPacket = evidencePacketSchema.parse(packet);
+
+      // Every conflict check for every row runs before any map is touched —
+      // same discipline as createUserWithSession — so a rejected write can
+      // never leave a partial run (e.g. a run row with no action/gate)
+      // behind. See the doc comment on Store#createRunWithArtifacts.
+      if (runs.has(run.id)) throw new StoreConflictError(`run with id "${run.id}" already exists`);
+      if (packets.has(validatedPacket.id)) {
+        throw new StoreConflictError(`packet with id "${validatedPacket.id}" already exists`);
+      }
+      if (actions.has(action.id)) throw new StoreConflictError(`action with id "${action.id}" already exists`);
+      if (gates.has(gate.id)) throw new StoreConflictError(`gate with id "${gate.id}" already exists`);
+      for (const entry of auditEntries) {
+        if (auditLog.has(entry.id)) {
+          throw new Error(`audit_log entry with id "${entry.id}" already exists (append-only)`);
+        }
+      }
+
+      runs.set(run.id, clone(run));
+      packets.set(validatedPacket.id, { packet: clone(validatedPacket), runId: run.id });
+      actions.set(action.id, clone(action));
+      gates.set(gate.id, { gate: clone(gate), runId: run.id });
+      for (const entry of auditEntries) auditLog.set(entry.id, clone(entry));
+    },
+
     async savePacket(packet: EvidencePacket, runId: string): Promise<void> {
       const validated = evidencePacketSchema.parse(packet);
       if (packets.has(validated.id)) {

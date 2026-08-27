@@ -330,6 +330,21 @@ export function createD1Store(db: D1Database): Store {
         .run();
     },
 
+    async createUserWithSession(user: UserRow, session: SessionRow): Promise<void> {
+      // db.batch() commits its statements as a single SQL transaction: if
+      // either INSERT fails (e.g. a duplicate email or duplicate session
+      // id), the whole batch rolls back rather than leaving a user row with
+      // no session. See the doc comment on Store#createUserWithSession.
+      await db.batch([
+        db
+          .prepare(`INSERT INTO users (id, email, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)`)
+          .bind(user.id, user.email, user.passwordHash, user.salt, user.createdAt),
+        db
+          .prepare(`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`)
+          .bind(session.id, session.userId, session.createdAt, session.expiresAt)
+      ]);
+    },
+
     async getUserByEmail(email: string): Promise<UserRow | null> {
       const record = await db
         .prepare(`SELECT id, email, password_hash, salt, created_at FROM users WHERE email = ?`)

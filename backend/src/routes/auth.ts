@@ -7,7 +7,7 @@ import { parseJsonBody } from "./http";
 import { createD1Store } from "../store/d1";
 import { StoreConflictError, type UserRow } from "../domain/store";
 import { hashPassword, verifyPassword } from "../auth/password";
-import { createSession, revokeSession, SESSION_TTL_MS } from "../auth/session";
+import { buildSession, createSession, revokeSession, SESSION_TTL_MS } from "../auth/session";
 import { requireAuth, toPublicUser, SESSION_COOKIE_NAME, type AuthedEnv } from "../auth/middleware";
 
 const MIN_PASSWORD_LENGTH = 12;
@@ -95,24 +95,26 @@ authRoutes.post("/auth/register", async (c) => {
   const nowIso = new Date().toISOString();
   const { hash, salt } = await hashPassword(password);
   const user: UserRow = { id: crypto.randomUUID(), email, passwordHash: hash, salt, createdAt: nowIso };
+  const session = buildSession(user.id, nowIso);
 
   try {
-    await store.createUser(user);
+    // A single atomic write (see Store#createUserWithSession's doc comment):
+    // committing the user without its session — or vice versa — would leave
+    // a stored account nobody can reach, and unreachable ever after, since a
+    // retry of registration would report `email_taken` for it. This also
+    // remains the defense-in-depth against the same TOCTOU race the domain
+    // layer's conditional gate upsert closes for approvals: two concurrent
+    // registrations can both pass the `getUserByEmail` check above, and the
+    // loser's write throws here instead of silently succeeding or
+    // corrupting state.
+    await store.createUserWithSession(user, session);
   } catch (error) {
-    // Defense in depth against the same TOCTOU race the domain layer's
-    // conditional gate upsert closes for approvals: two concurrent
-    // registrations can both pass the check above. `users.email` is
-    // UNIQUE at the D1 layer and rejected explicitly by the memory
-    // adapter, so the loser's `createUser` throws here instead of
-    // silently succeeding or corrupting state — surface that as a clean
-    // 409 rather than letting it fall through to `app.onError`'s 500.
     if (isConflictError(error)) {
       return c.json(apiError("email_taken", `An account with email "${email}" already exists`), 409);
     }
     throw error;
   }
 
-  const session = await createSession(store, user.id, nowIso);
   setSessionCookie(c, session.id);
 
   return c.json({ ok: true, data: { user: toPublicUser(user) } });

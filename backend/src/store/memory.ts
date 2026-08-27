@@ -240,6 +240,23 @@ export function createMemoryStore(): Store {
       userIdByEmail.set(row.email, row.id);
     },
 
+    async createUserWithSession(user: UserRow, session: SessionRow): Promise<void> {
+      // Mirrors the D1 adapter's db.batch() transaction: every conflict
+      // check for BOTH rows runs before either map is touched, so a
+      // rejected write can never leave a user with no session (or a
+      // session pointing at a user that was never created). See the doc
+      // comment on Store#createUserWithSession.
+      if (users.has(user.id)) throw new StoreConflictError(`user with id "${user.id}" already exists`);
+      if (userIdByEmail.has(user.email)) {
+        throw new StoreConflictError(`user with email "${user.email}" already exists`);
+      }
+      if (sessions.has(session.id)) throw new StoreConflictError(`session with id "${session.id}" already exists`);
+
+      users.set(user.id, clone(user));
+      userIdByEmail.set(user.email, user.id);
+      sessions.set(session.id, clone(session));
+    },
+
     async getUserByEmail(email: string): Promise<UserRow | null> {
       const id = userIdByEmail.get(email);
       if (id === undefined) return null;

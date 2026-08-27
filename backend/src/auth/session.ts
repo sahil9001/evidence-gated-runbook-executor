@@ -6,6 +6,23 @@ import type { Store, SessionRow, UserRow } from "../domain/store";
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
+ * Builds a new session row for `userId` WITHOUT persisting it. Split out of
+ * `createSession` so a caller that must write the session as part of a
+ * larger atomic write (e.g. `Store#createUserWithSession` on registration —
+ * see its doc comment) can construct the row first and hand it to that
+ * single write, instead of this function doing its own separate
+ * `store.createSession` round trip.
+ */
+export function buildSession(userId: string, nowIso: string, ttlMs: number = SESSION_TTL_MS): SessionRow {
+  return {
+    id: crypto.randomUUID(),
+    userId,
+    createdAt: nowIso,
+    expiresAt: new Date(Date.parse(nowIso) + ttlMs).toISOString()
+  };
+}
+
+/**
  * Mints a new session for `userId` and persists it. Pure aside from
  * `crypto.randomUUID()` — `nowIso` and `ttlMs` are both parameters, never
  * read from the clock internally, so callers (the route layer) own the
@@ -17,12 +34,7 @@ export async function createSession(
   nowIso: string,
   ttlMs: number = SESSION_TTL_MS
 ): Promise<SessionRow> {
-  const session: SessionRow = {
-    id: crypto.randomUUID(),
-    userId,
-    createdAt: nowIso,
-    expiresAt: new Date(Date.parse(nowIso) + ttlMs).toISOString()
-  };
+  const session = buildSession(userId, nowIso, ttlMs);
   await store.createSession(session);
   return session;
 }

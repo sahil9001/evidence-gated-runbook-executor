@@ -574,6 +574,76 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       });
     });
 
+    describe("createUserWithSession", () => {
+      const makeUser = (id: string, email: string): UserRow => ({
+        id,
+        email,
+        passwordHash: "hash",
+        salt: "salt",
+        createdAt: T0
+      });
+
+      const makeSessionFor = (id: string, userId: string): SessionRow => ({
+        id,
+        userId,
+        createdAt: T0,
+        expiresAt: "2026-09-25T02:00:00.000Z"
+      });
+
+      it("creates the user and its session as a single write", async () => {
+        const user = makeUser("user-cus-1", "cus1@example.com");
+        const session = makeSessionFor("session-cus-1", "user-cus-1");
+
+        await store.createUserWithSession(user, session);
+
+        expect(await store.getUserById("user-cus-1")).toEqual(user);
+        expect(await store.getSession("session-cus-1")).toEqual(session);
+      });
+
+      // Simulates the exact failure Finding 3 is about: the session half of
+      // the write collides (here, on a pre-existing session id) and must
+      // fail. If the two writes were independent, the user row would be
+      // left behind with no session — and a retry of registration would
+      // report `email_taken` for an account nobody can ever reach. Atomic
+      // writes rule that out: neither row lands, and a retry with a fresh
+      // session succeeds cleanly.
+      it("rejects when the session write collides, leaving no user row behind, and a retry succeeds", async () => {
+        const priorOwner = makeUser("user-cus-collider", "collider@example.com");
+        await store.createUser(priorOwner);
+        await store.createSession(makeSessionFor("session-cus-collide", priorOwner.id));
+
+        const user = makeUser("user-cus-2", "cus2@example.com");
+        const collidingSession = makeSessionFor("session-cus-collide", user.id);
+
+        await expect(store.createUserWithSession(user, collidingSession)).rejects.toThrow();
+
+        expect(await store.getUserById("user-cus-2")).toBeNull();
+        expect(await store.getUserByEmail("cus2@example.com")).toBeNull();
+
+        // A retry with a fresh (non-colliding) session must succeed — no
+        // phantom "email_taken" residue from the failed attempt above.
+        const retrySession = makeSessionFor("session-cus-2-retry", user.id);
+        await store.createUserWithSession(user, retrySession);
+
+        expect(await store.getUserById("user-cus-2")).toEqual(user);
+        expect(await store.getSession("session-cus-2-retry")).toEqual(retrySession);
+      });
+
+      it("rejects a duplicate email, leaving neither the user nor the session written", async () => {
+        const original = makeUser("user-cus-3", "cus3-dup@example.com");
+        await store.createUser(original);
+
+        const duplicate = makeUser("user-cus-4", "cus3-dup@example.com");
+        const session = makeSessionFor("session-cus-4", "user-cus-4");
+
+        await expect(store.createUserWithSession(duplicate, session)).rejects.toThrow();
+
+        expect(await store.getUserById("user-cus-4")).toBeNull();
+        expect(await store.getSession("session-cus-4")).toBeNull();
+        expect((await store.getUserByEmail("cus3-dup@example.com"))?.id).toBe("user-cus-3");
+      });
+    });
+
     describe("sessions", () => {
       const makeSession = (id: string, overrides: Partial<SessionRow> = {}): SessionRow => ({
         id,

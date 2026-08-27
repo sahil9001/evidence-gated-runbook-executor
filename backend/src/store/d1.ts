@@ -236,11 +236,26 @@ export function createD1Store(db: D1Database): Store {
       // took effect (fresh insert, or an update that matched the WHERE
       // clause) from one the WHERE clause silently blocked, so two callers
       // racing to decide the same gate can never both believe they won.
+      //
+      // `state = 'locked'` alone is not enough: it only stops a write from
+      // touching an already-decided row, but says nothing about *what* a
+      // same-id write over a still-locked row is allowed to change. Without
+      // more, a same-id gate with a different actionId/createdAt/expiresAt
+      // (or a different run_id) would pass this check and replace the row
+      // that was actually persisted — breaking the gate-to-action binding —
+      // and then be free to be approved. So the WHERE clause additionally
+      // pins every immutable field (actionId, createdAt, expiresAt, and the
+      // run association) to equal the *stored* row's value: an upsert may
+      // only ever advance a locked gate's decision, never rebind it.
       const result = await db
         .prepare(
           `INSERT INTO gates (id, run_id, data) VALUES (?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET data = excluded.data
-           WHERE json_extract(gates.data, '$.state') = 'locked'`
+           WHERE json_extract(gates.data, '$.state') = 'locked'
+             AND json_extract(gates.data, '$.actionId') = json_extract(excluded.data, '$.actionId')
+             AND json_extract(gates.data, '$.createdAt') = json_extract(excluded.data, '$.createdAt')
+             AND json_extract(gates.data, '$.expiresAt') = json_extract(excluded.data, '$.expiresAt')
+             AND gates.run_id = excluded.run_id`
         )
         .bind(gate.id, runId, JSON.stringify(gate))
         .run();

@@ -28,6 +28,7 @@ function byCreatedAtDesc<T extends { createdAt: string }>(a: T, b: T): number {
 }
 
 type PacketRecord = { packet: EvidencePacket; runId: string };
+type GateRecord = { gate: ApprovalGate; runId: string };
 
 /**
  * In-memory implementation of Store, backed by plain Maps. Exists to prove
@@ -59,7 +60,7 @@ export function createMemoryStore(): Store {
   const runs = new Map<string, RunRow>();
   const packets = new Map<string, PacketRecord>();
   const actions = new Map<string, Action>();
-  const gates = new Map<string, ApprovalGate>();
+  const gates = new Map<string, GateRecord>();
   const auditLog = new Map<string, AuditEntry>();
   const incidents = new Map<string, IncidentRow>();
   const users = new Map<string, UserRow>();
@@ -138,17 +139,32 @@ export function createMemoryStore(): Store {
       return createAction(clone(found));
     },
 
-    async saveGate(gate: ApprovalGate): Promise<boolean> {
+    async saveGate(gate: ApprovalGate, runId: string): Promise<boolean> {
       // Same one-way rule the D1 adapter enforces via its conditional
       // `ON CONFLICT ... WHERE` upsert (see `store/d1.ts#saveGate`): a gate
       // already decided (approved/rejected) can never be overwritten by a
       // conflicting decision or reverted by a stale locked value. Only a
       // write over a missing row or a still-`locked` row takes effect.
+      //
+      // `state === "locked"` alone is not enough: it only guards against
+      // touching an already-decided row, but says nothing about *what* a
+      // same-id write over a still-locked row may change. Without more, a
+      // same-id gate with a different actionId/createdAt/expiresAt (or a
+      // different run association) would pass this check and replace the
+      // gate that was actually persisted — breaking the gate-to-action
+      // binding — and then be free to be approved. So every immutable field
+      // must equal the *stored* row's value before the write is allowed:
+      // this may only ever advance a locked gate's decision, never rebind
+      // it. Mirrors the D1 adapter's WHERE clause field-for-field.
       const existing = gates.get(gate.id);
-      if (existing !== undefined && existing.state !== "locked") {
-        return false;
+      if (existing !== undefined) {
+        if (existing.gate.state !== "locked") return false;
+        if (existing.gate.actionId !== gate.actionId) return false;
+        if (existing.gate.createdAt !== gate.createdAt) return false;
+        if (existing.gate.expiresAt !== gate.expiresAt) return false;
+        if (existing.runId !== runId) return false;
       }
-      gates.set(gate.id, clone(gate));
+      gates.set(gate.id, { gate: clone(gate), runId });
       return true;
     },
 
@@ -157,7 +173,7 @@ export function createMemoryStore(): Store {
       if (found === undefined) return null;
       // Validated on read, not cast — same defence as the D1 adapter's
       // getGate. See class doc comment.
-      return approvalGateSchema.parse(clone(found));
+      return approvalGateSchema.parse(clone(found.gate));
     },
 
     async appendAudit(entry: AuditEntry): Promise<void> {

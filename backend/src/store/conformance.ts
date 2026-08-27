@@ -334,6 +334,94 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         const loaded = await store.getGate("gate-stale-1");
         expect(loaded).toEqual(approved);
       });
+
+      // A locked gate binds one specific action/run — the identity and
+      // binding fields (actionId, createdAt, expiresAt, run association)
+      // must never change out from under a decision. `saveGate` may only
+      // ever *advance the decision* on the exact same gate, never rebind it
+      // to a different action, timestamps, or run while still deciding it.
+      it("advances a locked gate to approved with the SAME binding", async () => {
+        const run = makeRun("run-gate-bind-ok");
+        await store.createRun(run);
+        const locked = createGate({ id: "gate-bind-ok-1", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const { gate: approved } = approveGate(locked, makeAction("action-1"), { by: "sahil", at: T5 });
+        const won = await store.saveGate(approved, run.id);
+        expect(won).toBe(true);
+        expect((await store.getGate("gate-bind-ok-1"))?.state).toBe("approved");
+      });
+
+      it("advances a locked gate to rejected with the SAME binding", async () => {
+        const run = makeRun("run-gate-bind-ok-2");
+        await store.createRun(run);
+        const locked = createGate({ id: "gate-bind-ok-2", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const rejected = rejectGate(locked, { by: "sahil", at: T5, reason: "no" });
+        const won = await store.saveGate(rejected, run.id);
+        expect(won).toBe(true);
+        expect((await store.getGate("gate-bind-ok-2"))?.state).toBe("rejected");
+      });
+
+      it("refuses a same-id gate write with a DIFFERENT actionId, leaving the original intact", async () => {
+        const run = makeRun("run-gate-bind-action");
+        await store.createRun(run);
+        const locked = createGate({ id: "gate-bind-action-1", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const rebound = { ...locked, actionId: "action-EVIL" };
+        const won = await store.saveGate(rebound, run.id);
+        expect(won).toBe(false);
+
+        const loaded = await store.getGate("gate-bind-action-1");
+        expect(loaded).toEqual(locked);
+      });
+
+      it("refuses a same-id gate write with a DIFFERENT createdAt, leaving the original intact", async () => {
+        const run = makeRun("run-gate-bind-created");
+        await store.createRun(run);
+        const locked = createGate({ id: "gate-bind-created-1", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const rebound = { ...locked, createdAt: T5 };
+        const won = await store.saveGate(rebound, run.id);
+        expect(won).toBe(false);
+
+        const loaded = await store.getGate("gate-bind-created-1");
+        expect(loaded).toEqual(locked);
+      });
+
+      it("refuses a same-id gate write with a DIFFERENT expiresAt, leaving the original intact", async () => {
+        const run = makeRun("run-gate-bind-expires");
+        await store.createRun(run);
+        const locked = createGate({ id: "gate-bind-expires-1", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        const rebound = { ...locked, expiresAt: "2026-08-25T09:00:00.000Z" };
+        const won = await store.saveGate(rebound, run.id);
+        expect(won).toBe(false);
+
+        const loaded = await store.getGate("gate-bind-expires-1");
+        expect(loaded).toEqual(locked);
+      });
+
+      it("refuses a same-id gate write with a DIFFERENT run association, leaving the original intact", async () => {
+        const run = makeRun("run-gate-bind-run-a");
+        await store.createRun(run);
+        const otherRun = makeRun("run-gate-bind-run-b", { incidentId: "inc-other" });
+        await store.createRun(otherRun);
+
+        const locked = createGate({ id: "gate-bind-run-1", actionId: "action-1", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.saveGate(locked, run.id);
+
+        // Same gate value, but claimed against a different run.
+        const won = await store.saveGate(locked, otherRun.id);
+        expect(won).toBe(false);
+
+        const loaded = await store.getGate("gate-bind-run-1");
+        expect(loaded).toEqual(locked);
+      });
     });
 
     describe("audit log", () => {

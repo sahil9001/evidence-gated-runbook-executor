@@ -4,6 +4,11 @@ import { authRoutes } from "./routes/auth";
 import { runRoutes } from "./routes/run";
 import { packetRoutes } from "./routes/packet";
 import { approvalRoutes } from "./routes/approvals";
+import { incidentRoutes } from "./routes/incidents";
+import { runListRoutes } from "./routes/runs";
+import { runbookRoutes } from "./routes/runbooks";
+import { auditRoutes } from "./routes/audit";
+import { overviewRoutes } from "./routes/overview";
 import { requireAuth, type AuthedVariables } from "./auth/middleware";
 
 export type Env = {
@@ -47,10 +52,17 @@ app.use("/incidents/*", requireAuth);
 app.use("/runs/*", requireAuth);
 app.use("/approvals/*", requireAuth);
 app.use("/audit/*", requireAuth);
+app.use("/runbooks/*", requireAuth);
+app.use("/overview/*", requireAuth);
 
 app.route("/", runRoutes);
 app.route("/", packetRoutes);
 app.route("/", approvalRoutes);
+app.route("/", incidentRoutes);
+app.route("/", runListRoutes);
+app.route("/", runbookRoutes);
+app.route("/", auditRoutes);
+app.route("/", overviewRoutes);
 
 app.notFound((c) => c.json(apiError("not_found", "Route not found"), 404));
 

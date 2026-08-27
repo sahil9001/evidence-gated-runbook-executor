@@ -76,13 +76,16 @@ async function seedIncident(): Promise<IncidentRow> {
 /** Runs the checkout-failure runbook end to end and returns the run/gate id
  * (they share one id — see run.ts). `sources` defaults to the real fixture
  * collectors so the resulting packet has evidence, unless a test needs an
- * empty packet. */
+ * empty packet. Accepts an existing incident so a test can run the runbook
+ * more than once against the SAME incident (e.g. to prove one run's gate
+ * decision only ever depends on that run's own evidence). */
 async function seedAwaitingApprovalGate(
   app: Hono<AuthedEnv>,
-  cookie: string
+  cookie: string,
+  incident?: IncidentRow
 ): Promise<string> {
-  const incident = await seedIncident();
-  const { json } = await post(app, `/incidents/${incident.id}/run`, {
+  const targetIncident = incident ?? (await seedIncident());
+  const { json } = await post(app, `/incidents/${targetIncident.id}/run`, {
     service: "payment-service",
     signals: ["timeout"]
   }, cookie);
@@ -181,6 +184,59 @@ describe("POST /approvals/:id/approve", () => {
       const audit = await store.listAudit(id);
       expect(audit.filter((entry) => entry.kind === "action_executed")).toHaveLength(1);
       expect(audit.filter((entry) => entry.kind === "gate_approved")).toHaveLength(1);
+    }
+  );
+
+  // Evidence must be resolved for THIS run specifically, never "whatever
+  // the incident's latest packet is" — otherwise a later run on the same
+  // incident can flip whether an earlier run's gate is approvable.
+  it(
+    "stays refused for an empty-evidence run even after a LATER run on the same incident collected evidence",
+    async () => {
+      const { cookie } = await registeredCookie();
+      const incident = await seedIncident();
+
+      const emptyApp = buildApp([]); // forces a zero-card packet
+      const emptyRunId = await seedAwaitingApprovalGate(emptyApp, cookie, incident);
+
+      // A later run on the SAME incident, with real evidence.
+      const evidenceApp = buildApp(ALL_SOURCES);
+      await seedAwaitingApprovalGate(evidenceApp, cookie, incident);
+
+      // Approving the FIRST (empty-evidence) run's gate must still be
+      // refused — the incident's latest packet (from the second run) having
+      // cards must not matter.
+      const { status, json } = await post(emptyApp, `/approvals/${emptyRunId}/approve`, {}, cookie);
+      expect(status).toBe(409);
+      expect((json as ApiErr).error.code).toBe("insufficient_evidence");
+
+      const store = createD1Store(env.DB);
+      expect((await store.getRun(emptyRunId))?.state).toBe("awaiting_approval");
+    }
+  );
+
+  it(
+    "approves a run based on its own evidence even when a LATER run on the same incident has an empty packet",
+    async () => {
+      const { cookie } = await registeredCookie();
+      const incident = await seedIncident();
+
+      const evidenceApp = buildApp(ALL_SOURCES);
+      const runId = await seedAwaitingApprovalGate(evidenceApp, cookie, incident);
+
+      // A later run on the SAME incident, with an empty packet.
+      const emptyApp = buildApp([]);
+      await seedAwaitingApprovalGate(emptyApp, cookie, incident);
+
+      // The FIRST run's own evidence is what decides its gate — the
+      // incident's latest packet (from the second, empty-evidence run) must
+      // not matter.
+      const { status, json } = await post(evidenceApp, `/approvals/${runId}/approve`, {}, cookie);
+      expect(status).toBe(200);
+      expect((json as ApiOk<{ gate: { state: string } }>).data.gate.state).toBe("approved");
+
+      const store = createD1Store(env.DB);
+      expect((await store.getRun(runId))?.state).toBe("executed");
     }
   );
 });

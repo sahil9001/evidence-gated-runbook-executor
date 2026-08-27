@@ -132,6 +132,16 @@ export function createMemoryStore(): Store {
       return evidencePacketSchema.parse(clone(latest.packet));
     },
 
+    async getPacketByRun(runId: string): Promise<EvidencePacket | null> {
+      // Scoped strictly to this run's own packet(s) — never any other run's,
+      // even one on the same incident. See the doc comment on
+      // Store#getPacketByRun.
+      const matches = [...packets.values()].filter((p) => p.runId === runId);
+      if (matches.length === 0) return null;
+      const latest = matches.reduce((best, current) => (current.packet.builtAt > best.packet.builtAt ? current : best));
+      return evidencePacketSchema.parse(clone(latest.packet));
+    },
+
     async saveAction(action: Action): Promise<void> {
       if (actions.has(action.id)) throw new StoreConflictError(`action with id "${action.id}" already exists`);
       actions.set(action.id, clone(action));

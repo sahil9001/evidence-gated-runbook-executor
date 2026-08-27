@@ -207,6 +207,18 @@ export function createD1Store(db: D1Database): Store {
       return evidencePacketSchema.parse(JSON.parse(record.data));
     },
 
+    async getPacketByRun(runId: string): Promise<EvidencePacket | null> {
+      // Scoped strictly to this run's own packet(s) — never any other run's,
+      // even one on the same incident. See the doc comment on
+      // Store#getPacketByRun.
+      const record = await db
+        .prepare(`SELECT data FROM packets WHERE run_id = ? ORDER BY built_at DESC LIMIT 1`)
+        .bind(runId)
+        .first<JsonBodyRecord>();
+      if (record === null) return null;
+      return evidencePacketSchema.parse(JSON.parse(record.data));
+    },
+
     async saveAction(action: Action, runId: string): Promise<void> {
       await db
         .prepare(`INSERT INTO actions (id, run_id, data) VALUES (?, ?, ?)`)

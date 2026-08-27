@@ -95,6 +95,17 @@ export interface Store {
 
   savePacket(packet: EvidencePacket, runId: string): Promise<void>;
   getPacketByIncident(incidentId: string): Promise<EvidencePacket | null>;
+  /**
+   * The packet built FOR this run, and only this run — never "whatever the
+   * incident's most recent packet happens to be". A gate must be decided on
+   * the evidence collected for the run it belongs to; resolving evidence via
+   * `getPacketByIncident` instead lets a later, unrelated run on the same
+   * incident (empty or otherwise) determine whether THIS run's gate can be
+   * approved, which defeats the evidence gate. Ordered by `builtAt DESC`
+   * like `getPacketByIncident` in case a run is ever associated with more
+   * than one packet, though the current `/run` route writes exactly one.
+   */
+  getPacketByRun(runId: string): Promise<EvidencePacket | null>;
 
   saveAction(action: Action, runId: string): Promise<void>;
   getAction(id: string): Promise<Action | null>;

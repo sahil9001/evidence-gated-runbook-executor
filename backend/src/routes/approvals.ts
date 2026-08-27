@@ -98,7 +98,16 @@ approvalRoutes.post("/approvals/:id/approve", async (c) => {
   // in the dashboard is a UI convenience, not a guarantee — anyone calling
   // this endpoint directly bypasses it. Refuse here, before the atomic claim
   // below, so a rejected approval never marks the run decided.
-  const packet = await store.getPacketByIncident(run.incidentId);
+  //
+  // Resolved for THIS run specifically (getPacketByRun), never "whatever the
+  // incident's latest packet is" — see the doc comment on
+  // Store#getPacketByRun. Using getPacketByIncident here let a later,
+  // unrelated run on the same incident (empty or otherwise) determine
+  // whether this run's gate could be approved, which defeats the evidence
+  // gate: an empty-evidence run could ride a later run's non-empty packet to
+  // approval, and a run that genuinely collected evidence could be wrongly
+  // blocked by a later, unrelated empty one.
+  const packet = await store.getPacketByRun(run.id);
   if (packet === null || packet.cards.length === 0) {
     return c.json(apiError("insufficient_evidence", `Gate "${id}" has no evidence and cannot be approved`), 409);
   }

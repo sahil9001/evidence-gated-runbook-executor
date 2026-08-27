@@ -222,6 +222,38 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       });
     });
 
+    describe("getPacketByRun", () => {
+      it("returns the packet for that specific run, not any other run's packet on the same incident", async () => {
+        const incidentId = "inc-packet-by-run";
+        const runA = makeRun("run-packet-by-run-a", { incidentId });
+        const runB = makeRun("run-packet-by-run-b", { incidentId });
+        await store.createRun(runA);
+        await store.createRun(runB);
+
+        // runA's packet has an EARLIER builtAt than runB's — if
+        // getPacketByRun were implemented as "latest packet on the
+        // incident" (the bug getPacketByIncident has for this use case),
+        // runA's own lookup would incorrectly return runB's packet.
+        const packetA = makePacket("packet-by-run-a", incidentId, T0);
+        const packetB = makePacket("packet-by-run-b", incidentId, T5);
+        await store.savePacket(packetA, runA.id);
+        await store.savePacket(packetB, runB.id);
+
+        expect((await store.getPacketByRun(runA.id))?.id).toBe("packet-by-run-a");
+        expect((await store.getPacketByRun(runB.id))?.id).toBe("packet-by-run-b");
+      });
+
+      it("returns null for a run with no packet of its own", async () => {
+        const run = makeRun("run-packet-by-run-none", { incidentId: "inc-packet-by-run-none" });
+        await store.createRun(run);
+        expect(await store.getPacketByRun(run.id)).toBeNull();
+      });
+
+      it("returns null for a nonexistent run id", async () => {
+        expect(await store.getPacketByRun("run-does-not-exist")).toBeNull();
+      });
+    });
+
     describe("actions", () => {
       it("round-trips an action", async () => {
         const run = makeRun("run-4");

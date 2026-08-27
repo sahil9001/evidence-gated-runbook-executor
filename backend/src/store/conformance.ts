@@ -135,6 +135,20 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         await store.createRun(run);
         expect((await store.getRun("run-created-by-null"))?.createdBy).toBeNull();
       });
+
+      // `runs.id` is a PRIMARY KEY (migrations/0001_init.sql): D1 rejects a
+      // second INSERT with the same id via the schema constraint. The
+      // memory adapter must reject it too instead of `Map.set` silently
+      // overwriting the first run. Exact error type/message is adapter
+      // specific (D1's native SQLite error vs. `StoreConflictError`), so
+      // this — and every other duplicate-write test below — asserts only
+      // the shared shape: the write rejects.
+      it("rejects creating a run with a duplicate id instead of overwriting it", async () => {
+        const run = makeRun("run-dup-1");
+        await store.createRun(run);
+        await expect(store.createRun(makeRun("run-dup-1", { service: "other-service" }))).rejects.toThrow();
+        expect((await store.getRun("run-dup-1"))?.service).toBe("payment-service");
+      });
     });
 
     describe("listRuns / listRunsByIncident", () => {
@@ -196,6 +210,16 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         const loaded = await store.getPacketByIncident("inc-m1");
         expect(loaded?.id).toBe("aaa-newer-by-id");
       });
+
+      // `packets.id` is a PRIMARY KEY; `savePacket` is a plain INSERT in
+      // the D1 adapter (no upsert), so a duplicate id fails there too.
+      it("rejects saving a packet with a duplicate id", async () => {
+        const run = makeRun("run-packet-dup", { incidentId: "inc-packet-dup" });
+        await store.createRun(run);
+        await store.savePacket(makePacket("packet-dup-1", run.incidentId), run.id);
+
+        await expect(store.savePacket(makePacket("packet-dup-1", run.incidentId), run.id)).rejects.toThrow();
+      });
     });
 
     describe("actions", () => {
@@ -210,6 +234,16 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
 
       it("returns null for a missing action", async () => {
         expect(await store.getAction("no-such-action")).toBeNull();
+      });
+
+      // `actions.id` is a PRIMARY KEY; `saveAction` is a plain INSERT in
+      // the D1 adapter (no upsert), so a duplicate id fails there too.
+      it("rejects saving an action with a duplicate id", async () => {
+        const run = makeRun("run-action-dup");
+        await store.createRun(run);
+        await store.saveAction(makeAction("action-dup-1"), run.id);
+
+        await expect(store.saveAction(makeAction("action-dup-1"), run.id)).rejects.toThrow();
       });
     });
 
@@ -395,6 +429,12 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         const allIds = all.map((i) => i.id);
         expect(allIds.indexOf("inc-store-resolved")).toBeLessThan(allIds.indexOf("inc-store-open"));
       });
+
+      // `incidents.id` is a PRIMARY KEY.
+      it("rejects creating an incident with a duplicate id", async () => {
+        await store.createIncident(makeIncident("inc-dup-1"));
+        await expect(store.createIncident(makeIncident("inc-dup-1", { title: "different title" }))).rejects.toThrow();
+      });
     });
 
     describe("users", () => {
@@ -417,6 +457,32 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       it("returns null for a missing user, by id or by email", async () => {
         expect(await store.getUserById("no-such-user")).toBeNull();
         expect(await store.getUserByEmail("nobody@example.com")).toBeNull();
+      });
+
+      // `users.id` is a PRIMARY KEY.
+      it("rejects creating a user with a duplicate id", async () => {
+        await store.createUser(makeUser("user-dup-1", "dup1@example.com"));
+        await expect(store.createUser(makeUser("user-dup-1", "dup1-other@example.com"))).rejects.toThrow();
+      });
+
+      // `users.email` is UNIQUE (migrations/0002_auth_and_incidents.sql).
+      it("rejects creating a user with a duplicate email under a different id", async () => {
+        await store.createUser(makeUser("user-dup-2", "dup2@example.com"));
+        await expect(store.createUser(makeUser("user-dup-3", "dup2@example.com"))).rejects.toThrow();
+      });
+
+      // Regression coverage for the exact bug reported: recreating a user
+      // id with a different email must not leave the *old* email's index
+      // entry resolving to a row whose email no longer matches it — the
+      // rejected write must not have touched anything.
+      it("leaves the email index untouched when a duplicate-id create is rejected", async () => {
+        await store.createUser(makeUser("user-dup-4", "original@example.com"));
+        await expect(store.createUser(makeUser("user-dup-4", "changed@example.com"))).rejects.toThrow();
+
+        const byOriginalEmail = await store.getUserByEmail("original@example.com");
+        expect(byOriginalEmail?.id).toBe("user-dup-4");
+        expect(byOriginalEmail?.email).toBe("original@example.com");
+        expect(await store.getUserByEmail("changed@example.com")).toBeNull();
       });
     });
 
@@ -444,6 +510,12 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         await store.createSession(session);
         await store.deleteSession("session-2");
         expect(await store.getSession("session-2")).toBeNull();
+      });
+
+      // `sessions.id` is a PRIMARY KEY.
+      it("rejects creating a session with a duplicate id", async () => {
+        await store.createSession(makeSession("session-dup-1"));
+        await expect(store.createSession(makeSession("session-dup-1", { userId: "user-2" }))).rejects.toThrow();
       });
 
       it("deleteExpiredSessions removes only sessions expired as of the given time", async () => {

@@ -1,13 +1,14 @@
 import { createAction, type Action } from "../domain/action";
 import { approvalGateSchema, type ApprovalGate } from "../domain/approval";
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
-import type {
-  Store,
-  RunRow,
-  AuditEntry,
-  IncidentRow,
-  UserRow,
-  SessionRow
+import {
+  StoreConflictError,
+  type Store,
+  type RunRow,
+  type AuditEntry,
+  type IncidentRow,
+  type UserRow,
+  type SessionRow
 } from "../domain/store";
 
 /**
@@ -33,7 +34,7 @@ type PacketRecord = { packet: EvidencePacket; runId: string };
  * the `Store` port is genuinely pluggable — see `src/store/conformance.ts`,
  * run against this and `createD1Store` identically.
  *
- * Two behaviours are deliberately replicated even though nothing here
+ * Several behaviours are deliberately replicated even though nothing here
  * forces them:
  *  - `appendAudit` rejects a duplicate id. In D1 this is a PRIMARY KEY
  *    constraint; here it's an explicit check. Both enforce append-only.
@@ -41,6 +42,15 @@ type PacketRecord = { packet: EvidencePacket; runId: string };
  *    and `approvalGateSchema.parse`) rather than trusting the stored
  *    object, mirroring D1's parse-on-read defence even though a `Map`
  *    can't hold a "corrupted JSON blob" the way a TEXT column can.
+ *  - Every `create*`/`save*` write that D1 backs with a plain (non-upsert)
+ *    INSERT on a PRIMARY KEY or UNIQUE column (`runs`, `packets`, `actions`,
+ *    `incidents`, `sessions`, and `users` on both `id` and `email`) throws
+ *    `StoreConflictError` on a duplicate here too, instead of `Map.set`
+ *    silently overwriting or remapping. The uniqueness check runs before
+ *    any map is mutated, so a rejected write can never leave a stale index
+ *    entry behind (e.g. `userIdByEmail` pointing at a row whose email no
+ *    longer matches). `saveGate` is the one exception: its one-way
+ *    locked -> decided upsert rule is enforced separately, see below.
  *
  * `ApprovalToken` is never persisted here either — same rule as the D1
  * adapter. Only `ApprovalGate` is stored.
@@ -58,6 +68,7 @@ export function createMemoryStore(): Store {
 
   return {
     async createRun(run: RunRow): Promise<void> {
+      if (runs.has(run.id)) throw new StoreConflictError(`run with id "${run.id}" already exists`);
       runs.set(run.id, clone(run));
     },
 
@@ -99,6 +110,9 @@ export function createMemoryStore(): Store {
 
     async savePacket(packet: EvidencePacket, runId: string): Promise<void> {
       const validated = evidencePacketSchema.parse(packet);
+      if (packets.has(validated.id)) {
+        throw new StoreConflictError(`packet with id "${validated.id}" already exists`);
+      }
       packets.set(validated.id, { packet: clone(validated), runId });
     },
 
@@ -112,6 +126,7 @@ export function createMemoryStore(): Store {
     },
 
     async saveAction(action: Action): Promise<void> {
+      if (actions.has(action.id)) throw new StoreConflictError(`action with id "${action.id}" already exists`);
       actions.set(action.id, clone(action));
     },
 
@@ -193,10 +208,18 @@ export function createMemoryStore(): Store {
     },
 
     async createIncident(row: IncidentRow): Promise<void> {
+      if (incidents.has(row.id)) throw new StoreConflictError(`incident with id "${row.id}" already exists`);
       incidents.set(row.id, clone(row));
     },
 
     async createUser(row: UserRow): Promise<void> {
+      // Both checks run before either map is touched: a duplicate id must
+      // never partially apply and leave `userIdByEmail` pointing at a row
+      // whose email doesn't match what was actually stored for that id.
+      if (users.has(row.id)) throw new StoreConflictError(`user with id "${row.id}" already exists`);
+      if (userIdByEmail.has(row.email)) {
+        throw new StoreConflictError(`user with email "${row.email}" already exists`);
+      }
       users.set(row.id, clone(row));
       userIdByEmail.set(row.email, row.id);
     },
@@ -214,6 +237,7 @@ export function createMemoryStore(): Store {
     },
 
     async createSession(row: SessionRow): Promise<void> {
+      if (sessions.has(row.id)) throw new StoreConflictError(`session with id "${row.id}" already exists`);
       sessions.set(row.id, clone(row));
     },
 

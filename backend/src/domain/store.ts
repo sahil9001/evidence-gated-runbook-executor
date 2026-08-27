@@ -15,6 +15,24 @@ import type { ApprovalGate } from "./approval";
  * (`ApprovalGate`), never the token.
  */
 
+/**
+ * Thrown by a `create*`/`save*` write that collides with an existing row on
+ * a primary key or unique constraint (a duplicate id, or — for users — a
+ * duplicate email). In `createD1Store` this mirrors D1/SQLite rejecting the
+ * same INSERT via a schema constraint (see `migrations/*.sql`); in
+ * `createMemoryStore` it is this explicit class, since a `Map` has no
+ * constraint of its own to violate. The two adapters are not guaranteed to
+ * throw byte-identical error text — callers (and the conformance suite)
+ * should assert on the shared shape (rejects, is an `Error`) rather than on
+ * D1's exact SQLite message.
+ */
+export class StoreConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StoreConflictError";
+  }
+}
+
 export type RunRow = {
   id: string;
   incidentId: string;

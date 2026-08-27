@@ -262,6 +262,58 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         expect(await store.getRun(retryRun.id)).toEqual(retryRun);
         expect(await store.getGate(retryGate.id)).toEqual(retryGate);
       });
+
+      it("rejects a packet whose incidentId differs from the run's, writing NOTHING", async () => {
+        const run = makeRun("run-atomic-bad-packet", { incidentId: "inc-atomic-bad-packet" });
+        const packet = makePacket("packet-atomic-bad-packet", "inc-some-other-incident");
+        const action = makeAction("action-atomic-bad-packet");
+        const gate = createGate({ id: run.id, actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-bad-packet", runId: run.id, at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getAction(action.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit(run.id)).toEqual([]);
+      });
+
+      it("rejects a gate whose actionId doesn't match the action's id, writing NOTHING", async () => {
+        const run = makeRun("run-atomic-bad-gate", { incidentId: "inc-atomic-bad-gate" });
+        const packet = makePacket("packet-atomic-bad-gate", "inc-atomic-bad-gate");
+        const action = makeAction("action-atomic-bad-gate");
+        const gate = createGate({ id: run.id, actionId: "action-does-not-match", createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-bad-gate", runId: run.id, at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getPacketByRun(run.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit(run.id)).toEqual([]);
+      });
+
+      it("rejects an audit entry naming a different run, writing NOTHING", async () => {
+        const run = makeRun("run-atomic-bad-audit", { incidentId: "inc-atomic-bad-audit" });
+        const packet = makePacket("packet-atomic-bad-audit", "inc-atomic-bad-audit");
+        const action = makeAction("action-atomic-bad-audit");
+        const gate = createGate({ id: run.id, actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        const auditEntries: AuditEntry[] = [
+          { id: "audit-atomic-bad-audit", runId: "some-other-run-id", at: T0, kind: "run_created", detail: "created" }
+        ];
+
+        await expect(store.createRunWithArtifacts({ run, packet, action, gate, auditEntries })).rejects.toThrow();
+
+        expect(await store.getRun(run.id)).toBeNull();
+        expect(await store.getPacketByRun(run.id)).toBeNull();
+        expect(await store.getAction(action.id)).toBeNull();
+        expect(await store.getGate(gate.id)).toBeNull();
+        expect(await store.listAudit("some-other-run-id")).toEqual([]);
+      });
     });
 
     describe("packets", () => {

@@ -197,6 +197,38 @@ export function createD1Store(db: D1Database): Store {
       const { run, packet, action, gate, auditEntries } = input;
       const validatedPacket = evidencePacketSchema.parse(packet);
 
+      // Validating each row's OWN shape (above, and implicitly via the
+      // typed parameters) says nothing about whether the rows belong
+      // together. Nothing before this point stops a caller from handing
+      // over an internally inconsistent aggregate — a packet built for a
+      // different incident, a gate that authorizes a different action, or
+      // an audit entry stamped with a different run's id — which the batch
+      // below would otherwise commit as-is: every INSERT here is
+      // unconditional, so D1 has no constraint of its own that would catch
+      // it. A later lookup (getPacketByRun, getGate, listAudit) would then
+      // hand back another run's evidence, action authorization, or audit
+      // history as if it belonged to THIS run. Same class of bug as
+      // createUserWithSession's session/user pairing check: relationships
+      // must be verified before anything is written, not left to whatever
+      // the caller happened to pass in.
+      if (validatedPacket.incidentId !== run.incidentId) {
+        throw new Error(
+          `createRunWithArtifacts: packet.incidentId ("${validatedPacket.incidentId}") does not match run.incidentId ("${run.incidentId}")`
+        );
+      }
+      if (gate.actionId !== action.id) {
+        throw new Error(
+          `createRunWithArtifacts: gate.actionId ("${gate.actionId}") does not match action.id ("${action.id}")`
+        );
+      }
+      for (const entry of auditEntries) {
+        if (entry.runId !== run.id) {
+          throw new Error(
+            `createRunWithArtifacts: audit entry "${entry.id}" has runId ("${entry.runId}") that does not match run.id ("${run.id}")`
+          );
+        }
+      }
+
       // Every row is a plain (non-conditional) INSERT, so db.batch()'s
       // transaction is sufficient on its own: any single INSERT failing
       // (e.g. a duplicate id colliding with a PRIMARY KEY) throws, and D1

@@ -104,6 +104,17 @@ export interface Store {
    * resuming the broken one. All rows land, or none do — mirrors
    * `createUserWithSession`'s reasoning and (in `createD1Store`) its
    * `db.batch()` mechanism.
+   *
+   * Atomicity alone is not enough: implementations MUST also verify the
+   * aggregate is internally consistent BEFORE writing anything —
+   * `packet.incidentId === run.incidentId`, `gate.actionId === action.id`,
+   * and every audit entry's `runId === run.id` — and reject (writing
+   * nothing) otherwise. Without this, a caller could commit a run whose
+   * parts don't belong to each other (another incident's packet, a gate
+   * that authorizes a different action, an audit entry attributed to a
+   * different run), which a later lookup would then expose as if it
+   * genuinely belonged to this run. Same reasoning as the `session.userId
+   * !== user.id` guard on `createUserWithSession`.
    */
   createRunWithArtifacts(input: {
     run: RunRow;

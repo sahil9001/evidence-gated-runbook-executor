@@ -125,6 +125,34 @@ export function createMemoryStore(): Store {
       const { run, packet, action, gate, auditEntries } = input;
       const validatedPacket = evidencePacketSchema.parse(packet);
 
+      // Mirrors the D1 adapter's relationship checks (store/d1.ts) before
+      // its own conflict checks below: validating each row's own shape says
+      // nothing about whether the rows belong together, and a `Map.set`
+      // would happily accept a packet built for a different incident, a
+      // gate that authorizes a different action, or an audit entry stamped
+      // with a different run's id. Left unchecked, a later lookup
+      // (getPacketByRun, getGate, listAudit) would hand back another run's
+      // evidence, action authorization, or audit history as if it belonged
+      // to THIS run. Same class of check as createUserWithSession's
+      // session/user pairing.
+      if (validatedPacket.incidentId !== run.incidentId) {
+        throw new Error(
+          `createRunWithArtifacts: packet.incidentId ("${validatedPacket.incidentId}") does not match run.incidentId ("${run.incidentId}")`
+        );
+      }
+      if (gate.actionId !== action.id) {
+        throw new Error(
+          `createRunWithArtifacts: gate.actionId ("${gate.actionId}") does not match action.id ("${action.id}")`
+        );
+      }
+      for (const entry of auditEntries) {
+        if (entry.runId !== run.id) {
+          throw new Error(
+            `createRunWithArtifacts: audit entry "${entry.id}" has runId ("${entry.runId}") that does not match run.id ("${run.id}")`
+          );
+        }
+      }
+
       // Every conflict check for every row runs before any map is touched —
       // same discipline as createUserWithSession — so a rejected write can
       // never leave a partial run (e.g. a run row with no action/gate)

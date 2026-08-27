@@ -21,10 +21,18 @@ export const RUNBOOKS: readonly Runbook[] = [loadRunbook(checkoutFailureRaw)];
 /** Matches the TTL already used throughout the domain-layer tests and fixtures. */
 const GATE_TTL_MS = 15 * 60 * 1000;
 
-const runBodySchema = z.object({
-  service: z.string().min(1),
-  signals: z.array(z.string().min(1))
-});
+// `service`/`signals` are deliberately absent from this schema — same
+// reasoning that keeps `by` out of the approve/reject bodies (see
+// approvals.ts). The runbook match and the evidence collectors are both
+// scoped by "what is this incident about", and the incident row — not
+// whatever a caller's request body claims — is the only authority for that.
+// A caller naming a different service here is either confused about which
+// incident they're targeting or attempting to attach evidence and an action
+// (e.g. a payment-service rollback) to an unrelated incident id. Extra keys
+// in the body (including a legacy `service`/`signals` pair) are silently
+// stripped by zod's default object parsing, so older callers that still
+// send them keep working — the values are just never read.
+const runBodySchema = z.object({});
 
 /**
  * Factory rather than a bare `Hono` instance so tests can inject a source
@@ -38,7 +46,6 @@ export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES
   routes.post("/incidents/:id/run", async (c) => {
     const parsed = await parseJsonBody(c, runBodySchema);
     if (!parsed.success) return parsed.response;
-    const { service, signals } = parsed.data;
     const incidentId = c.req.param("id");
 
     const store = createD1Store(c.env.DB);
@@ -49,6 +56,10 @@ export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES
     if (incident === null) {
       return c.json(apiError("not_found", `No incident found for id "${incidentId}"`), 404);
     }
+
+    // The incident row is the sole authority for what this run is about —
+    // never the request body. See the schema comment above runBodySchema.
+    const { service, signals } = incident;
 
     const runbook = matchRunbook(RUNBOOKS, { service, signals });
     if (runbook === null) {

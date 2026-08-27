@@ -78,10 +78,7 @@ describe("POST /incidents/:id/run", () => {
   it("404s for an incident that was never created", async () => {
     const cookie = await registeredCookie();
     const app = buildApp();
-    const { status, json } = await post(app, "/incidents/does-not-exist/run", {
-      service: "payment-service",
-      signals: ["timeout"]
-    }, cookie);
+    const { status, json } = await post(app, "/incidents/does-not-exist/run", {}, cookie);
     expect(status).toBe(404);
     expect((json as ApiErr).error.code).toBe("not_found");
   });
@@ -90,31 +87,48 @@ describe("POST /incidents/:id/run", () => {
     const cookie = await registeredCookie();
     const incident = await seedIncident();
     const app = buildApp();
-    const { status, json } = await post(app, `/incidents/${incident.id}/run`, { service: "" }, cookie);
+    // The route no longer reads `service`/`signals` from the body (see
+    // below), so a body must merely BE a JSON object — anything else
+    // (a string here) still fails schema validation.
+    const { status, json } = await post(app, `/incidents/${incident.id}/run`, "not-an-object", cookie);
     expect(status).toBe(400);
     expect((json as ApiErr).error.code).toBe("validation_failed");
   });
 
-  it("404s no_matching_runbook when no runbook matches the service/signals", async () => {
+  it("404s no_matching_runbook when no runbook matches the incident's own service/signals", async () => {
     const cookie = await registeredCookie();
     const incident = await seedIncident({ service: "some-other-service" });
     const app = buildApp();
+    const { status, json } = await post(app, `/incidents/${incident.id}/run`, {}, cookie);
+    expect(status).toBe(404);
+    expect((json as ApiErr).error.code).toBe("no_matching_runbook");
+  });
+
+  it("uses the incident's own service/signals, ignoring body-supplied values naming a different service", async () => {
+    const cookie = await registeredCookie();
+    // Incident is genuinely about payment-service/timeout (matches the
+    // fixture runbook); the request body claims an unrelated service. If
+    // the body were trusted, this would either 404 no_matching_runbook (no
+    // runbook matches "some-other-service") or — worse — attach evidence
+    // and a proposed action for a service the incident was never about.
+    const incident = await seedIncident();
+    const app = buildApp(ALL_SOURCES);
     const { status, json } = await post(app, `/incidents/${incident.id}/run`, {
       service: "some-other-service",
       signals: ["nothing-matches"]
     }, cookie);
-    expect(status).toBe(404);
-    expect((json as ApiErr).error.code).toBe("no_matching_runbook");
+
+    expect(status).toBe(200);
+    const body = json as ApiOk<{ run: { service: string }; action: { target: string } }>;
+    expect(body.data.run.service).toBe("payment-service");
+    expect(body.data.action.target).toBe("payment-service");
   });
 
   it("collects evidence, locks a gate, and executes NOTHING — no `execution` field in the response", async () => {
     const cookie = await registeredCookie();
     const incident = await seedIncident();
     const app = buildApp(ALL_SOURCES);
-    const { status, json } = await post(app, `/incidents/${incident.id}/run`, {
-      service: "payment-service",
-      signals: ["timeout"]
-    }, cookie);
+    const { status, json } = await post(app, `/incidents/${incident.id}/run`, {}, cookie);
 
     expect(status).toBe(200);
     const body = json as ApiOk<{
@@ -142,10 +156,7 @@ describe("POST /incidents/:id/run", () => {
       }
     };
     const app = buildApp([failingSource]);
-    const { status, json } = await post(app, `/incidents/${incident.id}/run`, {
-      service: "payment-service",
-      signals: ["timeout"]
-    }, cookie);
+    const { status, json } = await post(app, `/incidents/${incident.id}/run`, {}, cookie);
 
     expect(status).toBe(200);
     const body = json as ApiOk<{ run: { id: string }; failures: { source: string; message: string }[] }>;

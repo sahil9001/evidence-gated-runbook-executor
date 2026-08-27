@@ -399,6 +399,19 @@ export function createD1Store(db: D1Database): Store {
       // applied (statements inside one transaction observe each other's
       // writes), so this only takes effect once the claim above has
       // actually landed.
+      //
+      // Unlike saveGate, this is a plain UPDATE — never an upsert. saveGate
+      // is used at gate *creation* and may legitimately INSERT a fresh
+      // locked row; decideGate only ever ADVANCES a gate that some prior
+      // saveGate already locked. An `INSERT ... ON CONFLICT DO UPDATE`
+      // would take its unconditional INSERT branch whenever `gate.id` names
+      // no existing row — including a gate that was never created, or one
+      // whose creation this same decision attempt just lost the race to
+      // (statement 1's EXISTS would then also see nothing and refuse the
+      // run claim) — and persist a decided gate for a run that was never
+      // claimed. A bare UPDATE has no such branch: it simply matches zero
+      // rows and changes nothing, so `decideGate` returning `false` and the
+      // gate table being untouched stay the same fact.
       const results = await db.batch([
         db
           .prepare(
@@ -417,16 +430,15 @@ export function createD1Store(db: D1Database): Store {
           .bind(gate.state, at, runId, gate.id, runId, gate.actionId, gate.createdAt, gate.expiresAt),
         db
           .prepare(
-            `INSERT INTO gates (id, run_id, data) VALUES (?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET data = excluded.data
-             WHERE json_extract(gates.data, '$.state') = 'locked'
-               AND json_extract(gates.data, '$.actionId') = json_extract(excluded.data, '$.actionId')
-               AND json_extract(gates.data, '$.createdAt') = json_extract(excluded.data, '$.createdAt')
-               AND json_extract(gates.data, '$.expiresAt') = json_extract(excluded.data, '$.expiresAt')
-               AND gates.run_id = excluded.run_id
-               AND (SELECT state FROM runs WHERE id = excluded.run_id) = ?`
+            `UPDATE gates SET data = ?
+             WHERE id = ? AND run_id = ?
+               AND json_extract(data, '$.state') = 'locked'
+               AND json_extract(data, '$.actionId') = ?
+               AND json_extract(data, '$.createdAt') = ?
+               AND json_extract(data, '$.expiresAt') = ?
+               AND (SELECT state FROM runs WHERE id = ?) = ?`
           )
-          .bind(gate.id, runId, JSON.stringify(gate), gate.state)
+          .bind(JSON.stringify(gate), gate.id, runId, gate.actionId, gate.createdAt, gate.expiresAt, runId, gate.state)
       ]);
       const [runResult, gateResult] = results;
       if (runResult === undefined || gateResult === undefined) return false;

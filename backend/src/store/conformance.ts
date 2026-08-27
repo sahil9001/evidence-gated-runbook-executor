@@ -623,6 +623,30 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         expect(await store.getGate(run.id)).toEqual(rejected);
       });
 
+      it("refuses — creating NO gate row — when the gate does not exist", async () => {
+        const run = makeRun("run-decide-missing-gate", { state: "awaiting_approval" });
+        await store.createRun(run);
+
+        // No saveGate call at all: "gate-missing" has never been written.
+        // decideGate only ever ADVANCES an existing locked gate (unlike
+        // saveGate, which may create one) — a decision for an id that was
+        // never claimed must refuse cleanly, not resurrect the gate it
+        // claims to be deciding.
+        const phantomLocked = createGate({
+          id: "gate-missing",
+          actionId: "action-1",
+          createdAt: T0,
+          ttlMs: 15 * 60 * 1000
+        });
+        const { gate: approved } = approveGate(phantomLocked, makeAction("action-1"), { by: "sahil", at: T5 });
+
+        const won = await store.decideGate(approved, run.id, T5);
+
+        expect(won).toBe(false);
+        expect((await store.getRun(run.id))?.state).toBe("awaiting_approval");
+        expect(await store.getGate("gate-missing")).toBeNull();
+      });
+
       it("refuses — leaving BOTH run and gate untouched — when the run is not awaiting_approval", async () => {
         const run = makeRun("run-decide-3", { state: "collecting" });
         await store.createRun(run);

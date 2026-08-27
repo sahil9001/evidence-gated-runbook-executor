@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { Action } from "./action";
 
 declare const tokenBrand: unique symbol;
@@ -182,6 +183,47 @@ export type ApprovedGate = GateBase & { readonly state: "approved"; readonly dec
 export type RejectedGate = GateBase & { readonly state: "rejected"; readonly decidedBy: string; readonly decidedAt: string; readonly reason: string };
 
 export type ApprovalGate = LockedGate | ApprovedGate | RejectedGate;
+
+/**
+ * Runtime validation for `ApprovalGate`, used by persistence adapters
+ * (`src/store/d1.ts`, `src/store/memory.ts`) to validate a gate on every
+ * read rather than casting a stored JSON blob back to `ApprovalGate`. A
+ * gate is plain, serializable data (unlike `ApprovalToken`, which is never
+ * persisted — see the module doc comment above), so round-tripping it
+ * through JSON is legitimate, but a corrupted or tampered row (e.g. a
+ * garbage `expiresAt`) must fail loudly here instead of silently producing
+ * a gate that `isExpired` can never report as expired.
+ */
+const gateBaseSchema = z.object({
+  id: z.string().min(1),
+  actionId: z.string().min(1),
+  createdAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime()
+});
+
+const lockedGateSchema = gateBaseSchema.extend({
+  state: z.literal("locked")
+});
+
+const approvedGateSchema = gateBaseSchema.extend({
+  state: z.literal("approved"),
+  decidedBy: z.string().min(1),
+  decidedAt: z.iso.datetime(),
+  reason: z.string().optional()
+});
+
+const rejectedGateSchema = gateBaseSchema.extend({
+  state: z.literal("rejected"),
+  decidedBy: z.string().min(1),
+  decidedAt: z.iso.datetime(),
+  reason: z.string().min(1)
+});
+
+export const approvalGateSchema: z.ZodType<ApprovalGate> = z.discriminatedUnion("state", [
+  lockedGateSchema,
+  approvedGateSchema,
+  rejectedGateSchema
+]);
 
 export function createGate(input: {
   id: string; actionId: string; createdAt: string; ttlMs: number;

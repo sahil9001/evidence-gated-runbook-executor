@@ -642,6 +642,54 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         expect(await store.getSession("session-cus-4")).toBeNull();
         expect((await store.getUserByEmail("cus3-dup@example.com"))?.id).toBe("user-cus-3");
       });
+
+      // Qodo finding: "session pairing is unenforced". Nothing checked that
+      // the session named the user being created, so a caller passing a
+      // session whose userId names a DIFFERENT, already-existing user got a
+      // session that authenticates that other account — an auth-bypass
+      // shape, not a data-integrity nit. This must never be reachable from
+      // the register route (buildSession always pairs userId to the freshly
+      // minted user id), but the store layer enforces it anyway so it stays
+      // that way: a programming error here throws instead of silently
+      // minting a working session for the wrong account.
+      it("rejects when session.userId does not match the user being created, writing neither row", async () => {
+        const otherUser = makeUser("user-cus-victim", "victim@example.com");
+        await store.createUser(otherUser);
+
+        const user = makeUser("user-cus-mismatch", "mismatch@example.com");
+        const mismatchedSession = makeSessionFor("session-cus-mismatch", otherUser.id);
+
+        await expect(store.createUserWithSession(user, mismatchedSession)).rejects.toThrow();
+
+        expect(await store.getUserById("user-cus-mismatch")).toBeNull();
+        expect(await store.getUserByEmail("mismatch@example.com")).toBeNull();
+        expect(await store.getSession("session-cus-mismatch")).toBeNull();
+      });
+
+      // Same shape, but the named user doesn't exist at all — an unusable
+      // session for nobody. D1's foreign key already rejects this; the
+      // memory adapter must too (see the `createSession` FK-parity test
+      // below for the direct case).
+      it("rejects when session.userId names a user that does not exist, writing neither row", async () => {
+        const user = makeUser("user-cus-ghost", "ghost@example.com");
+        const session = makeSessionFor("session-cus-ghost", "user-does-not-exist");
+
+        await expect(store.createUserWithSession(user, session)).rejects.toThrow();
+
+        expect(await store.getUserById("user-cus-ghost")).toBeNull();
+        expect(await store.getUserByEmail("ghost@example.com")).toBeNull();
+        expect(await store.getSession("session-cus-ghost")).toBeNull();
+      });
+
+      it("still supports the normal paired case: session.userId equals the created user's id", async () => {
+        const user = makeUser("user-cus-paired", "paired@example.com");
+        const session = makeSessionFor("session-cus-paired", user.id);
+
+        await store.createUserWithSession(user, session);
+
+        expect(await store.getUserById("user-cus-paired")).toEqual(user);
+        expect(await store.getSession("session-cus-paired")).toEqual(session);
+      });
     });
 
     describe("sessions", () => {
@@ -674,6 +722,15 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       it("rejects creating a session with a duplicate id", async () => {
         await store.createSession(makeSession("session-dup-1"));
         await expect(store.createSession(makeSession("session-dup-1", { userId: "user-2" }))).rejects.toThrow();
+      });
+
+      // `sessions.user_id REFERENCES users (id)` (migrations/0002). D1
+      // rejects an INSERT naming a nonexistent user via this foreign key;
+      // the memory adapter must reject it too instead of silently accepting
+      // a session for a user that was never created.
+      it("rejects creating a session that references a nonexistent user", async () => {
+        await expect(store.createSession(makeSession("session-fk-ghost", { userId: "user-does-not-exist" }))).rejects.toThrow();
+        expect(await store.getSession("session-fk-ghost")).toBeNull();
       });
 
       it("deleteExpiredSessions removes only sessions expired as of the given time", async () => {

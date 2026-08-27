@@ -136,6 +136,15 @@ export interface Store {
    * MUST enforce this atomically (D1 via `db.batch()`, which SQLite commits
    * or rolls back as one transaction; the memory adapter by validating both
    * rows are conflict-free before mutating either map).
+   *
+   * "Paired" is load-bearing: implementations MUST also reject when
+   * `session.userId !== user.id`, before writing anything. Nothing else
+   * enforces that the session names the SAME user being created here — a
+   * mismatched call would create the new user but hand back a session that
+   * authenticates a different, already-existing account (or an unusable
+   * session for a missing one). This is a programming-error guard, not a
+   * user-facing condition: the register route always constructs a correctly
+   * paired session, and the check exists so that stays true.
    */
   createUserWithSession(user: UserRow, session: SessionRow): Promise<void>;
 

@@ -52,6 +52,12 @@ type GateRecord = { gate: ApprovalGate; runId: string };
  *    entry behind (e.g. `userIdByEmail` pointing at a row whose email no
  *    longer matches). `saveGate` is the one exception: its one-way
  *    locked -> decided upsert rule is enforced separately, see below.
+ *  - `createSession` rejects a `userId` naming a user that doesn't exist,
+ *    mirroring the `sessions.user_id REFERENCES users (id)` foreign key
+ *    (migrations/0002_auth_and_incidents.sql) — the only FK in the schema.
+ *    `createUserWithSession` additionally rejects a `session.userId` that
+ *    doesn't match the `user.id` it's being paired with; see its own doc
+ *    comment on `Store#createUserWithSession`.
  *
  * `ApprovalToken` is never persisted here either — same rule as the D1
  * adapter. Only `ApprovalGate` is stored.
@@ -241,6 +247,25 @@ export function createMemoryStore(): Store {
     },
 
     async createUserWithSession(user: UserRow, session: SessionRow): Promise<void> {
+      // The whole point of this method is that a user and THEIR OWN first
+      // session commit together. Nothing about the checks below enforces
+      // that on their own — `sessions.has`/`users.has` only ask whether
+      // *some* row exists, not that the session names the row being
+      // created in this same call. Without this, a caller passing a
+      // session whose userId names a different, already-existing user
+      // would create the new user but hand back a session that
+      // authenticates the OTHER account — an auth-bypass shape, not a
+      // data-integrity nit. This must never be reachable from the register
+      // route (buildSession always pairs userId to the freshly minted user
+      // id), so this throws rather than degrading gracefully — it's a
+      // programming error, not a user-facing condition. Checked before any
+      // map is touched, like every other check here.
+      if (session.userId !== user.id) {
+        throw new Error(
+          `createUserWithSession: session.userId ("${session.userId}") does not match user.id ("${user.id}")`
+        );
+      }
+
       // Mirrors the D1 adapter's db.batch() transaction: every conflict
       // check for BOTH rows runs before either map is touched, so a
       // rejected write can never leave a user with no session (or a
@@ -271,6 +296,16 @@ export function createMemoryStore(): Store {
 
     async createSession(row: SessionRow): Promise<void> {
       if (sessions.has(row.id)) throw new StoreConflictError(`session with id "${row.id}" already exists`);
+      // Mirrors `sessions.user_id REFERENCES users (id)`
+      // (migrations/0002_auth_and_incidents.sql): D1 rejects an INSERT
+      // naming a user that doesn't exist via this foreign key. A `Map` has
+      // no constraint of its own to violate, so this is the explicit
+      // equivalent — otherwise the memory adapter would silently accept an
+      // unusable session for nobody, a conformance divergence D1 doesn't
+      // have.
+      if (!users.has(row.userId)) {
+        throw new Error(`createSession: no user with id "${row.userId}" exists`);
+      }
       sessions.set(row.id, clone(row));
     },
 

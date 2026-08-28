@@ -119,6 +119,29 @@ install_if_needed() {
   log_done "$began" "installed $dir dependencies"
 }
 
+# A pid and every process beneath it. `npm run dev` execs into npm, which then
+# spawns the real server as a child, so the pid this script holds is never the
+# process that actually listens — or the one that can get itself stopped.
+descendant_pids() {
+  local root=$1 child
+  printf '%s\n' "$root"
+  for child in $(pgrep -P "$root" 2>/dev/null); do
+    descendant_pids "$child"
+  done
+}
+
+# True when the process or anything under it is stopped (state T). A stopped
+# process stays alive, so `kill -0` cannot see the difference.
+tree_has_stopped_process() {
+  local pid
+  for pid in $(descendant_pids "$1"); do
+    case "$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' \n')" in
+      T*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # Polls until the URL answers at all. Any HTTP status counts: the frontend
 # answers 404 on / until the first compile finishes, and that still means the
 # server is up.
@@ -134,8 +157,9 @@ wait_until_up() {
     fi
     # A suspended server stays alive forever, so `kill -0` above cannot see it.
     # Report it as its own case rather than letting it burn the full timeout
-    # and then blame a slow start.
-    if [[ "$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' \n')" == T* ]]; then
+    # and then blame a slow start. Checked across the whole tree: the stopped
+    # process is the server itself, several levels below the pid held here.
+    if tree_has_stopped_process "$pid"; then
       die "the $what was suspended before it started listening.
       That usually means it tried to read the terminal from the background.
       Please report this, and as a workaround run it directly instead:

@@ -176,6 +176,15 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         const loaded = await store.listRunsByIncident("inc-runs-by-incident");
         expect(loaded.map((r) => r.id)).toEqual(["run-inc-b", "run-inc-a"]);
       });
+
+      it("caps listRunsByIncident at the given limit, keeping the newest", async () => {
+        await store.createRun(makeRun("run-inc-limit-a", { incidentId: "inc-runs-by-incident-limit", createdAt: "2026-08-25T04:20:00.000Z", updatedAt: "2026-08-25T04:20:00.000Z" }));
+        await store.createRun(makeRun("run-inc-limit-b", { incidentId: "inc-runs-by-incident-limit", createdAt: "2026-08-25T04:25:00.000Z", updatedAt: "2026-08-25T04:25:00.000Z" }));
+        await store.createRun(makeRun("run-inc-limit-c", { incidentId: "inc-runs-by-incident-limit", createdAt: "2026-08-25T04:30:00.000Z", updatedAt: "2026-08-25T04:30:00.000Z" }));
+
+        const loaded = await store.listRunsByIncident("inc-runs-by-incident-limit", 2);
+        expect(loaded.map((r) => r.id)).toEqual(["run-inc-limit-c", "run-inc-limit-b"]);
+      });
     });
 
     describe("countRunsByState / countRunsSince", () => {

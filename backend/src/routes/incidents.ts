@@ -3,6 +3,7 @@ import { z } from "zod";
 import { apiError } from "../index";
 import { parseJsonBody } from "./http";
 import { createD1Store } from "../store/d1";
+import { MAX_RUN_LIMIT } from "./runs";
 import type { AuthedEnv } from "../auth/middleware";
 
 /**
@@ -82,7 +83,10 @@ incidentRoutes.get("/incidents/:id", async (c) => {
     return c.json(apiError("not_found", `No incident found for id "${id}"`), 404);
   }
 
-  const runs = await store.listRunsByIncident(id);
+  // Bounded the same way the dedicated run listing is (MAX_RUN_LIMIT,
+  // newest first) — an incident with a long-running history must not make
+  // this response grow without bound. See Store#listRunsByIncident.
+  const runs = await store.listRunsByIncident(id, MAX_RUN_LIMIT);
   return c.json({ ok: true, data: { incident, runs } });
 });
 

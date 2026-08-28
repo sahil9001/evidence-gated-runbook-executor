@@ -91,7 +91,11 @@ export interface Store {
     expectedState?: RunRow["state"]
   ): Promise<boolean>;
   listRuns(filter?: { limit?: number; state?: RunRow["state"] }): Promise<RunRow[]>;
-  listRunsByIncident(incidentId: string): Promise<RunRow[]>;
+  /** Newest-first. `limit`, when given, bounds the result the same way
+   * `listRuns`'s does — omitted only where a caller has already applied its
+   * own cap (or, in the memory adapter's test-only paths, genuinely wants
+   * everything). */
+  listRunsByIncident(incidentId: string, limit?: number): Promise<RunRow[]>;
 
   /**
    * `COUNT(*) ... WHERE state = ?` — never `(await listRuns()).filter(...)

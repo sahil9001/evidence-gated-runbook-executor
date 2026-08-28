@@ -108,11 +108,10 @@ export function createMemoryStore(): Store {
       return rows.map(clone);
     },
 
-    async listRunsByIncident(incidentId: string): Promise<RunRow[]> {
-      return [...runs.values()]
-        .filter((r) => r.incidentId === incidentId)
-        .sort(byCreatedAtDesc)
-        .map(clone);
+    async listRunsByIncident(incidentId: string, limit?: number): Promise<RunRow[]> {
+      let rows = [...runs.values()].filter((r) => r.incidentId === incidentId).sort(byCreatedAtDesc);
+      if (limit !== undefined) rows = rows.slice(0, limit);
+      return rows.map(clone);
     },
 
     async countRunsByState(state: RunRow["state"]): Promise<number> {

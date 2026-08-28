@@ -5,6 +5,7 @@ import { createD1Store } from "../store/d1";
 import { createSession } from "../auth/session";
 import { requireAuth, type AuthedEnv } from "../auth/middleware";
 import { incidentRoutes, MAX_INCIDENT_LIMIT } from "./incidents";
+import { MAX_RUN_LIMIT } from "./runs";
 import type { IncidentRow } from "../domain/store";
 
 beforeAll(async () => {
@@ -190,5 +191,39 @@ describe("GET /incidents/:id", () => {
     const body = json as ApiOk<{ incident: IncidentRow; runs: unknown[] }>;
     expect(body.data.incident.id).toBe(incident.id);
     expect(body.data.runs).toEqual([]);
+  });
+
+  // Qodo finding: the incident's complete run history came back via
+  // listRunsByIncident with no limit, even though the dedicated run listing
+  // (GET /runs) is capped at MAX_RUN_LIMIT. Runs are seeded directly through
+  // the store (rather than the full run-creation route) purely for test
+  // speed — `runs.incident_id` carries no foreign key, so this is a valid
+  // way to populate the table for this assertion.
+  it("bounds the embedded run list at MAX_RUN_LIMIT, even with a longer history", async () => {
+    const { cookie } = await registeredCookie();
+    const app = buildApp();
+    const incident = await seedIncident();
+
+    const store = createD1Store(env.DB);
+    const overflow = MAX_RUN_LIMIT + 5;
+    for (let i = 0; i < overflow; i += 1) {
+      const nowIso = new Date(Date.now() + i).toISOString();
+      await store.createRun({
+        id: `${incident.id}-run-${i}`,
+        incidentId: incident.id,
+        runbookId: "checkout-failure",
+        service: "payment-service",
+        state: "collecting",
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        createdBy: null
+      });
+    }
+
+    const { status, json } = await request(app, "GET", `/incidents/${incident.id}`, undefined, cookie);
+    expect(status).toBe(200);
+    const body = json as ApiOk<{ incident: IncidentRow; runs: unknown[] }>;
+    expect(body.data.runs.length).toBeLessThanOrEqual(MAX_RUN_LIMIT);
+    expect(body.data.runs.length).toBeLessThan(overflow);
   });
 });

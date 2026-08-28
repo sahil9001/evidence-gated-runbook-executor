@@ -177,12 +177,14 @@ export function createD1Store(db: D1Database): Store {
       return results.map(toRunRow);
     },
 
-    async listRunsByIncident(incidentId: string): Promise<RunRow[]> {
+    async listRunsByIncident(incidentId: string, limit?: number): Promise<RunRow[]> {
+      const limitClause = limit !== undefined ? ` LIMIT ?` : "";
+      const params = limit !== undefined ? [incidentId, limit] : [incidentId];
       const { results } = await db
         .prepare(
-          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs WHERE incident_id = ? ORDER BY created_at DESC`
+          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs WHERE incident_id = ? ORDER BY created_at DESC${limitClause}`
         )
-        .bind(incidentId)
+        .bind(...params)
         .all<RunRecord>();
       return results.map(toRunRow);
     },

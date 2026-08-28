@@ -150,8 +150,14 @@ tree_has_stopped_process() {
 # and then go quiet well before they actually serve, so without this the gap
 # reads as a hang rather than as progress.
 wait_until_up() {
-  local url=$1 what=$2 pid=$3 waited=0
-  while (( waited < READY_TIMEOUT_SECONDS )); do
+  local url=$1 what=$2 pid=$3
+  # Wall-clock, not an iteration count. Each pass can burn up to two seconds in
+  # curl on top of its own sleep, so counting passes would report "5s" a good
+  # fifteen seconds in — and would stretch the timeout itself well past the 90s
+  # it claims. Both would mislead precisely when startup is slow, which is the
+  # only time anyone reads this.
+  local began=$SECONDS elapsed=0 next_heartbeat=$HEARTBEAT_SECONDS
+  while (( elapsed < READY_TIMEOUT_SECONDS )); do
     if ! kill -0 "$pid" 2>/dev/null; then
       die "the $what exited before it came up. Its output is above."
     fi
@@ -169,9 +175,12 @@ wait_until_up() {
       return 0
     fi
     sleep 1
-    (( waited += 1 ))
-    if (( waited % HEARTBEAT_SECONDS == 0 )); then
-      log "${DIM}...still waiting for the $what — ${waited}s of ${READY_TIMEOUT_SECONDS}s${RESET}"
+    elapsed=$(( SECONDS - began ))
+    # A threshold rather than a modulo: a slow pass can skip over the exact
+    # multiple entirely, and `elapsed % 5` would then print nothing at all.
+    if (( elapsed >= next_heartbeat )); then
+      log "${DIM}...still waiting for the $what — ${elapsed}s of ${READY_TIMEOUT_SECONDS}s${RESET}"
+      next_heartbeat=$(( elapsed + HEARTBEAT_SECONDS ))
     fi
   done
   die "the $what did not answer on $url within ${READY_TIMEOUT_SECONDS}s.

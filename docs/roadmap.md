@@ -96,35 +96,39 @@ evidence trail, and a locked Approve button.
 
 ## Part 2 — What Exists Today
 
-**Built and deployed:** the marketing frontend, and nothing else.
+> **Updated 2026-08-28.** This section originally described a repository where
+> only the marketing frontend existed. That has not been true since PR #1. The
+> maintained task-level tracker is
+> [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md); this is the summary.
+
+**Built:** the backend, the MCP server, persistence, auth, and an operator
+console. Ten PRs have merged.
 
 | Area | State |
 |---|---|
-| `frontend/` | Real. Next.js 16 landing page, ~1,000 lines, live on Cloudflare Workers |
-| `backend/src/domain/` | Empty (`.gitkeep`) |
-| `backend/src/mcp/` | Empty (`.gitkeep`) |
-| `backend/src/routes/` | Empty (`.gitkeep`) |
-| `testing/runbooks/` | Empty (`.gitkeep`) |
-| `testing/fixtures/` | Empty (`.gitkeep`) |
-| `testing/prompts/` | Empty (`.gitkeep`) |
-| `testing/tests/` | Empty (`.gitkeep`) |
-| `docs/` | `cloudflare-deployment.md` and this file |
+| `backend/src/domain/` | Real. `runbook` (incl. `matchRunbook`), `evidence`, `action`, `approval`, `packet-builder`, `executor`, `store` |
+| `backend/src/mcp/` | Real. The 6 MCP tools, the `EvidenceSource` interface, and fixture-backed `logs`/`metrics`/`deploys` collectors |
+| `backend/src/routes/` | Real. `/mcp`, `/auth/*`, `/incidents`, `/runs`, `/approvals`, `/audit`, `/runbooks`, `/overview`, `/packet` |
+| `backend/src/store/` | Real. D1 and in-memory adapters behind one interface, with a shared conformance suite |
+| `frontend/` | Real. Landing page, `/login`, `/register`, and the `/app` operator console behind a session guard |
+| `testing/runbooks/` | `checkout-failure.json` |
+| `testing/fixtures/` | `checkout-incident/` |
+| `testing/tests/` | `safety/bypass.test.ts` — the "nothing runs without approval" suite |
+| `testing/prompts/` | Still a `.gitkeep` placeholder |
+| `docs/` | This file, `IMPLEMENTATION-STATUS.md`, `writeup.md`, `trueforge-setup.md`, `runbook-format.md`, `cloudflare-deployment.md` |
 
-Everything the frontend displays is hardcoded. The risk score of `82`, the
-four-step timeline, the sandbox output block, the workflow rows — all literal
-arrays in `RunbookPreview.tsx` and `LandingSections.tsx`. There is no data layer
-behind any of it.
+Test tooling exists and is enforced: Vitest in both packages, with an 80%
+coverage threshold on `backend/src/domain/**` configured in
+`backend/vitest.config.ts`. As of `a82c4d4`: **491 backend tests, 174 frontend
+tests**, both typechecks clean. There is still **no CI workflow** — those are
+run by hand (roadmap task F3, below).
 
-There is also **no test tooling at all** — no test runner in `package.json`, no
-CI workflow. Given the project's own 80% coverage standard, that is a gap to
-close early rather than late.
-
-**The useful part:** the frontend has already fixed the vocabulary. The backend
-should implement these exact nouns, so the UI can be wired up without a
-translation layer:
-
-`Incident` · `Runbook` · `RunbookStep` · `EvidencePacket` · `EvidenceCard` ·
-`SandboxRun` · `RiskScore` · `ApprovalGate` · `Action`
+The vocabulary the frontend fixed early did survive into the backend, which was
+the point of writing it down: `Incident` · `Runbook` · `RunbookStep` ·
+`EvidencePacket` · `EvidenceCard` · `RiskScore` · `ApprovalGate` · `Action`.
+Two shapes landed differently than planned — `Incident` and the run record are
+store rows (`backend/src/domain/store.ts`) rather than standalone domain
+modules, since they are persisted aggregates rather than value objects.
 
 ---
 
@@ -163,9 +167,17 @@ whole system demoable and testable before any credential exists.
 
 ### D5. Who approves
 
-**Recommended for v1: a single shared operator view, no auth**, with the
-approver's identity recorded as a free-text field. Real auth (D6) is a follow-on.
-Do not ship this to a real production environment without it.
+~~**Recommended for v1: a single shared operator view, no auth**, with the
+approver's identity recorded as a free-text field.~~
+
+**Superseded 2026-08-28.** The follow-on happened during the slice rather than
+after it: PR #7 added session auth, PR #8 made `approvedBy` derive from the
+resolved session rather than from anything the client sends, and PR #10 added
+the console's sign-in. The free-text approver no longer exists. What is still
+missing is everything around the login — rate limiting, lockout, password
+reset, email verification, roles, multi-tenancy — so the closing warning stands
+as written: do not ship this to a real production environment without it. See
+the Handoff Log in [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
 
 ### D6. Is this a demo or a real tool?
 
@@ -180,6 +192,34 @@ written for the demo path**, with real-tool concerns flagged where they arise.
 
 Phases are ordered by dependency. Each task lists where the code goes and what
 "done" means.
+
+> **Status, 2026-08-28.** Most of this shipped. The phase tables below are kept
+> as the original plan rather than rewritten, because the reasoning in them —
+> especially the notes on A2 and K5 — is still the argument for why the system
+> is shaped this way. Per-task status lives in
+> [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
+>
+> Verified still outstanding against `a82c4d4`:
+>
+> | Task | What is missing |
+> |---|---|
+> | **F3** | No CI. There is no `.github/workflows/`; lint, typecheck, and tests are run by hand |
+> | **R4** | Only one runbook (`checkout-failure.json`), so the claim that the format generalizes is untested |
+> | **K1–K5** | No risk model. `docs/risk-model.md`, `domain/risk.ts`, and `domain/recommend.ts` do not exist — the UI's score is a disclosed display heuristic, as the README says |
+> | **P5, P7** | No `/run-record` route and no live progress stream |
+> | **L2, L3** | No replay. The append-only audit log (L1) is there and is what a replay would be built from |
+> | **T4** | No Playwright E2E; Playwright is not a dependency of either package |
+> | **T5** | `testing/prompts/` holds nothing but a `.gitkeep` |
+>
+> **S1–S4 are superseded, not outstanding.** Decision D3 put sandbox execution
+> in TrueForge, so there is no `backend/src/mcp/sandbox.ts` and there should not
+> be — RunProof hands back script text and never executes it. See the README's
+> "RunProof never executes code."
+>
+> One integration gap is tracked in the README rather than here, because it
+> spans two subsystems: a gate minted by a live agent turn through
+> `propose_rollback` is not persisted, so it cannot be resolved through
+> `/approvals/:id`.
 
 ### Phase 0 — Foundations
 
@@ -371,3 +411,9 @@ the mitigation — the breakdown should always be one click away from the number
 **The demo/production gap is wide.** Auth, secret management, rate limiting, and
 credential scoping (D6) are not in this roadmap. They are not small. Do not let
 a convincing demo blur into an assumption of production readiness.
+
+> Partly closed, and worth being precise about which part. Login exists (see D5
+> above), so "no identity at all" is no longer the gap. Everything else in that
+> sentence still is: no rate limiting on login, no lockout, no secret
+> management beyond Wrangler vars, and no credential scoping. Shipping identity
+> is the half that makes the remaining half easier to mistake for done.

@@ -121,9 +121,82 @@ frontend
 npm ci && npm run deploy
 ```
 
-6. Add any environment variables in Cloudflare under **Build Variables and secrets**.
+6. Add any environment variables in Cloudflare under **Build Variables and secrets** — see the next section for the ones this console needs.
 
-For this frontend right now, there are no required environment variables.
+## Pointing the Console at a Deployed Backend
+
+The operator console is a browser client for the `runproof-api` Worker in
+`backend/`, served from a different origin. Two settings have to agree, or the
+console deploys successfully and then fails at login:
+
+| Where | Setting | Value |
+|---|---|---|
+| `frontend` (build-time env var) | `NEXT_PUBLIC_API_URL` | The deployed backend's origin, e.g. `https://runproof-api.<your-subdomain>.workers.dev`. Defaults to `http://localhost:8787` — see `frontend/.env.example`. |
+| `backend/wrangler.jsonc` (`vars`) | `ALLOWED_FRONTEND_ORIGINS` | The deployed console's origin, e.g. `https://runproof-frontend.<your-subdomain>.workers.dev`. |
+
+`NEXT_PUBLIC_*` variables are inlined at build time, not read at runtime, so
+changing the API URL requires a rebuild, not just a redeploy.
+
+`ALLOWED_FRONTEND_ORIGINS` is the backend's CORS allow-list. The session is an
+`HttpOnly` cookie, so the console's requests are credentialed, and browsers
+reject a wildcard `Access-Control-Allow-Origin` on a credentialed request — the
+backend must echo back one exact origin it recognises. `http://localhost:3000`
+is always allowed for local dev without any configuration; every other origin
+has to be listed here (comma-separated for more than one). An origin is scheme
++ host + port matched exactly, so `https://` and the account-specific
+`*.workers.dev` subdomain both matter.
+
+If this is wrong, the symptom is not a helpful error: the login request fails
+in the browser with a CORS message in the devtools console while the backend's
+own logs look fine, because the browser blocks the response before the page
+ever sees it.
+
+### The console and the API must stay on the same site
+
+CORS is only one of two gates. The session is a `SameSite=Lax` cookie, which
+browsers refuse to attach to a cross-**site** `fetch()`, so allow-listing an
+origin is necessary but not sufficient — the console must also be served from
+the same registrable domain as the API.
+
+Two Workers under one Cloudflare account satisfy this. `workers.dev` is a
+public suffix, so `runproof-frontend.<account>.workers.dev` and
+`runproof-api.<account>.workers.dev` are different *origins* (hence the CORS
+config above) but the same *site*, `<account>.workers.dev`. These deployments
+are supported:
+
+- Both Workers on one account's `workers.dev` subdomain — the checked-in setup.
+- Both on custom domains under one registrable domain, e.g. `console.example.com`
+  and `api.example.com`.
+
+These are not, without further work:
+
+- Console and API on **different** Cloudflare accounts, e.g.
+  `runproof-frontend.a.workers.dev` calling `runproof-api.b.workers.dev`.
+- Console on a custom domain calling an API still on `*.workers.dev`, or any
+  other pair spanning two registrable domains.
+
+An unsupported pair fails in a way that looks like an auth bug rather than a
+deployment one: CORS passes, login returns 200 and sets the cookie, and then
+every authenticated request 401s, because the browser never sends the cookie
+back. Nothing in the backend's logs distinguishes this from an expired session.
+
+Supporting a cross-site split means changing the cookie to
+`SameSite=None; Secure` in `backend/src/routes/auth.ts`, which lets it ride
+along on requests from any site. Do not flip that attribute on its own.
+
+With `Lax`, two independent things have to fail before a page on another site
+can make an authenticated state change: the cookie has to travel, and the
+request has to get past `requireJsonContentType` (`backend/src/index.ts`),
+which requires `Content-Type: application/json` on every POST. That guard is
+what stops a cross-site HTML form, since a form can only send
+`application/x-www-form-urlencoded`, `multipart/form-data`, or `text/plain`,
+and anything else is preflighted into the CORS allow-list.
+
+Switching to `None` removes the first of those and leaves the content-type
+guard carrying CSRF by itself. It is a real defence and a conventional one for
+a JSON API, but it is a single one, and it holds only for as long as browsers
+refuse to let a form send `application/json`. Add a CSRF token or an explicit
+Origin check on state-changing routes as part of the same change.
 
 ## Optional: Static Cloudflare Pages Deployment
 

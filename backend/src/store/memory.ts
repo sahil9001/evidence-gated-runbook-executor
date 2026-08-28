@@ -311,15 +311,21 @@ export function createMemoryStore(): Store {
     },
 
     async listAudit(runId: string, limit?: number): Promise<AuditEntry[]> {
-      let entries = [...auditLog.values()]
+      const ascending = [...auditLog.values()]
         .filter((e) => e.runId === runId)
         .sort((a, b) => {
           if (a.at !== b.at) return a.at < b.at ? -1 : 1;
           if (a.id !== b.id) return a.id < b.id ? -1 : 1;
           return 0;
         });
-      if (limit !== undefined) entries = entries.slice(0, limit);
-      return entries.map(clone);
+      // A limit must cap to the NEWEST entries, not the oldest — an
+      // operator reviewing a long-running incident needs recent activity,
+      // not the beginning of its history. Take the tail of the ascending
+      // list rather than `.slice(0, limit)`, which keeps the ascending
+      // order intact within the returned window (the run-detail Audit
+      // tab's top-to-bottom contract for an unlimited call).
+      const windowed = limit !== undefined ? ascending.slice(Math.max(0, ascending.length - limit)) : ascending;
+      return windowed.map(clone);
     },
 
     async listRecentAudit(limit: number): Promise<AuditEntry[]> {

@@ -65,6 +65,11 @@ describe("POST /auth/register", () => {
     expect(raw).not.toContain("salt");
   });
 
+  // SameSite=Lax is the one attribute here that is also a deployment
+  // constraint: it confines the console to the API's own site. Loosening it to
+  // None to allow a cross-site console needs a CSRF defence first — see
+  // setSessionCookie in ./auth.ts. This assertion is what makes that a
+  // deliberate change rather than an incidental one.
   it("sets the cookie with HttpOnly, Secure, SameSite=Lax, Path=/, and a 30-day Max-Age", async () => {
     const { setCookie } = await post("/auth/register", { email: "cookie-attrs@example.com", password: STRONG_PASSWORD });
     expect(setCookie).not.toBeNull();
@@ -282,6 +287,35 @@ describe("POST /auth/logout", () => {
   it("is idempotent even with no cookie at all", async () => {
     const { status } = await post("/auth/logout");
     expect(status).toBe(200);
+  });
+
+  it("refuses a simple cross-site-shaped POST, leaving the session intact", async () => {
+    // Logout reads only the cookie and no body, so it is the one state change
+    // that never touches `parseJsonBody`. Without the surface-wide content-type
+    // guard (see requireJsonContentType in ../index.ts) a plain cross-site HTML
+    // form — which can only send text/plain and friends, and so is never
+    // preflighted — could sign an operator out. That is unreachable today
+    // because the session cookie is SameSite=Lax, but the guard is what keeps
+    // it unreachable if that is ever loosened.
+    const email = "logout-simple-request@example.com";
+    const { setCookie: registerCookie } = await post("/auth/register", { email, password: STRONG_PASSWORD });
+    const cookie = sessionCookie(registerCookie);
+
+    const req = new Request("http://localhost/auth/logout", {
+      method: "POST",
+      headers: { "content-type": "text/plain", cookie }
+    });
+    const ctx = createExecutionContext();
+    const response = await app.fetch(req, env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(response.status).toBe(415);
+    expect(await response.json()).toMatchObject({ ok: false, error: { code: "unsupported_media_type" } });
+
+    // The session must have survived: a rejected request must not be a
+    // half-executed one.
+    const { status: meStatus } = await get("/auth/me", cookie);
+    expect(meStatus).toBe(200);
   });
 });
 

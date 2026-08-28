@@ -471,15 +471,27 @@ export function createD1Store(db: D1Database): Store {
     },
 
     async listAudit(runId: string, limit?: number): Promise<AuditEntry[]> {
-      const limitClause = limit !== undefined ? ` LIMIT ?` : "";
-      const params = limit !== undefined ? [runId, limit] : [runId];
+      // Unlimited: plain ascending order (the run-detail Audit tab's
+      // top-to-bottom contract). Limited: a limit must cap to the NEWEST
+      // entries, not the oldest, so this selects the newest `limit` rows
+      // first (DESC) and re-sorts that window back to ascending in JS —
+      // `ORDER BY at ASC LIMIT ?` would instead keep the OLDEST rows and
+      // silently drop everything more recent than the cutoff.
+      if (limit === undefined) {
+        const { results } = await db
+          .prepare(`SELECT id, run_id, at, kind, detail FROM audit_log WHERE run_id = ? ORDER BY at ASC, id ASC`)
+          .bind(runId)
+          .all<AuditRecord>();
+        return results.map(toAuditEntry);
+      }
+
       const { results } = await db
         .prepare(
-          `SELECT id, run_id, at, kind, detail FROM audit_log WHERE run_id = ? ORDER BY at ASC, id ASC${limitClause}`
+          `SELECT id, run_id, at, kind, detail FROM audit_log WHERE run_id = ? ORDER BY at DESC, id DESC LIMIT ?`
         )
-        .bind(...params)
+        .bind(runId, limit)
         .all<AuditRecord>();
-      return results.map(toAuditEntry);
+      return results.map(toAuditEntry).reverse();
     },
 
     async listRecentAudit(limit: number): Promise<AuditEntry[]> {

@@ -50,6 +50,37 @@ const DUMMY_PASSWORD_SALT = "k6SuxNbau+T2fnAA9O62lg==";
 
 const SESSION_MAX_AGE_SECONDS = Math.floor(SESSION_TTL_MS / 1000);
 
+/**
+ * `sameSite: "Lax"` is a deliberate deployment constraint, not just a
+ * default: the browser will not attach this cookie to a cross-SITE
+ * `fetch()`, so the console frontend must be served from the same
+ * registrable domain as this API. Both Workers under one Cloudflare
+ * account satisfy that — `workers.dev` is a public suffix, so
+ * `runproof-frontend.<account>.workers.dev` and
+ * `runproof-api.<account>.workers.dev` share the site
+ * `<account>.workers.dev` — while a console on a custom domain, or on a
+ * second account's subdomain, does not.
+ *
+ * That failure is quiet and easy to misdiagnose: such a deployment can
+ * pass CORS and log in successfully (the login response's own Set-Cookie
+ * is honoured), and then 401 on every authenticated request afterwards,
+ * because the cookie is never sent back. Adding the origin to
+ * `ALLOWED_FRONTEND_ORIGINS` does not fix it — CORS and SameSite are
+ * independent gates and both have to pass. See
+ * `docs/cloudflare-deployment.md`.
+ *
+ * Relaxing this to `SameSite=None` would lift the constraint, and is a
+ * larger change than it looks: `None` means the cookie rides along on
+ * requests from any site, so the CSRF question stops being answered by
+ * this attribute and falls entirely to `requireJsonContentType` in
+ * `../index.ts` — which rejects the content types a cross-site form can
+ * produce, and forces a preflight for everything else that
+ * `consoleCors`'s allow-list then refuses. That is a real defence and a
+ * standard one for a JSON API, but it is a single one, and it rests on
+ * browsers never letting a form send `application/json`. A cookie that
+ * travels cross-site deserves a CSRF token or an explicit Origin check
+ * as well, so treat adding one as part of the same change.
+ */
 function setSessionCookie(c: Context<AuthedEnv>, sessionId: string): void {
   setCookie(c, SESSION_COOKIE_NAME, sessionId, {
     httpOnly: true,

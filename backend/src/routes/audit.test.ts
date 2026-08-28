@@ -147,4 +147,41 @@ describe("GET /audit", () => {
     const body = json as ApiOk<{ runId: string }[]>;
     expect(body.data.length).toBe(1);
   });
+
+  // Qodo finding: `?runId=` orders oldest-first, so applying `?limit=` to
+  // that query kept the OLDEST entries and silently dropped every newer
+  // one — an operator reviewing a long-running incident would see the
+  // beginning of its history and none of the recent activity.
+  it("keeps the NEWEST entries (not the oldest) when ?limit= truncates a runId-scoped query", async () => {
+    const cookie = await registeredCookie();
+    const app = buildApp();
+    const run = await createRun(app, cookie);
+
+    // Both offsets are relative to "now" (when `createRun` wrote its own
+    // audit entry) so this is immune to whatever the current date happens
+    // to be — "older" only needs to sort before "newest", and both must
+    // sort after the run-creation entry so "newest" is unambiguously last.
+    const store = createD1Store(env.DB);
+    const base = Date.now();
+    await store.appendAudit({
+      id: crypto.randomUUID(),
+      runId: run.id,
+      at: new Date(base + 60_000).toISOString(),
+      kind: "note",
+      detail: "older"
+    });
+    await store.appendAudit({
+      id: crypto.randomUUID(),
+      runId: run.id,
+      at: new Date(base + 120_000).toISOString(),
+      kind: "note",
+      detail: "newest"
+    });
+
+    const { status, json } = await request(app, "GET", `/audit?runId=${run.id}&limit=1`, undefined, cookie);
+    expect(status).toBe(200);
+    const body = json as ApiOk<{ detail: string }[]>;
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]?.detail).toBe("newest");
+  });
 });

@@ -6,6 +6,28 @@ type GaugeProps = {
   max?: string;
 };
 
+/**
+ * SVG coordinates are rounded to three decimals before they reach the DOM.
+ *
+ * `Math.cos` and `Math.sin` are explicitly implementation-approximated in
+ * ECMAScript — the spec permits any result close to the true value — so the
+ * Node build that renders this on the server and the engine that hydrates it
+ * in the browser can disagree in the final bit. React compares the serialized
+ * attributes, sees `49.101269124365125` against `49.10126912436513`, and
+ * reports a hydration mismatch for a gauge that is visually identical.
+ *
+ * Three decimals is far finer than this can render — the viewBox is 200x120
+ * inside a 260px box — and no tick lands anywhere near a rounding boundary
+ * (the closest is 0.003 away, some eight orders of magnitude beyond the
+ * one-unit-in-the-last-place drift being corrected for), so the rounded value
+ * is stable across engines.
+ */
+const COORDINATE_DECIMALS = 1000;
+
+function roundCoordinate(value: number): number {
+  return Math.round(value * COORDINATE_DECIMALS) / COORDINATE_DECIMALS;
+}
+
 export function Gauge({
   value,
   color = "#0284c7",
@@ -21,10 +43,10 @@ export function Gauge({
     const outerRadius = 80;
     const innerRadius = 68;
 
-    const x1 = centerX + Math.cos(angle) * innerRadius;
-    const y1 = centerY + Math.sin(angle) * innerRadius;
-    const x2 = centerX + Math.cos(angle) * outerRadius;
-    const y2 = centerY + Math.sin(angle) * outerRadius;
+    const x1 = roundCoordinate(centerX + Math.cos(angle) * innerRadius);
+    const y1 = roundCoordinate(centerY + Math.sin(angle) * innerRadius);
+    const x2 = roundCoordinate(centerX + Math.cos(angle) * outerRadius);
+    const y2 = roundCoordinate(centerY + Math.sin(angle) * outerRadius);
 
     return (
       <line

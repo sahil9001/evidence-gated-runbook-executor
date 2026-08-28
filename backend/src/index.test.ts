@@ -24,6 +24,10 @@ describe("health", () => {
   });
 });
 
+/** Where the console frontend is actually deployed — see README.md's "Live
+ * deployment" section and `frontend/wrangler.jsonc`. */
+const DEPLOYED_CONSOLE_ORIGIN = "https://runproof-frontend.sahilsilare.workers.dev";
+
 describe("CORS", () => {
   it("answers a preflight from the allowed dev frontend origin with that exact origin and credentials", async () => {
     const request = new Request("http://localhost/incidents", {
@@ -38,6 +42,28 @@ describe("CORS", () => {
     await waitOnExecutionContext(ctx);
 
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:3000");
+    expect(response.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+
+  it("answers a preflight from the deployed console origin, which the checked-in config must name", async () => {
+    // Guards the regression where ALLOWED_FRONTEND_ORIGINS is blank (or names
+    // some other host) in wrangler.jsonc: the backend would still pass every
+    // test that only exercises localhost, while a deployed console got no CORS
+    // access at all and failed at login. `env` here is the real wrangler.jsonc
+    // `vars` block, so this fails the moment that value stops covering the
+    // frontend documented in README.md's "Live deployment" section.
+    const request = new Request("http://localhost/incidents", {
+      method: "OPTIONS",
+      headers: {
+        Origin: DEPLOYED_CONSOLE_ORIGIN,
+        "Access-Control-Request-Method": "GET"
+      }
+    });
+    const ctx = createExecutionContext();
+    const response = await app.fetch(request, env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(DEPLOYED_CONSOLE_ORIGIN);
     expect(response.headers.get("Access-Control-Allow-Credentials")).toBe("true");
   });
 

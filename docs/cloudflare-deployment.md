@@ -121,9 +121,35 @@ frontend
 npm ci && npm run deploy
 ```
 
-6. Add any environment variables in Cloudflare under **Build Variables and secrets**.
+6. Add any environment variables in Cloudflare under **Build Variables and secrets** — see the next section for the ones this console needs.
 
-For this frontend right now, there are no required environment variables.
+## Pointing the Console at a Deployed Backend
+
+The operator console is a browser client for the `runproof-api` Worker in
+`backend/`, served from a different origin. Two settings have to agree, or the
+console deploys successfully and then fails at login:
+
+| Where | Setting | Value |
+|---|---|---|
+| `frontend` (build-time env var) | `NEXT_PUBLIC_API_URL` | The deployed backend's origin, e.g. `https://runproof-api.<your-subdomain>.workers.dev`. Defaults to `http://localhost:8787` — see `frontend/.env.example`. |
+| `backend/wrangler.jsonc` (`vars`) | `ALLOWED_FRONTEND_ORIGINS` | The deployed console's origin, e.g. `https://runproof-frontend.<your-subdomain>.workers.dev`. |
+
+`NEXT_PUBLIC_*` variables are inlined at build time, not read at runtime, so
+changing the API URL requires a rebuild, not just a redeploy.
+
+`ALLOWED_FRONTEND_ORIGINS` is the backend's CORS allow-list. The session is an
+`HttpOnly` cookie, so the console's requests are credentialed, and browsers
+reject a wildcard `Access-Control-Allow-Origin` on a credentialed request — the
+backend must echo back one exact origin it recognises. `http://localhost:3000`
+is always allowed for local dev without any configuration; every other origin
+has to be listed here (comma-separated for more than one). An origin is scheme
++ host + port matched exactly, so `https://` and the account-specific
+`*.workers.dev` subdomain both matter.
+
+If this is wrong, the symptom is not a helpful error: the login request fails
+in the browser with a CORS message in the devtools console while the backend's
+own logs look fine, because the browser blocks the response before the page
+ever sees it.
 
 ## Optional: Static Cloudflare Pages Deployment
 

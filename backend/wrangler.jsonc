@@ -14,10 +14,19 @@
     // Comma-separated list of extra origins allowed to make credentialed
     // (cookie-bearing) CORS requests against the operator console's API
     // surface, beyond the built-in http://localhost:3000 dev-origin
-    // allowance. Set this to wherever the deployed console frontend
-    // (runproof-frontend, see ../frontend/wrangler.jsonc) is actually
-    // served from. See src/index.ts.
-    "ALLOWED_FRONTEND_ORIGINS": ""
+    // allowance. See src/index.ts.
+    //
+    // This must name wherever the console frontend is actually served
+    // from, or a deployed console gets no CORS access at all and every
+    // request from it — login included — fails in the browser. The value
+    // below is the deployed runproof-frontend Worker (see
+    // ../frontend/wrangler.jsonc and the "Live deployment" section of
+    // ../README.md). Deploying this backend under a different Cloudflare
+    // account, or the console to a custom domain, means replacing it:
+    // an origin is scheme + host + port, matched exactly, so the
+    // *.workers.dev subdomain here is account-specific. Leaving it empty
+    // is what breaks a deployed console, so it is deliberately not empty.
+    "ALLOWED_FRONTEND_ORIGINS": "https://runproof-frontend.sahilsilare.workers.dev"
   },
   "d1_databases": [
     {

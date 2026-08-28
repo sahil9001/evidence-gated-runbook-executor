@@ -91,7 +91,27 @@ export interface Store {
     expectedState?: RunRow["state"]
   ): Promise<boolean>;
   listRuns(filter?: { limit?: number; state?: RunRow["state"] }): Promise<RunRow[]>;
-  listRunsByIncident(incidentId: string): Promise<RunRow[]>;
+  /** Newest-first. `limit`, when given, bounds the result the same way
+   * `listRuns`'s does — omitted only where a caller has already applied its
+   * own cap (or, in the memory adapter's test-only paths, genuinely wants
+   * everything). */
+  listRunsByIncident(incidentId: string, limit?: number): Promise<RunRow[]>;
+
+  /**
+   * `COUNT(*) ... WHERE state = ?` — never `(await listRuns()).filter(...)
+   * .length`. The Overview screen only needs a number, and a caller that
+   * materializes every run row into the Worker just to throw away
+   * everything but a count pays a cost (time, memory) that grows with total
+   * history forever, for a request an authenticated user can trigger at
+   * will.
+   */
+  countRunsByState(state: RunRow["state"]): Promise<number>;
+  /**
+   * `COUNT(*) ... WHERE created_at >= ?` — bounds "how many runs since this
+   * instant" (e.g. the start of today) without shipping every run row into
+   * the Worker. Same reasoning as `countRunsByState`.
+   */
+  countRunsSince(sinceIso: string): Promise<number>;
 
   /**
    * Creates a run and every artifact it is born with — its evidence packet,
@@ -176,15 +196,31 @@ export interface Store {
   decideGate(gate: ApprovedGate | RejectedGate, runId: string, at: string): Promise<boolean>;
 
   appendAudit(entry: AuditEntry): Promise<void>;
-  listAudit(runId: string): Promise<AuditEntry[]>;
+  /** Oldest-first (a run's own history reads top-to-bottom as a timeline).
+   * `limit`, when given, bounds how many entries come back — a route that
+   * advertises `?limit=` must apply it here too, not just on
+   * `listRecentAudit`'s path. Omitted only where a caller genuinely wants
+   * the run's entire history (there is no unbounded-request surface for
+   * this form: a single run's audit trail is operator-created, not
+   * attacker-controlled input). */
+  listAudit(runId: string, limit?: number): Promise<AuditEntry[]>;
   /** The most recent audit entries across every run, newest first, capped at
    * `limit`. Backs a cross-run recent-activity view — a use case
    * `listAudit` (scoped to one run) can't provide. */
   listRecentAudit(limit: number): Promise<AuditEntry[]>;
 
-  listIncidents(filter?: { status?: string }): Promise<IncidentRow[]>;
+  /** Newest-first. `limit`, when given, bounds the result the same way
+   * `listRuns`'s does. */
+  listIncidents(filter?: { status?: string; limit?: number }): Promise<IncidentRow[]>;
   getIncident(id: string): Promise<IncidentRow | null>;
   createIncident(row: IncidentRow): Promise<void>;
+  /**
+   * `COUNT(*) ... WHERE status != ?` — the Overview screen's "active
+   * incidents" tile needs only a number, never every incident row filtered
+   * in the Worker. See `countRunsByState`'s doc comment for the same
+   * reasoning.
+   */
+  countIncidentsExcludingStatus(status: string): Promise<number>;
 
   createUser(row: UserRow): Promise<void>;
   getUserByEmail(email: string): Promise<UserRow | null>;

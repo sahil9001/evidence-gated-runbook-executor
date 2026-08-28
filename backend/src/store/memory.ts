@@ -108,11 +108,18 @@ export function createMemoryStore(): Store {
       return rows.map(clone);
     },
 
-    async listRunsByIncident(incidentId: string): Promise<RunRow[]> {
-      return [...runs.values()]
-        .filter((r) => r.incidentId === incidentId)
-        .sort(byCreatedAtDesc)
-        .map(clone);
+    async listRunsByIncident(incidentId: string, limit?: number): Promise<RunRow[]> {
+      let rows = [...runs.values()].filter((r) => r.incidentId === incidentId).sort(byCreatedAtDesc);
+      if (limit !== undefined) rows = rows.slice(0, limit);
+      return rows.map(clone);
+    },
+
+    async countRunsByState(state: RunRow["state"]): Promise<number> {
+      return [...runs.values()].filter((r) => r.state === state).length;
+    },
+
+    async countRunsSince(sinceIso: string): Promise<number> {
+      return [...runs.values()].filter((r) => r.createdAt >= sinceIso).length;
     },
 
     async createRunWithArtifacts(input: {
@@ -303,15 +310,16 @@ export function createMemoryStore(): Store {
       auditLog.set(entry.id, clone(entry));
     },
 
-    async listAudit(runId: string): Promise<AuditEntry[]> {
-      return [...auditLog.values()]
+    async listAudit(runId: string, limit?: number): Promise<AuditEntry[]> {
+      let entries = [...auditLog.values()]
         .filter((e) => e.runId === runId)
         .sort((a, b) => {
           if (a.at !== b.at) return a.at < b.at ? -1 : 1;
           if (a.id !== b.id) return a.id < b.id ? -1 : 1;
           return 0;
-        })
-        .map(clone);
+        });
+      if (limit !== undefined) entries = entries.slice(0, limit);
+      return entries.map(clone);
     },
 
     async listRecentAudit(limit: number): Promise<AuditEntry[]> {
@@ -325,13 +333,19 @@ export function createMemoryStore(): Store {
         .map(clone);
     },
 
-    async listIncidents(filter?: { status?: string }): Promise<IncidentRow[]> {
+    async listIncidents(filter?: { status?: string; limit?: number }): Promise<IncidentRow[]> {
       let rows = [...incidents.values()];
       if (filter?.status !== undefined) {
         const wantedStatus = filter.status;
         rows = rows.filter((r) => r.status === wantedStatus);
       }
-      return rows.sort(byCreatedAtDesc).map(clone);
+      rows = rows.sort(byCreatedAtDesc);
+      if (filter?.limit !== undefined) rows = rows.slice(0, filter.limit);
+      return rows.map(clone);
+    },
+
+    async countIncidentsExcludingStatus(status: string): Promise<number> {
+      return [...incidents.values()].filter((i) => i.status !== status).length;
     },
 
     async getIncident(id: string): Promise<IncidentRow | null> {

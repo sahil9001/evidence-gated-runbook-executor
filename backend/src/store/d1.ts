@@ -177,14 +177,32 @@ export function createD1Store(db: D1Database): Store {
       return results.map(toRunRow);
     },
 
-    async listRunsByIncident(incidentId: string): Promise<RunRow[]> {
+    async listRunsByIncident(incidentId: string, limit?: number): Promise<RunRow[]> {
+      const limitClause = limit !== undefined ? ` LIMIT ?` : "";
+      const params = limit !== undefined ? [incidentId, limit] : [incidentId];
       const { results } = await db
         .prepare(
-          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs WHERE incident_id = ? ORDER BY created_at DESC`
+          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs WHERE incident_id = ? ORDER BY created_at DESC${limitClause}`
         )
-        .bind(incidentId)
+        .bind(...params)
         .all<RunRecord>();
       return results.map(toRunRow);
+    },
+
+    async countRunsByState(state: RunRow["state"]): Promise<number> {
+      const record = await db
+        .prepare(`SELECT COUNT(*) as count FROM runs WHERE state = ?`)
+        .bind(state)
+        .first<{ count: number }>();
+      return record?.count ?? 0;
+    },
+
+    async countRunsSince(sinceIso: string): Promise<number> {
+      const record = await db
+        .prepare(`SELECT COUNT(*) as count FROM runs WHERE created_at >= ?`)
+        .bind(sinceIso)
+        .first<{ count: number }>();
+      return record?.count ?? 0;
     },
 
     async createRunWithArtifacts(input: {
@@ -452,10 +470,14 @@ export function createD1Store(db: D1Database): Store {
         .run();
     },
 
-    async listAudit(runId: string): Promise<AuditEntry[]> {
+    async listAudit(runId: string, limit?: number): Promise<AuditEntry[]> {
+      const limitClause = limit !== undefined ? ` LIMIT ?` : "";
+      const params = limit !== undefined ? [runId, limit] : [runId];
       const { results } = await db
-        .prepare(`SELECT id, run_id, at, kind, detail FROM audit_log WHERE run_id = ? ORDER BY at ASC, id ASC`)
-        .bind(runId)
+        .prepare(
+          `SELECT id, run_id, at, kind, detail FROM audit_log WHERE run_id = ? ORDER BY at ASC, id ASC${limitClause}`
+        )
+        .bind(...params)
         .all<AuditRecord>();
       return results.map(toAuditEntry);
     },
@@ -468,14 +490,28 @@ export function createD1Store(db: D1Database): Store {
       return results.map(toAuditEntry);
     },
 
-    async listIncidents(filter?: { status?: string }): Promise<IncidentRow[]> {
+    async listIncidents(filter?: { status?: string; limit?: number }): Promise<IncidentRow[]> {
       const where = filter?.status !== undefined ? ` WHERE status = ?` : "";
-      const stmt = db.prepare(
-        `SELECT id, title, service, signals, status, created_by, created_at FROM incidents${where} ORDER BY created_at DESC`
-      );
-      const { results } =
-        filter?.status !== undefined ? await stmt.bind(filter.status).all<IncidentRecord>() : await stmt.all<IncidentRecord>();
+      const limitClause = filter?.limit !== undefined ? ` LIMIT ?` : "";
+      const params: unknown[] = [];
+      if (filter?.status !== undefined) params.push(filter.status);
+      if (filter?.limit !== undefined) params.push(filter.limit);
+
+      const { results } = await db
+        .prepare(
+          `SELECT id, title, service, signals, status, created_by, created_at FROM incidents${where} ORDER BY created_at DESC${limitClause}`
+        )
+        .bind(...params)
+        .all<IncidentRecord>();
       return results.map(toIncidentRow);
+    },
+
+    async countIncidentsExcludingStatus(status: string): Promise<number> {
+      const record = await db
+        .prepare(`SELECT COUNT(*) as count FROM incidents WHERE status != ?`)
+        .bind(status)
+        .first<{ count: number }>();
+      return record?.count ?? 0;
     },
 
     async getIncident(id: string): Promise<IncidentRow | null> {

@@ -176,6 +176,46 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         const loaded = await store.listRunsByIncident("inc-runs-by-incident");
         expect(loaded.map((r) => r.id)).toEqual(["run-inc-b", "run-inc-a"]);
       });
+
+      it("caps listRunsByIncident at the given limit, keeping the newest", async () => {
+        await store.createRun(makeRun("run-inc-limit-a", { incidentId: "inc-runs-by-incident-limit", createdAt: "2026-08-25T04:20:00.000Z", updatedAt: "2026-08-25T04:20:00.000Z" }));
+        await store.createRun(makeRun("run-inc-limit-b", { incidentId: "inc-runs-by-incident-limit", createdAt: "2026-08-25T04:25:00.000Z", updatedAt: "2026-08-25T04:25:00.000Z" }));
+        await store.createRun(makeRun("run-inc-limit-c", { incidentId: "inc-runs-by-incident-limit", createdAt: "2026-08-25T04:30:00.000Z", updatedAt: "2026-08-25T04:30:00.000Z" }));
+
+        const loaded = await store.listRunsByIncident("inc-runs-by-incident-limit", 2);
+        expect(loaded.map((r) => r.id)).toEqual(["run-inc-limit-c", "run-inc-limit-b"]);
+      });
+    });
+
+    describe("countRunsByState / countRunsSince", () => {
+      it("counts runs matching a state without returning the rows", async () => {
+        // A dedicated, never-elsewhere-used state count avoids interference
+        // from other tests in this shared-store suite transiently passing
+        // through "awaiting_approval" or "collecting" — "rejected" is only
+        // ever set here.
+        const incidentId = "inc-count-runs-state";
+        const before = await store.countRunsByState("rejected");
+        await store.createRun(makeRun("run-count-state-a", { incidentId, state: "rejected" }));
+        await store.createRun(makeRun("run-count-state-b", { incidentId, state: "rejected" }));
+        await store.createRun(makeRun("run-count-state-c", { incidentId, state: "collecting" }));
+
+        expect(await store.countRunsByState("rejected")).toBe(before + 2);
+      });
+
+      it("counts runs created at or after the given instant", async () => {
+        // A time window (2026-08-25T10:00–12:00) no other test in this
+        // shared-store suite touches, so the delta this test creates is the
+        // exact delta `countRunsSince` must report.
+        const incidentId = "inc-count-runs-since";
+        const cutoff = "2026-08-25T10:00:00.000Z";
+        const beforeCutoff = await store.countRunsSince(cutoff);
+
+        await store.createRun(makeRun("run-count-since-old", { incidentId, createdAt: "2026-08-25T09:00:00.000Z", updatedAt: "2026-08-25T09:00:00.000Z" }));
+        await store.createRun(makeRun("run-count-since-new-1", { incidentId, createdAt: "2026-08-25T10:00:00.000Z", updatedAt: "2026-08-25T10:00:00.000Z" }));
+        await store.createRun(makeRun("run-count-since-new-2", { incidentId, createdAt: "2026-08-25T11:00:00.000Z", updatedAt: "2026-08-25T11:00:00.000Z" }));
+
+        expect(await store.countRunsSince(cutoff)).toBe(beforeCutoff + 2);
+      });
     });
 
     describe("createRunWithArtifacts", () => {
@@ -868,6 +908,23 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         const loaded = await store.listAudit(run.id);
         expect(loaded.map((e) => e.id)).toEqual(["audit-run8-a", "audit-run8-b", "audit-run8-c"]);
       });
+
+      it("caps listAudit at the given limit", async () => {
+        const run = makeRun("run-audit-limit");
+        await store.createRun(run);
+
+        const entries: AuditEntry[] = [
+          { id: "audit-limit-a", runId: run.id, at: "2026-08-25T02:00:00.000Z", kind: "run_created", detail: "a" },
+          { id: "audit-limit-b", runId: run.id, at: "2026-08-25T02:10:00.000Z", kind: "gate_approved", detail: "b" },
+          { id: "audit-limit-c", runId: run.id, at: "2026-08-25T02:20:00.000Z", kind: "action_executed", detail: "c" }
+        ];
+        for (const entry of entries) {
+          await store.appendAudit(entry);
+        }
+
+        const loaded = await store.listAudit(run.id, 2);
+        expect(loaded).toHaveLength(2);
+      });
     });
 
     describe("listRecentAudit", () => {
@@ -934,6 +991,25 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       it("rejects creating an incident with a duplicate id", async () => {
         await store.createIncident(makeIncident("inc-dup-1"));
         await expect(store.createIncident(makeIncident("inc-dup-1", { title: "different title" }))).rejects.toThrow();
+      });
+
+      it("caps listIncidents at the given limit, newest-first", async () => {
+        await store.createIncident(makeIncident("inc-limit-a", { createdAt: "2026-08-25T08:00:00.000Z" }));
+        await store.createIncident(makeIncident("inc-limit-b", { createdAt: "2026-08-25T08:05:00.000Z" }));
+        await store.createIncident(makeIncident("inc-limit-c", { createdAt: "2026-08-25T08:10:00.000Z" }));
+
+        const loaded = await store.listIncidents({ limit: 2 });
+        expect(loaded).toHaveLength(2);
+      });
+
+      it("counts incidents excluding a given status without returning the rows", async () => {
+        // A dedicated status, never used elsewhere in this shared-store
+        // suite, so the delta this test creates is exact.
+        const before = await store.countIncidentsExcludingStatus("archived-for-count-test");
+        await store.createIncident(makeIncident("inc-count-exclude-a", { status: "open" }));
+        await store.createIncident(makeIncident("inc-count-exclude-b", { status: "archived-for-count-test" }));
+
+        expect(await store.countIncidentsExcludingStatus("archived-for-count-test")).toBe(before + 1);
       });
     });
 

@@ -60,3 +60,17 @@ export function packetConfidence(packet: EvidencePacket): Confidence {
     "high"
   );
 }
+
+/**
+ * Names every source in `allowedSources` that produced zero cards in this
+ * packet. Backs a run-detail view's `failures` field: an operator deciding
+ * whether to trust a gate needs to see which authorized sources never came
+ * back, not just the cards that did.
+ */
+export function missingSources(
+  packet: EvidencePacket,
+  allowedSources: readonly EvidenceSourceKind[]
+): EvidenceSourceKind[] {
+  const present = new Set(packet.cards.map((c) => c.source));
+  return allowedSources.filter((kind) => !present.has(kind));
+}

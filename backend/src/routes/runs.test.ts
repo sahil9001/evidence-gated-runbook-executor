@@ -174,4 +174,33 @@ describe("GET /runs/:id", () => {
     expect(Array.isArray(body.data.failures)).toBe(true);
     expect(["low", "medium", "high"]).toContain(body.data.confidence);
   });
+
+  // Qodo finding: a run whose incident was missing still returned HTTP 200
+  // with `incident: null`, contradicting the response contract every other
+  // caller of this route relies on (`incident` as a present object). A run
+  // is unusable without it, so this must 404 instead of shipping an
+  // incomplete payload with a 200. `runs.incident_id` carries no foreign
+  // key, so a run can be seeded directly with an incident id that was never
+  // created.
+  it("404s when the run's incident is missing", async () => {
+    const cookie = await registeredCookie();
+    const app = buildApp();
+    const store = createD1Store(env.DB);
+    const nowIso = new Date().toISOString();
+    const runId = `run-orphan-${Date.now()}`;
+    await store.createRun({
+      id: runId,
+      incidentId: "incident-does-not-exist",
+      runbookId: "checkout-failure",
+      service: "payment-service",
+      state: "collecting",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      createdBy: null
+    });
+
+    const { status, json } = await request(app, "GET", `/runs/${runId}`, undefined, cookie);
+    expect(status).toBe(404);
+    expect((json as ApiErr).error.code).toBe("not_found");
+  });
 });

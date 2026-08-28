@@ -65,6 +65,18 @@ runListRoutes.get("/runs/:id", async (c) => {
     store.getGate(id)
   ]);
 
+  // A run is unusable without its incident — the response contract below
+  // (and every existing caller of this route) treats `incident` as a
+  // present object, never null, because the route needs the incident's
+  // persisted service/signals to make sense of the run at all. There is no
+  // delete-incident path in this codebase, so a missing incident here means
+  // the run's data is corrupt, not a legitimate "resolved but gone" case —
+  // 404 rather than silently shipping a payload whose shape contradicts the
+  // contract every other reader of this endpoint assumes.
+  if (incident === null) {
+    return c.json(apiError("not_found", `Run "${id}" references a missing incident ("${run.incidentId}")`), 404);
+  }
+
   const runbook = RUNBOOKS.find((rb) => rb.id === run.runbookId);
   const failures =
     packet !== null && runbook !== undefined

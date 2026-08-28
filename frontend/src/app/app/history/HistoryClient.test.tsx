@@ -95,7 +95,7 @@ describe("HistoryClient", () => {
 
     expect(await screen.findByText("payment-service")).toBeInTheDocument();
     expect(screen.getByText("auth-service")).toBeInTheDocument();
-    expect(listRuns).toHaveBeenCalledWith({ state: undefined, limit: expect.any(Number) });
+    expect(listRuns).toHaveBeenCalledWith({ state: undefined, limit: expect.any(Number) }, expect.any(AbortSignal));
   });
 
   it("shows who created each run", async () => {
@@ -114,7 +114,7 @@ describe("HistoryClient", () => {
     render(<HistoryClient />);
 
     const row = (await screen.findByText("payment-service")).closest("li") as HTMLElement;
-    expect(getRun).toHaveBeenCalledWith("run-9");
+    expect(getRun).toHaveBeenCalledWith("run-9", expect.any(AbortSignal));
     expect(await within(row).findByText(/lead@runproof\.dev/)).toBeInTheDocument();
     expect(within(row).getAllByText(/approved/i).length).toBeGreaterThan(0);
   });
@@ -135,7 +135,7 @@ describe("HistoryClient", () => {
     render(<HistoryClient />);
 
     await screen.findByText("payment-service");
-    expect(listRuns).toHaveBeenCalledWith({ state: "rejected", limit: expect.any(Number) });
+    expect(listRuns).toHaveBeenCalledWith({ state: "rejected", limit: expect.any(Number) }, expect.any(AbortSignal));
 
     const select = screen.getByLabelText(/state/i) as HTMLSelectElement;
     expect(select.value).toBe("rejected");
@@ -189,5 +189,62 @@ describe("HistoryClient", () => {
     render(<HistoryClient />);
 
     expect(await screen.findByText(/no runs/i)).toBeInTheDocument();
+  });
+
+  describe("stale filter-change races", () => {
+    it("leaves the SECOND filter's results displayed when a slow first request resolves after a fast second", async () => {
+      let resolveFirst: (value: RunRow[]) => void = () => {};
+      listRuns.mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)));
+      const { rerender } = render(<HistoryClient />);
+      await screen.findByRole("status", { name: /loading (run )?history/i });
+
+      listRuns.mockResolvedValueOnce([makeRun({ id: "run-2", service: "second-filter-service" })]);
+      searchParamsValue = new URLSearchParams("state=executed");
+      rerender(<HistoryClient />);
+
+      expect(await screen.findByText("second-filter-service")).toBeInTheDocument();
+
+      resolveFirst([makeRun({ id: "run-1", service: "first-filter-service" })]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(screen.getByText("second-filter-service")).toBeInTheDocument();
+      expect(screen.queryByText("first-filter-service")).not.toBeInTheDocument();
+    });
+
+    it("does not let an obsolete error from the first filter replace the second filter's data", async () => {
+      let rejectFirst: (error: Error) => void = () => {};
+      listRuns.mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)));
+      const { rerender } = render(<HistoryClient />);
+      await screen.findByRole("status", { name: /loading (run )?history/i });
+
+      listRuns.mockResolvedValueOnce([makeRun({ id: "run-2", service: "second-filter-service" })]);
+      searchParamsValue = new URLSearchParams("state=executed");
+      rerender(<HistoryClient />);
+
+      expect(await screen.findByText("second-filter-service")).toBeInTheDocument();
+
+      rejectFirst(new Error("stale failure from the first filter"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(screen.getByText("second-filter-service")).toBeInTheDocument();
+      expect(screen.queryByText(/could not load/i)).not.toBeInTheDocument();
+    });
+
+    it("aborts the in-flight request on unmount", async () => {
+      let observedSignal: AbortSignal | undefined;
+      listRuns.mockImplementation(
+        (_filter?: unknown, signal?: AbortSignal) =>
+          new Promise<RunRow[]>((resolve) => {
+            observedSignal = signal;
+            setTimeout(() => resolve([]), 50);
+          })
+      );
+      const { unmount } = render(<HistoryClient />);
+      await screen.findByRole("status", { name: /loading (run )?history/i });
+
+      expect(observedSignal?.aborted).toBe(false);
+      unmount();
+      expect(observedSignal?.aborted).toBe(true);
+    });
   });
 });

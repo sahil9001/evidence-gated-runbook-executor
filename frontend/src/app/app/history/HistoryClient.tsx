@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, CircleDashed, Clock, History as HistoryIcon, XCircle } from "lucide-react";
-import { ApiClientError, getRun, listRuns } from "../../../lib/api";
+import { getRun, listRuns, type ApiClientError } from "../../../lib/api";
 import type { ApprovalGate, RunRow } from "../../../lib/types";
+import { useAbortableResource } from "../../../hooks/useAbortableResource";
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   network_error: "Could not reach the RunProof API. Check your connection.",
@@ -16,12 +17,6 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
 
 function humanizeErrorCode(code: string): string {
   return ERROR_MESSAGES[code] ?? `Something went wrong (${code}).`;
-}
-
-function toApiClientError(error: unknown): ApiClientError {
-  if (error instanceof ApiClientError) return error;
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  return new ApiClientError(message, "unknown_error", 0);
 }
 
 function formatTimestamp(iso: string): string {
@@ -76,16 +71,19 @@ interface HistoryRow {
  * back to `null` rather than failing the whole screen; that row just shows
  * no decision detail.
  */
-async function fetchHistory(stateFilter: string): Promise<HistoryRow[]> {
-  const runs = await listRuns({
-    state: stateFilter === "" ? undefined : (stateFilter as RunRow["state"]),
-    limit: HISTORY_LIMIT
-  });
+async function fetchHistory(stateFilter: string, signal: AbortSignal): Promise<HistoryRow[]> {
+  const runs = await listRuns(
+    {
+      state: stateFilter === "" ? undefined : (stateFilter as RunRow["state"]),
+      limit: HISTORY_LIMIT
+    },
+    signal
+  );
 
   const decided = runs.filter(isDecided);
   const gates = await Promise.all(
     decided.map((run) =>
-      getRun(run.id)
+      getRun(run.id, signal)
         .then((detail) => detail.gate)
         .catch(() => null)
     )
@@ -94,11 +92,6 @@ async function fetchHistory(stateFilter: string): Promise<HistoryRow[]> {
 
   return runs.map((run) => ({ run, gate: gateByRunId.get(run.id) ?? null }));
 }
-
-type HistoryState =
-  | { status: "loading" }
-  | { status: "error"; error: ApiClientError }
-  | { status: "loaded"; data: readonly HistoryRow[] };
 
 interface RunStateBadgeProps {
   readonly state: RunRow["state"];
@@ -220,22 +213,11 @@ export function HistoryClient() {
   const rawState = searchParams.get("state") ?? "";
   const stateFilter = isRunState(rawState) ? rawState : "";
 
-  const [state, setState] = useState<HistoryState>({ status: "loading" });
-
-  const fetchAndSetHistory = useCallback((): Promise<void> => {
-    return fetchHistory(stateFilter)
-      .then((data) => setState({ status: "loaded", data }))
-      .catch((error: unknown) => setState({ status: "error", error: toApiClientError(error) }));
-  }, [stateFilter]);
-
-  useEffect(() => {
-    void fetchAndSetHistory();
-  }, [fetchAndSetHistory]);
-
-  function handleRetry(): void {
-    setState({ status: "loading" });
-    void fetchAndSetHistory();
-  }
+  const fetchAndSetHistory = useCallback(
+    (signal: AbortSignal): Promise<HistoryRow[]> => fetchHistory(stateFilter, signal),
+    [stateFilter]
+  );
+  const { state, retry } = useAbortableResource(fetchAndSetHistory);
 
   function handleStateChange(value: string): void {
     const params = new URLSearchParams(searchParams.toString());
@@ -269,7 +251,7 @@ export function HistoryClient() {
       </div>
 
       {state.status === "loading" ? <HistorySkeleton /> : null}
-      {state.status === "error" ? <HistoryError error={state.error} onRetry={handleRetry} /> : null}
+      {state.status === "error" ? <HistoryError error={state.error} onRetry={retry} /> : null}
       {state.status === "loaded" && state.data.length === 0 ? <EmptyHistory /> : null}
       {state.status === "loaded" && state.data.length > 0 ? (
         <ul className="flex flex-col divide-y divide-neutral-100 rounded-3xl bg-white p-2 shadow-soft">

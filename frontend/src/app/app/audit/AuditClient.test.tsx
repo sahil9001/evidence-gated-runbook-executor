@@ -84,7 +84,10 @@ describe("AuditClient", () => {
     render(<AuditClient />);
 
     await screen.findByText(/run started/i);
-    expect(listAuditLog).toHaveBeenCalledWith({ runId: "run-42", limit: expect.any(Number) });
+    expect(listAuditLog).toHaveBeenCalledWith(
+      { runId: "run-42", limit: expect.any(Number) },
+      expect.any(AbortSignal)
+    );
 
     const input = screen.getByLabelText(/run id/i) as HTMLInputElement;
     expect(input.value).toBe("run-42");
@@ -136,5 +139,62 @@ describe("AuditClient", () => {
     render(<AuditClient />);
 
     expect(await screen.findByText(/no audit entries/i)).toBeInTheDocument();
+  });
+
+  describe("stale filter-change races", () => {
+    it("leaves the SECOND filter's results displayed when a slow first request resolves after a fast second", async () => {
+      let resolveFirst: (value: AuditEntry[]) => void = () => {};
+      listAuditLog.mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)));
+      const { rerender } = render(<AuditClient />);
+      await screen.findByRole("status", { name: /loading audit/i });
+
+      listAuditLog.mockResolvedValueOnce([makeEntry({ id: "audit-2", detail: "Second filter result" })]);
+      searchParamsValue = new URLSearchParams("runId=run-42");
+      rerender(<AuditClient />);
+
+      expect(await screen.findByText("Second filter result")).toBeInTheDocument();
+
+      resolveFirst([makeEntry({ id: "audit-1", detail: "First filter result" })]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(screen.getByText("Second filter result")).toBeInTheDocument();
+      expect(screen.queryByText("First filter result")).not.toBeInTheDocument();
+    });
+
+    it("does not let an obsolete error from the first filter replace the second filter's data", async () => {
+      let rejectFirst: (error: Error) => void = () => {};
+      listAuditLog.mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)));
+      const { rerender } = render(<AuditClient />);
+      await screen.findByRole("status", { name: /loading audit/i });
+
+      listAuditLog.mockResolvedValueOnce([makeEntry({ id: "audit-2", detail: "Second filter result" })]);
+      searchParamsValue = new URLSearchParams("runId=run-42");
+      rerender(<AuditClient />);
+
+      expect(await screen.findByText("Second filter result")).toBeInTheDocument();
+
+      rejectFirst(new Error("stale failure from the first filter"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(screen.getByText("Second filter result")).toBeInTheDocument();
+      expect(screen.queryByText(/could not load/i)).not.toBeInTheDocument();
+    });
+
+    it("aborts the in-flight request on unmount", async () => {
+      let observedSignal: AbortSignal | undefined;
+      listAuditLog.mockImplementation(
+        (_filter?: unknown, signal?: AbortSignal) =>
+          new Promise<AuditEntry[]>((resolve) => {
+            observedSignal = signal;
+            setTimeout(() => resolve([]), 50);
+          })
+      );
+      const { unmount } = render(<AuditClient />);
+      await screen.findByRole("status", { name: /loading audit/i });
+
+      expect(observedSignal?.aborted).toBe(false);
+      unmount();
+      expect(observedSignal?.aborted).toBe(true);
+    });
   });
 });

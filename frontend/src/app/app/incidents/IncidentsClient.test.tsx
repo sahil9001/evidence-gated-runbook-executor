@@ -54,7 +54,7 @@ describe("IncidentsClient", () => {
 
     expect(await screen.findByText("Checkout errors spiking")).toBeInTheDocument();
     expect(screen.getByText("Latency on auth-service")).toBeInTheDocument();
-    expect(listIncidents).toHaveBeenCalledWith(undefined);
+    expect(listIncidents).toHaveBeenCalledWith(undefined, undefined, expect.any(AbortSignal));
   });
 
   it("reads the initial status filter from the URL and requests that status", async () => {
@@ -64,7 +64,7 @@ describe("IncidentsClient", () => {
     render(<IncidentsClient />);
 
     await screen.findByText("Checkout errors spiking");
-    expect(listIncidents).toHaveBeenCalledWith("open");
+    expect(listIncidents).toHaveBeenCalledWith("open", undefined, expect.any(AbortSignal));
 
     const select = screen.getByLabelText(/status/i) as HTMLSelectElement;
     expect(select.value).toBe("open");
@@ -128,5 +128,62 @@ describe("IncidentsClient", () => {
 
     const empty = await screen.findByText(/no incidents/i);
     expect(within(empty.closest("section") ?? empty).getByText(/no incidents/i)).toBeInTheDocument();
+  });
+
+  describe("stale filter-change races", () => {
+    it("leaves the SECOND filter's results displayed when a slow first request resolves after a fast second", async () => {
+      let resolveFirst: (value: IncidentRow[]) => void = () => {};
+      listIncidents.mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)));
+      const { rerender } = render(<IncidentsClient />);
+      await screen.findByRole("status", { name: /loading incidents/i });
+
+      listIncidents.mockResolvedValueOnce([makeIncident({ id: "inc-2", title: "Second filter result" })]);
+      searchParamsValue = new URLSearchParams("status=open");
+      rerender(<IncidentsClient />);
+
+      expect(await screen.findByText("Second filter result")).toBeInTheDocument();
+
+      resolveFirst([makeIncident({ id: "inc-1", title: "First filter result" })]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(screen.getByText("Second filter result")).toBeInTheDocument();
+      expect(screen.queryByText("First filter result")).not.toBeInTheDocument();
+    });
+
+    it("does not let an obsolete error from the first filter replace the second filter's data", async () => {
+      let rejectFirst: (error: Error) => void = () => {};
+      listIncidents.mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)));
+      const { rerender } = render(<IncidentsClient />);
+      await screen.findByRole("status", { name: /loading incidents/i });
+
+      listIncidents.mockResolvedValueOnce([makeIncident({ id: "inc-2", title: "Second filter result" })]);
+      searchParamsValue = new URLSearchParams("status=open");
+      rerender(<IncidentsClient />);
+
+      expect(await screen.findByText("Second filter result")).toBeInTheDocument();
+
+      rejectFirst(new Error("stale failure from the first filter"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(screen.getByText("Second filter result")).toBeInTheDocument();
+      expect(screen.queryByText(/could not load incidents/i)).not.toBeInTheDocument();
+    });
+
+    it("aborts the in-flight request on unmount", async () => {
+      let observedSignal: AbortSignal | undefined;
+      listIncidents.mockImplementation(
+        (_status?: string, _limit?: number, signal?: AbortSignal) =>
+          new Promise<IncidentRow[]>((resolve) => {
+            observedSignal = signal;
+            setTimeout(() => resolve([]), 50);
+          })
+      );
+      const { unmount } = render(<IncidentsClient />);
+      await screen.findByRole("status", { name: /loading incidents/i });
+
+      expect(observedSignal?.aborted).toBe(false);
+      unmount();
+      expect(observedSignal?.aborted).toBe(true);
+    });
   });
 });

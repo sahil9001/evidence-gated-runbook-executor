@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, PlusCircle, Siren } from "lucide-react";
-import { ApiClientError, listIncidents } from "../../../lib/api";
+import { listIncidents, type ApiClientError } from "../../../lib/api";
 import type { IncidentRow } from "../../../lib/types";
+import { useAbortableResource } from "../../../hooks/useAbortableResource";
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   network_error: "Could not reach the RunProof API. Check your connection.",
@@ -18,12 +19,6 @@ function humanizeErrorCode(code: string): string {
   return ERROR_MESSAGES[code] ?? `Something went wrong (${code}).`;
 }
 
-function toApiClientError(error: unknown): ApiClientError {
-  if (error instanceof ApiClientError) return error;
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  return new ApiClientError(message, "unknown_error", 0);
-}
-
 /** The console has no update-status endpoint yet, so "open" is effectively
  * the only status incidents carry today — "resolved" is offered anyway so
  * the filter (and the URL contract it drives) already matches what the
@@ -34,11 +29,6 @@ const STATUS_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: st
   { value: "open", label: "Open" },
   { value: "resolved", label: "Resolved" }
 ];
-
-type IncidentsState =
-  | { status: "loading" }
-  | { status: "error"; error: ApiClientError }
-  | { status: "loaded"; data: IncidentRow[] };
 
 function formatTimestamp(iso: string): string {
   const date = new Date(iso);
@@ -153,22 +143,12 @@ export function IncidentsClient() {
   const searchParams = useSearchParams();
   const statusFilter = searchParams.get("status") ?? "";
 
-  const [state, setState] = useState<IncidentsState>({ status: "loading" });
-
-  const fetchIncidents = useCallback((): Promise<void> => {
-    return listIncidents(statusFilter === "" ? undefined : statusFilter)
-      .then((data) => setState({ status: "loaded", data }))
-      .catch((error: unknown) => setState({ status: "error", error: toApiClientError(error) }));
-  }, [statusFilter]);
-
-  useEffect(() => {
-    void fetchIncidents();
-  }, [fetchIncidents]);
-
-  function handleRetry(): void {
-    setState({ status: "loading" });
-    void fetchIncidents();
-  }
+  const fetchIncidents = useCallback(
+    (signal: AbortSignal): Promise<IncidentRow[]> =>
+      listIncidents(statusFilter === "" ? undefined : statusFilter, undefined, signal),
+    [statusFilter]
+  );
+  const { state, retry } = useAbortableResource(fetchIncidents);
 
   function handleStatusChange(value: string): void {
     const params = new URLSearchParams(searchParams.toString());
@@ -212,7 +192,7 @@ export function IncidentsClient() {
       </div>
 
       {state.status === "loading" ? <IncidentsSkeleton /> : null}
-      {state.status === "error" ? <IncidentsError error={state.error} onRetry={handleRetry} /> : null}
+      {state.status === "error" ? <IncidentsError error={state.error} onRetry={retry} /> : null}
       {state.status === "loaded" && state.data.length === 0 ? <EmptyIncidents /> : null}
       {state.status === "loaded" && state.data.length > 0 ? (
         <ul className="flex flex-col divide-y divide-neutral-100 rounded-3xl bg-white p-2 shadow-soft">

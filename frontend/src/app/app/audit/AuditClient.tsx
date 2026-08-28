@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Filter, Lock, ScrollText, X } from "lucide-react";
-import { ApiClientError, listAuditLog } from "../../../lib/api";
+import { listAuditLog, type ApiClientError } from "../../../lib/api";
 import type { AuditEntry } from "../../../lib/types";
+import { useAbortableResource } from "../../../hooks/useAbortableResource";
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   network_error: "Could not reach the RunProof API. Check your connection.",
@@ -16,12 +17,6 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
 
 function humanizeErrorCode(code: string): string {
   return ERROR_MESSAGES[code] ?? `Something went wrong (${code}).`;
-}
-
-function toApiClientError(error: unknown): ApiClientError {
-  if (error instanceof ApiClientError) return error;
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  return new ApiClientError(message, "unknown_error", 0);
 }
 
 function formatTimestamp(iso: string): string {
@@ -68,11 +63,6 @@ function sortNewestFirst(entries: readonly AuditEntry[]): AuditEntry[] {
     return b.id.localeCompare(a.id);
   });
 }
-
-type AuditState =
-  | { status: "loading" }
-  | { status: "error"; error: ApiClientError }
-  | { status: "loaded"; data: readonly AuditEntry[] };
 
 const KIND_DOT_COLORS: Readonly<Record<string, string>> = {
   run_created: "bg-sky-500",
@@ -209,22 +199,14 @@ export function AuditClient() {
     setRunIdInput(runIdFilter);
   }
 
-  const [state, setState] = useState<AuditState>({ status: "loading" });
-
-  const fetchAudit = useCallback((): Promise<void> => {
-    return listAuditLog({ runId: runIdFilter === "" ? undefined : runIdFilter, limit: AUDIT_LIMIT })
-      .then((data) => setState({ status: "loaded", data: sortNewestFirst(data) }))
-      .catch((error: unknown) => setState({ status: "error", error: toApiClientError(error) }));
-  }, [runIdFilter]);
-
-  useEffect(() => {
-    void fetchAudit();
-  }, [fetchAudit]);
-
-  function handleRetry(): void {
-    setState({ status: "loading" });
-    void fetchAudit();
-  }
+  const fetchAudit = useCallback(
+    (signal: AbortSignal): Promise<readonly AuditEntry[]> =>
+      listAuditLog({ runId: runIdFilter === "" ? undefined : runIdFilter, limit: AUDIT_LIMIT }, signal).then(
+        sortNewestFirst
+      ),
+    [runIdFilter]
+  );
+  const { state, retry } = useAbortableResource(fetchAudit);
 
   function applyFilter(value: string): void {
     const params = new URLSearchParams(searchParams.toString());
@@ -286,7 +268,7 @@ export function AuditClient() {
       </form>
 
       {state.status === "loading" ? <AuditSkeleton /> : null}
-      {state.status === "error" ? <AuditError error={state.error} onRetry={handleRetry} /> : null}
+      {state.status === "error" ? <AuditError error={state.error} onRetry={retry} /> : null}
       {state.status === "loaded" && state.data.length === 0 ? <EmptyAudit isFiltered={runIdFilter !== ""} /> : null}
       {state.status === "loaded" && state.data.length > 0 ? (
         <ol className="flex flex-col">

@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiClientError, approve, getOverview, getPacket, getRun, listAudit, reject, startRun } from "./api";
+import {
+  ApiClientError,
+  approve,
+  getOverview,
+  getPacket,
+  getRun,
+  listAudit,
+  listAuditLog,
+  listIncidents,
+  listRuns,
+  reject,
+  startRun
+} from "./api";
 
 const ORIGINAL_ENV = process.env.NEXT_PUBLIC_API_URL;
 
@@ -210,5 +222,64 @@ describe("api client", () => {
     expect(result).toEqual(data);
     const calledUrl = vi.mocked(fetch).mock.calls[0]?.[0];
     expect(String(calledUrl)).toBe("http://localhost:8787/audit?runId=run-1");
+  });
+
+  // These four calls back every list/detail screen that filters on user
+  // input (IncidentsClient, HistoryClient, AuditClient) — an AbortSignal
+  // passed through to `fetch` is what lets those screens cancel a stale
+  // in-flight request when the filter changes again before it resolves.
+  describe("AbortSignal passthrough", () => {
+    it("forwards an AbortSignal to fetch for listIncidents", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, data: [] }));
+      const controller = new AbortController();
+
+      await listIncidents(undefined, undefined, controller.signal);
+
+      const init = vi.mocked(fetch).mock.calls[0]?.[1];
+      expect(init?.signal).toBe(controller.signal);
+    });
+
+    it("forwards an AbortSignal to fetch for listRuns", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, data: [] }));
+      const controller = new AbortController();
+
+      await listRuns(undefined, controller.signal);
+
+      const init = vi.mocked(fetch).mock.calls[0]?.[1];
+      expect(init?.signal).toBe(controller.signal);
+    });
+
+    it("forwards an AbortSignal to fetch for getRun", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          data: {
+            run: { id: "run-1", incidentId: "inc-1", runbookId: "rb-1", service: "checkout", state: "awaiting_approval", createdAt: "t", updatedAt: "t", createdBy: null },
+            incident: { id: "inc-1", title: "t", service: "checkout", signals: [], status: "open", createdBy: "a@b.com", createdAt: "t" },
+            packet: null,
+            action: null,
+            gate: null,
+            failures: [],
+            confidence: null
+          }
+        })
+      );
+      const controller = new AbortController();
+
+      await getRun("run-1", controller.signal);
+
+      const init = vi.mocked(fetch).mock.calls[0]?.[1];
+      expect(init?.signal).toBe(controller.signal);
+    });
+
+    it("forwards an AbortSignal to fetch for listAuditLog", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, data: [] }));
+      const controller = new AbortController();
+
+      await listAuditLog({ runId: "run-1" }, controller.signal);
+
+      const init = vi.mocked(fetch).mock.calls[0]?.[1];
+      expect(init?.signal).toBe(controller.signal);
+    });
   });
 });

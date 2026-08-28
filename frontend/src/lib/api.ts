@@ -170,12 +170,12 @@ export async function getOverview(): Promise<OverviewResponse> {
  * (backend/src/routes/incidents.ts) — omitted, the server applies its own
  * default.
  */
-export async function listIncidents(status?: string, limit?: number): Promise<IncidentRow[]> {
+export async function listIncidents(status?: string, limit?: number, signal?: AbortSignal): Promise<IncidentRow[]> {
   const params = new URLSearchParams();
   if (status !== undefined) params.set("status", status);
   if (limit !== undefined) params.set("limit", String(limit));
   const query = params.toString();
-  return request<IncidentRow[]>(`/incidents${query.length > 0 ? `?${query}` : ""}`, { method: "GET" });
+  return request<IncidentRow[]>(`/incidents${query.length > 0 ? `?${query}` : ""}`, { method: "GET", signal });
 }
 
 // `createdBy` is deliberately absent — the backend takes it from the
@@ -198,8 +198,8 @@ export async function listRunbooks(): Promise<Runbook[]> {
 }
 
 /** Backs the run detail screen — the one call that feeds all four tabs. */
-export async function getRun(id: string): Promise<RunDetailResponse> {
-  return request<RunDetailResponse>(`/runs/${encodeURIComponent(id)}`, { method: "GET" });
+export async function getRun(id: string, signal?: AbortSignal): Promise<RunDetailResponse> {
+  return request<RunDetailResponse>(`/runs/${encodeURIComponent(id)}`, { method: "GET", signal });
 }
 
 /** Backs the run detail screen's Audit tab — this run's entries, in order. */
@@ -209,12 +209,15 @@ export async function listAudit(runId: string): Promise<AuditEntry[]> {
 
 /** Backs the History screen. `state` filters server-side (undefined = every state);
  * `limit` mirrors the backend's own `?limit=` cap (backend/src/routes/runs.ts). */
-export async function listRuns(filter?: { state?: RunRow["state"]; limit?: number }): Promise<RunRow[]> {
+export async function listRuns(
+  filter?: { state?: RunRow["state"]; limit?: number },
+  signal?: AbortSignal
+): Promise<RunRow[]> {
   const params = new URLSearchParams();
   if (filter?.state !== undefined) params.set("state", filter.state);
   if (filter?.limit !== undefined) params.set("limit", String(filter.limit));
   const query = params.toString();
-  return request<RunRow[]>(`/runs${query.length > 0 ? `?${query}` : ""}`, { method: "GET" });
+  return request<RunRow[]>(`/runs${query.length > 0 ? `?${query}` : ""}`, { method: "GET", signal });
 }
 
 /**
@@ -224,10 +227,13 @@ export async function listRuns(filter?: { state?: RunRow["state"]; limit?: numbe
  * every run" when omitted. `limit` mirrors the backend's own `?limit=` cap
  * (backend/src/routes/audit.ts).
  */
-export async function listAuditLog(filter?: { runId?: string; limit?: number }): Promise<AuditEntry[]> {
+export async function listAuditLog(
+  filter?: { runId?: string; limit?: number },
+  signal?: AbortSignal
+): Promise<AuditEntry[]> {
   const params = new URLSearchParams();
   if (filter?.runId !== undefined) params.set("runId", filter.runId);
   if (filter?.limit !== undefined) params.set("limit", String(filter.limit));
   const query = params.toString();
-  return request<AuditEntry[]>(`/audit${query.length > 0 ? `?${query}` : ""}`, { method: "GET" });
+  return request<AuditEntry[]>(`/audit${query.length > 0 ? `?${query}` : ""}`, { method: "GET", signal });
 }

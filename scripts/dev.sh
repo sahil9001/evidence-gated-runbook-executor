@@ -119,6 +119,29 @@ install_if_needed() {
   log_done "$began" "installed $dir dependencies"
 }
 
+# A pid and every process beneath it. `npm run dev` execs into npm, which then
+# spawns the real server as a child, so the pid this script holds is never the
+# process that actually listens — or the one that can get itself stopped.
+descendant_pids() {
+  local root=$1 child
+  printf '%s\n' "$root"
+  for child in $(pgrep -P "$root" 2>/dev/null); do
+    descendant_pids "$child"
+  done
+}
+
+# True when the process or anything under it is stopped (state T). A stopped
+# process stays alive, so `kill -0` cannot see the difference.
+tree_has_stopped_process() {
+  local pid
+  for pid in $(descendant_pids "$1"); do
+    case "$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' \n')" in
+      T*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # Polls until the URL answers at all. Any HTTP status counts: the frontend
 # answers 404 on / until the first compile finishes, and that still means the
 # server is up.
@@ -132,6 +155,16 @@ wait_until_up() {
     if ! kill -0 "$pid" 2>/dev/null; then
       die "the $what exited before it came up. Its output is above."
     fi
+    # A suspended server stays alive forever, so `kill -0` above cannot see it.
+    # Report it as its own case rather than letting it burn the full timeout
+    # and then blame a slow start. Checked across the whole tree: the stopped
+    # process is the server itself, several levels below the pid held here.
+    if tree_has_stopped_process "$pid"; then
+      die "the $what was suspended before it started listening.
+      That usually means it tried to read the terminal from the background.
+      Please report this, and as a workaround run it directly instead:
+        cd $( [[ $what == backend ]] && echo backend || echo frontend ) && npm run dev"
+    fi
     if curl -sS -o /dev/null --max-time 2 "$url" 2>/dev/null; then
       return 0
     fi
@@ -141,7 +174,10 @@ wait_until_up() {
       log "${DIM}...still waiting for the $what — ${waited}s of ${READY_TIMEOUT_SECONDS}s${RESET}"
     fi
   done
-  die "the $what did not answer on $url within ${READY_TIMEOUT_SECONDS}s. Its output is above."
+  die "the $what did not answer on $url within ${READY_TIMEOUT_SECONDS}s.
+      Its own output is above and usually names the cause. To see it without
+      this script in the way:
+        cd $( [[ $what == backend ]] && echo backend || echo frontend ) && npm run dev"
 }
 
 main() {
@@ -181,9 +217,24 @@ main() {
   (cd "$ROOT/backend" && npm run --silent db:migrate)
   log_done "$began" "migrations applied"
 
+  # `</dev/null` is load-bearing, not tidiness. `wrangler dev` puts stdin in
+  # raw mode for its hotkeys ([x] to exit and friends) when it is a TTY — its
+  # bundled CLI calls setRawMode in seven places. Raw mode is a tcsetattr on
+  # the controlling terminal, and `set -m` above puts each server in its own
+  # process group, so that call arrives from a BACKGROUND process group and
+  # the kernel answers with SIGTTOU, which STOPS the process rather than
+  # killing it. What you see is a server that prints its startup banner,
+  # suspends before it ever listens, and stays alive — so a liveness check
+  # finds nothing wrong while the port never opens.
+  #
+  # A non-TTY stdin makes wrangler skip raw mode entirely and run
+  # non-interactively, as it does in CI. `next dev` does not currently touch
+  # raw mode, so it is not exposed to this today; it gets the same treatment
+  # because the hazard is in the arrangement rather than the tool, and the
+  # cost is nothing.
   began=$SECONDS
   log "starting backend on ${API_URL} ..."
-  (cd "$ROOT/backend" && exec npm run --silent dev) &
+  (cd "$ROOT/backend" && exec npm run --silent dev) </dev/null &
   api_pid=$!
   wait_until_up "${API_URL}/health" "backend" "$api_pid"
   log_done "$began" "backend ready"
@@ -191,7 +242,7 @@ main() {
 
   began=$SECONDS
   log "starting frontend on ${WEB_URL} ..."
-  (cd "$ROOT/frontend" && exec npm run --silent dev) &
+  (cd "$ROOT/frontend" && exec npm run --silent dev) </dev/null &
   web_pid=$!
   wait_until_up "$WEB_URL" "frontend" "$web_pid"
   log_done "$began" "frontend ready"

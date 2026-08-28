@@ -10,25 +10,27 @@ export const overviewRoutes = new Hono<AuthedEnv>();
 overviewRoutes.get("/overview", async (c) => {
   const store = createD1Store(c.env.DB);
 
-  const [runs, incidents, recentActivity] = await Promise.all([
-    store.listRuns(),
-    store.listIncidents(),
+  // Every count below runs as `SELECT COUNT(*) ... WHERE` in the store —
+  // never `(await store.listRuns()).filter(...).length` — so this route's
+  // cost stays flat as total run/incident history grows, instead of
+  // shipping every row ever created into the Worker on every request an
+  // authenticated user can trigger. See the doc comments on
+  // Store#countRunsByState / #countRunsSince / #countIncidentsExcludingStatus.
+  const startOfTodayIso = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z").toISOString();
+
+  const [awaitingApproval, activeIncidents, runsToday, recentActivity] = await Promise.all([
+    // The number that matters most on this screen: how many runs are stuck
+    // waiting on a human right now.
+    store.countRunsByState("awaiting_approval"),
+    // "Active" means not yet resolved — every incident's status starts
+    // "open" (see routes/incidents.ts) and there is no other status this
+    // slice ever assigns, but the check is written against "resolved"
+    // rather than "open" so a future status (e.g. "investigating") still
+    // counts as active by default.
+    store.countIncidentsExcludingStatus("resolved"),
+    store.countRunsSince(startOfTodayIso),
     store.listRecentAudit(RECENT_ACTIVITY_LIMIT)
   ]);
-
-  // The number that matters most on this screen: how many runs are stuck
-  // waiting on a human right now.
-  const awaitingApproval = runs.filter((run) => run.state === "awaiting_approval").length;
-
-  // "Active" means not yet resolved — every incident's status starts "open"
-  // (see routes/incidents.ts) and there is no other status this slice ever
-  // assigns, but the check is written against "resolved" rather than
-  // "open" so a future status (e.g. "investigating") still counts as active
-  // by default.
-  const activeIncidents = incidents.filter((incident) => incident.status !== "resolved").length;
-
-  const todayPrefix = new Date().toISOString().slice(0, 10);
-  const runsToday = runs.filter((run) => run.createdAt.startsWith(todayPrefix)).length;
 
   return c.json({
     ok: true,

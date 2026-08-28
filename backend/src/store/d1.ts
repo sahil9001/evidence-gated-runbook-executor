@@ -187,6 +187,22 @@ export function createD1Store(db: D1Database): Store {
       return results.map(toRunRow);
     },
 
+    async countRunsByState(state: RunRow["state"]): Promise<number> {
+      const record = await db
+        .prepare(`SELECT COUNT(*) as count FROM runs WHERE state = ?`)
+        .bind(state)
+        .first<{ count: number }>();
+      return record?.count ?? 0;
+    },
+
+    async countRunsSince(sinceIso: string): Promise<number> {
+      const record = await db
+        .prepare(`SELECT COUNT(*) as count FROM runs WHERE created_at >= ?`)
+        .bind(sinceIso)
+        .first<{ count: number }>();
+      return record?.count ?? 0;
+    },
+
     async createRunWithArtifacts(input: {
       run: RunRow;
       packet: EvidencePacket;
@@ -476,6 +492,14 @@ export function createD1Store(db: D1Database): Store {
       const { results } =
         filter?.status !== undefined ? await stmt.bind(filter.status).all<IncidentRecord>() : await stmt.all<IncidentRecord>();
       return results.map(toIncidentRow);
+    },
+
+    async countIncidentsExcludingStatus(status: string): Promise<number> {
+      const record = await db
+        .prepare(`SELECT COUNT(*) as count FROM incidents WHERE status != ?`)
+        .bind(status)
+        .first<{ count: number }>();
+      return record?.count ?? 0;
     },
 
     async getIncident(id: string): Promise<IncidentRow | null> {

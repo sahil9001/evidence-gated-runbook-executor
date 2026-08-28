@@ -115,6 +115,14 @@ export function createMemoryStore(): Store {
         .map(clone);
     },
 
+    async countRunsByState(state: RunRow["state"]): Promise<number> {
+      return [...runs.values()].filter((r) => r.state === state).length;
+    },
+
+    async countRunsSince(sinceIso: string): Promise<number> {
+      return [...runs.values()].filter((r) => r.createdAt >= sinceIso).length;
+    },
+
     async createRunWithArtifacts(input: {
       run: RunRow;
       packet: EvidencePacket;
@@ -332,6 +340,10 @@ export function createMemoryStore(): Store {
         rows = rows.filter((r) => r.status === wantedStatus);
       }
       return rows.sort(byCreatedAtDesc).map(clone);
+    },
+
+    async countIncidentsExcludingStatus(status: string): Promise<number> {
+      return [...incidents.values()].filter((i) => i.status !== status).length;
     },
 
     async getIncident(id: string): Promise<IncidentRow | null> {

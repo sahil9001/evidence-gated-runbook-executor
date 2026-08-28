@@ -178,6 +178,37 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       });
     });
 
+    describe("countRunsByState / countRunsSince", () => {
+      it("counts runs matching a state without returning the rows", async () => {
+        // A dedicated, never-elsewhere-used state count avoids interference
+        // from other tests in this shared-store suite transiently passing
+        // through "awaiting_approval" or "collecting" — "rejected" is only
+        // ever set here.
+        const incidentId = "inc-count-runs-state";
+        const before = await store.countRunsByState("rejected");
+        await store.createRun(makeRun("run-count-state-a", { incidentId, state: "rejected" }));
+        await store.createRun(makeRun("run-count-state-b", { incidentId, state: "rejected" }));
+        await store.createRun(makeRun("run-count-state-c", { incidentId, state: "collecting" }));
+
+        expect(await store.countRunsByState("rejected")).toBe(before + 2);
+      });
+
+      it("counts runs created at or after the given instant", async () => {
+        // A time window (2026-08-25T10:00–12:00) no other test in this
+        // shared-store suite touches, so the delta this test creates is the
+        // exact delta `countRunsSince` must report.
+        const incidentId = "inc-count-runs-since";
+        const cutoff = "2026-08-25T10:00:00.000Z";
+        const beforeCutoff = await store.countRunsSince(cutoff);
+
+        await store.createRun(makeRun("run-count-since-old", { incidentId, createdAt: "2026-08-25T09:00:00.000Z", updatedAt: "2026-08-25T09:00:00.000Z" }));
+        await store.createRun(makeRun("run-count-since-new-1", { incidentId, createdAt: "2026-08-25T10:00:00.000Z", updatedAt: "2026-08-25T10:00:00.000Z" }));
+        await store.createRun(makeRun("run-count-since-new-2", { incidentId, createdAt: "2026-08-25T11:00:00.000Z", updatedAt: "2026-08-25T11:00:00.000Z" }));
+
+        expect(await store.countRunsSince(cutoff)).toBe(beforeCutoff + 2);
+      });
+    });
+
     describe("createRunWithArtifacts", () => {
       it("atomically creates the run, packet, action, gate, and audit entries", async () => {
         const run = makeRun("run-atomic-1", { incidentId: "inc-atomic-1", state: "awaiting_approval" });
@@ -934,6 +965,16 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       it("rejects creating an incident with a duplicate id", async () => {
         await store.createIncident(makeIncident("inc-dup-1"));
         await expect(store.createIncident(makeIncident("inc-dup-1", { title: "different title" }))).rejects.toThrow();
+      });
+
+      it("counts incidents excluding a given status without returning the rows", async () => {
+        // A dedicated status, never used elsewhere in this shared-store
+        // suite, so the delta this test creates is exact.
+        const before = await store.countIncidentsExcludingStatus("archived-for-count-test");
+        await store.createIncident(makeIncident("inc-count-exclude-a", { status: "open" }));
+        await store.createIncident(makeIncident("inc-count-exclude-b", { status: "archived-for-count-test" }));
+
+        expect(await store.countIncidentsExcludingStatus("archived-for-count-test")).toBe(before + 1);
       });
     });
 

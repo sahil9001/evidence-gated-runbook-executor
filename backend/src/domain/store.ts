@@ -94,6 +94,22 @@ export interface Store {
   listRunsByIncident(incidentId: string): Promise<RunRow[]>;
 
   /**
+   * `COUNT(*) ... WHERE state = ?` — never `(await listRuns()).filter(...)
+   * .length`. The Overview screen only needs a number, and a caller that
+   * materializes every run row into the Worker just to throw away
+   * everything but a count pays a cost (time, memory) that grows with total
+   * history forever, for a request an authenticated user can trigger at
+   * will.
+   */
+  countRunsByState(state: RunRow["state"]): Promise<number>;
+  /**
+   * `COUNT(*) ... WHERE created_at >= ?` — bounds "how many runs since this
+   * instant" (e.g. the start of today) without shipping every run row into
+   * the Worker. Same reasoning as `countRunsByState`.
+   */
+  countRunsSince(sinceIso: string): Promise<number>;
+
+  /**
    * Creates a run and every artifact it is born with — its evidence packet,
    * proposed action, locked gate, and initiating audit entries — as one
    * atomic write. The alternative (independent `createRun` / `savePacket` /
@@ -185,6 +201,13 @@ export interface Store {
   listIncidents(filter?: { status?: string }): Promise<IncidentRow[]>;
   getIncident(id: string): Promise<IncidentRow | null>;
   createIncident(row: IncidentRow): Promise<void>;
+  /**
+   * `COUNT(*) ... WHERE status != ?` — the Overview screen's "active
+   * incidents" tile needs only a number, never every incident row filtered
+   * in the Worker. See `countRunsByState`'s doc comment for the same
+   * reasoning.
+   */
+  countIncidentsExcludingStatus(status: string): Promise<number>;
 
   createUser(row: UserRow): Promise<void>;
   getUserByEmail(email: string): Promise<UserRow | null>;

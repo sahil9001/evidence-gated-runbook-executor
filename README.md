@@ -144,6 +144,27 @@ argument.
 
 ## How to run it
 
+### Quickest path: one command
+
+```bash
+./scripts/dev.sh
+```
+
+Installs what is missing, applies the local D1 migrations, starts the backend
+on `http://localhost:8787` and the frontend on `http://localhost:3000`, waits
+until both actually answer, and prints where to go next. Ctrl+C stops both.
+That is everything needed to click through the console — register an account,
+file an incident, run it, approve the gate. TrueForge is only needed for the
+MCP/agent half, covered in the numbered steps below.
+
+> One gotcha the script also prints: a run needs a runbook whose trigger
+> matches. Only one ships, and it triggers on service **`payment-service`**
+> with signals **`timeout`** and **`error_rate`**. An incident against any
+> other service creates fine and then fails at "start run" with
+> `no_matching_runbook` — that is the matcher working, not a bug.
+
+### Step by step
+
 You need: Node 22 LTS, a local [TrueForge](https://trueforge.dev) instance
 (`npx @truefoundry/trueforge`, verified against v0.1.4), and — only for a full
 end-to-end agent turn — a free Gemini API key. No API keys are committed

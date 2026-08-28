@@ -206,7 +206,7 @@ export function AuditClient() {
       ),
     [runIdFilter]
   );
-  const { state, retry } = useAbortableResource(fetchAudit);
+  const { state, retry } = useAbortableResource(fetchAudit, runIdFilter);
 
   function applyFilter(value: string): void {
     const params = new URLSearchParams(searchParams.toString());

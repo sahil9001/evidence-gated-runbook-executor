@@ -148,7 +148,7 @@ export function IncidentsClient() {
       listIncidents(statusFilter === "" ? undefined : statusFilter, undefined, signal),
     [statusFilter]
   );
-  const { state, retry } = useAbortableResource(fetchIncidents);
+  const { state, retry } = useAbortableResource(fetchIncidents, statusFilter);
 
   function handleStatusChange(value: string): void {
     const params = new URLSearchParams(searchParams.toString());

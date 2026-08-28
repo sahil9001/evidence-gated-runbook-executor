@@ -217,7 +217,7 @@ export function HistoryClient() {
     (signal: AbortSignal): Promise<HistoryRow[]> => fetchHistory(stateFilter, signal),
     [stateFilter]
   );
-  const { state, retry } = useAbortableResource(fetchAndSetHistory);
+  const { state, retry } = useAbortableResource(fetchAndSetHistory, stateFilter);
 
   function handleStateChange(value: string): void {
     const params = new URLSearchParams(searchParams.toString());

@@ -32,7 +32,8 @@
     // account, or a custom domain shared by both. A console that is
     // merely allow-listed here but cross-site will pass CORS, log in,
     // and then 401 forever. See setSessionCookie in src/routes/auth.ts
-    // and ../docs/cloudflare-deployment.md.
+    // and ../docs/cloudflare-deployment.md (which also covers what a
+    // cross-site console would need before SameSite could be loosened).
     "ALLOWED_FRONTEND_ORIGINS": "https://runproof-frontend.sahilsilare.workers.dev"
   },
   "d1_databases": [

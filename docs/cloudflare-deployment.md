@@ -181,12 +181,22 @@ every authenticated request 401s, because the browser never sends the cookie
 back. Nothing in the backend's logs distinguishes this from an expired session.
 
 Supporting a cross-site split means changing the cookie to
-`SameSite=None; Secure` in `backend/src/routes/auth.ts` — which lets it ride
-along on requests from any site and therefore needs a CSRF defence this
-codebase does not yet have. Today the only barrier to a cross-site
-state-changing request is that every route requires
-`Content-Type: application/json`, forcing a preflight that the CORS allow-list
-rejects. Do not flip `SameSite` without adding one.
+`SameSite=None; Secure` in `backend/src/routes/auth.ts`, which lets it ride
+along on requests from any site. Do not flip that attribute on its own.
+
+With `Lax`, two independent things have to fail before a page on another site
+can make an authenticated state change: the cookie has to travel, and the
+request has to get past `requireJsonContentType` (`backend/src/index.ts`),
+which requires `Content-Type: application/json` on every POST. That guard is
+what stops a cross-site HTML form, since a form can only send
+`application/x-www-form-urlencoded`, `multipart/form-data`, or `text/plain`,
+and anything else is preflighted into the CORS allow-list.
+
+Switching to `None` removes the first of those and leaves the content-type
+guard carrying CSRF by itself. It is a real defence and a conventional one for
+a JSON API, but it is a single one, and it holds only for as long as browsers
+refuse to let a form send `application/json`. Add a CSRF token or an explicit
+Origin check on state-changing routes as part of the same change.
 
 ## Optional: Static Cloudflare Pages Deployment
 

@@ -99,3 +99,53 @@ describe("CORS", () => {
     expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
   });
 });
+
+describe("JSON content-type guard", () => {
+  async function send(path: string, init: RequestInit): Promise<Response> {
+    const request = new Request(`http://localhost${path}`, init);
+    const ctx = createExecutionContext();
+    const response = await app.fetch(request, env, ctx);
+    await waitOnExecutionContext(ctx);
+    return response;
+  }
+
+  it("rejects a state-changing request whose JSON body is labelled text/plain", async () => {
+    // The body here is valid JSON, so `c.req.json()` — and therefore
+    // `parseJsonBody` — would happily accept it: that helper parses on content
+    // alone and never looks at the header. text/plain is one of the three
+    // content types a cross-site HTML form can produce, which is exactly what
+    // makes it dangerous, and exactly what this guard exists to stop.
+    const response = await send("/incidents", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ title: "t", service: "s", signals: [] })
+    });
+
+    expect(response.status).toBe(415);
+    expect(await response.json()).toMatchObject({ ok: false, error: { code: "unsupported_media_type" } });
+  });
+
+  it("rejects a state-changing request that names no content type at all", async () => {
+    const response = await send("/incidents", { method: "POST" });
+
+    expect(response.status).toBe(415);
+  });
+
+  it("accepts application/json carrying a charset parameter", async () => {
+    const response = await send("/incidents", {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ title: "t", service: "s", signals: [] })
+    });
+
+    // 401, not 415: the guard let it through and `requireAuth` took over,
+    // which is the whole point — a charset parameter is ordinary.
+    expect(response.status).toBe(401);
+  });
+
+  it("leaves reads alone, which carry no body to type", async () => {
+    const response = await send("/incidents", { method: "GET" });
+
+    expect(response.status).toBe(401);
+  });
+});

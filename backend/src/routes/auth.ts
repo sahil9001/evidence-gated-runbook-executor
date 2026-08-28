@@ -69,13 +69,17 @@ const SESSION_MAX_AGE_SECONDS = Math.floor(SESSION_TTL_MS / 1000);
  * independent gates and both have to pass. See
  * `docs/cloudflare-deployment.md`.
  *
- * Relaxing this to `SameSite=None` would lift the constraint and is a
+ * Relaxing this to `SameSite=None` would lift the constraint, and is a
  * larger change than it looks: `None` means the cookie rides along on
- * requests from any site, so it needs a CSRF defence that does not
- * currently exist here. Today the only thing standing between a
- * cross-site page and an authenticated state change is that every route
- * requires `Content-Type: application/json`, which forces a preflight
- * that `consoleCors`'s allow-list then rejects.
+ * requests from any site, so the CSRF question stops being answered by
+ * this attribute and falls entirely to `requireJsonContentType` in
+ * `../index.ts` — which rejects the content types a cross-site form can
+ * produce, and forces a preflight for everything else that
+ * `consoleCors`'s allow-list then refuses. That is a real defence and a
+ * standard one for a JSON API, but it is a single one, and it rests on
+ * browsers never letting a form send `application/json`. A cookie that
+ * travels cross-site deserves a CSRF token or an explicit Origin check
+ * as well, so treat adding one as part of the same change.
  */
 function setSessionCookie(c: Context<AuthedEnv>, sessionId: string): void {
   setCookie(c, SESSION_COOKIE_NAME, sessionId, {

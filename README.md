@@ -223,8 +223,8 @@ full log.
 | [#2](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/2) | Runbooks + evidence collectors | Cross-service evidence leakage — per-entry cards weren't filtered by `ctx.service`, so another service's logs could enter an evidence packet. Duplicate signals skewed runbook matching. Invalid action params were accepted. |
 | [#3](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/3) | TrueForge MCP server | Source allow-list bypass — MCP tools called collectors directly, skipping the runbook scope check that is the product's core safety property. Missing `Origin` validation (DNS rebinding against a localhost server). Sessions never expired. Active SSE sessions got evicted mid-stream. |
 | [#4](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/4) | Sandboxed diagnostic step | Whitespace-only diagnostics were accepted. |
-| [#9](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/9) | Listing APIs for the console | Unbounded listings — every list endpoint returned the whole table, so request cost grew with history despite a capped response. Fixed with limits plus composite `(filter, created_at DESC)` indexes; re-review then caught that those composites are unusable on each query's *unfiltered* path, whose leading column is unconstrained, needing a second migration for the plain creation-time indexes. |
-| [#10](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/10) | Operator console frontend | Three rounds, each triggered by the previous fix. Cross-origin calls were blocked with no CORS on the backend; adding an allow-list left it empty, so a deployed console was still refused. Filter changes raced, then — once aborted properly — left the *previous* filter's rows on screen under the new filter's label; the fix for that looped forever on a non-memoized fetcher, so the hook was re-keyed on an explicit request key. Finally, a CSRF note added in one of those fixes claimed every route required `Content-Type: application/json`; it was true of none, since `c.req.json()` ignores the header and `/auth/logout` reads no body at all — now enforced by a mounted guard. |
+| [#9](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/9) | Listing APIs for the console | `GET /overview` loaded every run and incident into the Worker to compute three counts, so runtime and memory grew with total history and an authenticated request could exhaust Worker resources; incident and run listings were likewise unbounded. Also `GET /runs/:id` returned 200 with a null incident for runs predating the incident table. The index work then took two more rounds: composite `(filter, created_at DESC)` indexes for the filtered paths, then a second migration once re-review caught that a composite is unusable on each query's *unfiltered* path, where its leading column is unconstrained. |
+| [#10](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/10) | Operator console frontend | Four review rounds, each triggered by the previous fix. Cross-origin calls were blocked with no CORS on the backend; adding an allow-list left it empty, so a deployed console was still refused. Filter changes raced, then — once aborted properly — left the *previous* filter's rows on screen under the new filter's label; the fix for that looped forever on a non-memoized fetcher, so the hook was re-keyed on an explicit request key. Finally, a CSRF note added in one of those fixes claimed every route required `Content-Type: application/json`; it was true of none, since `c.req.json()` ignores the header and `/auth/logout` reads no body at all — now enforced by a mounted guard. |
 
 **Fixes that caused the next finding:**
 - PR #1's fingerprint serializer exists *because* fixing action substitution
@@ -290,13 +290,14 @@ everything else in the submission:
   decision (D5 in `docs/IMPLEMENTATION-STATUS.md`, now superseded) was replaced
   across three PRs: #7 added the session layer, #8 made the approver derive
   from it, #10 added the console's sign-in. So there is a real
-  register/login/logout flow, sessions are PBKDF2-derived and carried in an
-  `HttpOnly` cookie, and `approvedBy` is no longer free text — an approver's
-  identity comes from the resolved session, never from anything the client
-  sends. What is missing is everything around it: **no rate limiting on
-  login**, no lockout, no password reset, no email verification, no roles
-  (every authenticated user can approve anything), and no multi-tenancy. This
-  is a vertical-slice prototype, not a production-hardened multi-tenant system.
+  register/login/logout flow, passwords are PBKDF2-SHA256 hashed, sessions are
+  random opaque ids carried in an `HttpOnly` cookie, and `approvedBy` is no
+  longer free text — an approver's identity comes from the resolved session,
+  never from anything the client sends. What is missing is everything around
+  it: **no rate limiting on login**, no lockout, no password reset, no email
+  verification, no roles (every authenticated user can approve anything), and
+  no multi-tenancy. This is a vertical-slice prototype, not a
+  production-hardened multi-tenant system.
 - **The session cookie constrains where the console can be deployed.** It is
   `SameSite=Lax`, so the console has to be served from the same registrable
   domain as the API. See

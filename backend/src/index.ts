@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { mcpRoute } from "./routes/mcp";
 import { authRoutes } from "./routes/auth";
 import { runRoutes } from "./routes/run";
@@ -23,6 +24,12 @@ export type Env = {
   MCP_SESSION_IDLE_TTL_MS?: string;
   /** Hard cap on concurrently held MCP sessions. See `src/routes/mcp.ts`. */
   MCP_MAX_SESSIONS?: string;
+  /**
+   * Comma-separated list of extra origins allowed to make credentialed CORS
+   * requests against the console's API surface, on top of the built-in
+   * `http://localhost:3000` dev-origin allowance. See `consoleCors` below.
+   */
+  ALLOWED_FRONTEND_ORIGINS?: string;
 };
 
 export type ApiError = {
@@ -34,6 +41,47 @@ export function apiError(code: string, message: string, details?: unknown): ApiE
   return { ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } };
 }
 
+/** Origins always allowed to make credentialed CORS requests against the
+ * console's API, regardless of `ALLOWED_FRONTEND_ORIGINS` — the frontend's
+ * own documented local-dev address. Deliberately narrower than
+ * `routes/mcp.ts`'s `DEV_ORIGIN_PATTERNS` (which allows any port): the
+ * console frontend has one fixed dev port, so there is no reason to allow
+ * more. */
+const DEV_FRONTEND_ORIGINS: readonly string[] = ["http://localhost:3000"];
+
+function parseConfiguredOrigins(raw: string | undefined): readonly string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function isFrontendOriginAllowed(origin: string, env: Env): boolean {
+  if (DEV_FRONTEND_ORIGINS.includes(origin)) return true;
+  return parseConfiguredOrigins(env.ALLOWED_FRONTEND_ORIGINS).includes(origin);
+}
+
+/**
+ * CORS for the operator console's own browser-facing API surface —
+ * deliberately mounted only on that surface below, never on `/mcp` (whose
+ * only caller, TrueForge, is a server-side `fetch` that sends no Origin
+ * header and validates Origin itself, see `routes/mcp.ts`) or `/health`.
+ *
+ * `credentials: true` is required because the session is an `HttpOnly`
+ * cookie (`auth/middleware.ts`) — without it the browser neither stores nor
+ * sends it, and login would appear to succeed while every following request
+ * 401s. That in turn requires an explicit origin allow-list rather than
+ * `*`: browsers reject a wildcard origin combined with credentials, and an
+ * allow-list is what makes echoing the origin back safe to do at all.
+ */
+const consoleCors = cors({
+  origin: (origin, c) => (isFrontendOriginAllowed(origin, c.env as Env) ? origin : null),
+  credentials: true,
+  allowMethods: ["GET", "POST", "OPTIONS"],
+  allowHeaders: ["Content-Type"]
+});
+
 const app = new Hono<{ Bindings: Env; Variables: AuthedVariables }>();
 
 app.get("/health", (c) => c.json({ status: "ok", service: "runproof-api" }));
@@ -42,6 +90,19 @@ app.get("/health", (c) => c.json({ status: "ok", service: "runproof-api" }));
 // stays public. /mcp is how TrueForge reaches this server and validates its
 // own Origin (see routes/mcp.ts) — session auth does not apply there.
 app.route("/mcp", mcpRoute);
+
+// Mounted before every route below (including /auth/*) so a preflight is
+// answered — and the real origin allow-list is enforced — before any
+// session/auth check runs. Never mounted on /mcp or /health; see
+// `consoleCors`'s doc comment above.
+app.use("/auth/*", consoleCors);
+app.use("/incidents/*", consoleCors);
+app.use("/runs/*", consoleCors);
+app.use("/approvals/*", consoleCors);
+app.use("/audit/*", consoleCors);
+app.use("/runbooks/*", consoleCors);
+app.use("/overview/*", consoleCors);
+
 app.route("/", authRoutes);
 
 // Every other API surface requires a resolved session. Mounted as path-

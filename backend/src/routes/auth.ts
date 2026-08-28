@@ -50,6 +50,33 @@ const DUMMY_PASSWORD_SALT = "k6SuxNbau+T2fnAA9O62lg==";
 
 const SESSION_MAX_AGE_SECONDS = Math.floor(SESSION_TTL_MS / 1000);
 
+/**
+ * `sameSite: "Lax"` is a deliberate deployment constraint, not just a
+ * default: the browser will not attach this cookie to a cross-SITE
+ * `fetch()`, so the console frontend must be served from the same
+ * registrable domain as this API. Both Workers under one Cloudflare
+ * account satisfy that — `workers.dev` is a public suffix, so
+ * `runproof-frontend.<account>.workers.dev` and
+ * `runproof-api.<account>.workers.dev` share the site
+ * `<account>.workers.dev` — while a console on a custom domain, or on a
+ * second account's subdomain, does not.
+ *
+ * That failure is quiet and easy to misdiagnose: such a deployment can
+ * pass CORS and log in successfully (the login response's own Set-Cookie
+ * is honoured), and then 401 on every authenticated request afterwards,
+ * because the cookie is never sent back. Adding the origin to
+ * `ALLOWED_FRONTEND_ORIGINS` does not fix it — CORS and SameSite are
+ * independent gates and both have to pass. See
+ * `docs/cloudflare-deployment.md`.
+ *
+ * Relaxing this to `SameSite=None` would lift the constraint and is a
+ * larger change than it looks: `None` means the cookie rides along on
+ * requests from any site, so it needs a CSRF defence that does not
+ * currently exist here. Today the only thing standing between a
+ * cross-site page and an authenticated state change is that every route
+ * requires `Content-Type: application/json`, which forces a preflight
+ * that `consoleCors`'s allow-list then rejects.
+ */
 function setSessionCookie(c: Context<AuthedEnv>, sessionId: string): void {
   setCookie(c, SESSION_COOKIE_NAME, sessionId, {
     httpOnly: true,

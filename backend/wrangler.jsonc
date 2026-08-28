@@ -21,11 +21,18 @@
     // request from it — login included — fails in the browser. The value
     // below is the deployed runproof-frontend Worker (see
     // ../frontend/wrangler.jsonc and the "Live deployment" section of
-    // ../README.md). Deploying this backend under a different Cloudflare
-    // account, or the console to a custom domain, means replacing it:
-    // an origin is scheme + host + port, matched exactly, so the
-    // *.workers.dev subdomain here is account-specific. Leaving it empty
-    // is what breaks a deployed console, so it is deliberately not empty.
+    // ../README.md). An origin is scheme + host + port, matched exactly,
+    // so the *.workers.dev subdomain here is account-specific and moving
+    // either Worker means updating this. Leaving it empty is what breaks
+    // a deployed console, so it is deliberately not empty.
+    //
+    // Updating this is necessary but NOT sufficient to move the console:
+    // the session cookie is SameSite=Lax, so the console must also stay
+    // on the same registrable domain as this API — same Cloudflare
+    // account, or a custom domain shared by both. A console that is
+    // merely allow-listed here but cross-site will pass CORS, log in,
+    // and then 401 forever. See setSessionCookie in src/routes/auth.ts
+    // and ../docs/cloudflare-deployment.md.
     "ALLOWED_FRONTEND_ORIGINS": "https://runproof-frontend.sahilsilare.workers.dev"
   },
   "d1_databases": [

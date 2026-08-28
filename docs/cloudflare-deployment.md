@@ -151,6 +151,43 @@ in the browser with a CORS message in the devtools console while the backend's
 own logs look fine, because the browser blocks the response before the page
 ever sees it.
 
+### The console and the API must stay on the same site
+
+CORS is only one of two gates. The session is a `SameSite=Lax` cookie, which
+browsers refuse to attach to a cross-**site** `fetch()`, so allow-listing an
+origin is necessary but not sufficient — the console must also be served from
+the same registrable domain as the API.
+
+Two Workers under one Cloudflare account satisfy this. `workers.dev` is a
+public suffix, so `runproof-frontend.<account>.workers.dev` and
+`runproof-api.<account>.workers.dev` are different *origins* (hence the CORS
+config above) but the same *site*, `<account>.workers.dev`. These deployments
+are supported:
+
+- Both Workers on one account's `workers.dev` subdomain — the checked-in setup.
+- Both on custom domains under one registrable domain, e.g. `console.example.com`
+  and `api.example.com`.
+
+These are not, without further work:
+
+- Console and API on **different** Cloudflare accounts, e.g.
+  `runproof-frontend.a.workers.dev` calling `runproof-api.b.workers.dev`.
+- Console on a custom domain calling an API still on `*.workers.dev`, or any
+  other pair spanning two registrable domains.
+
+An unsupported pair fails in a way that looks like an auth bug rather than a
+deployment one: CORS passes, login returns 200 and sets the cookie, and then
+every authenticated request 401s, because the browser never sends the cookie
+back. Nothing in the backend's logs distinguishes this from an expired session.
+
+Supporting a cross-site split means changing the cookie to
+`SameSite=None; Secure` in `backend/src/routes/auth.ts` — which lets it ride
+along on requests from any site and therefore needs a CSRF defence this
+codebase does not yet have. Today the only barrier to a cross-site
+state-changing request is that every route requires
+`Content-Type: application/json`, forcing a preflight that the CORS allow-list
+rejects. Do not flip `SameSite` without adding one.
+
 ## Optional: Static Cloudflare Pages Deployment
 
 Use this only if the frontend stays static and does not need server-side rendering, route handlers, server actions, or dynamic backend behavior.

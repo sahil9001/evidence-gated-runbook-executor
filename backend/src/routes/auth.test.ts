@@ -65,6 +65,11 @@ describe("POST /auth/register", () => {
     expect(raw).not.toContain("salt");
   });
 
+  // SameSite=Lax is the one attribute here that is also a deployment
+  // constraint: it confines the console to the API's own site. Loosening it to
+  // None to allow a cross-site console needs a CSRF defence first — see
+  // setSessionCookie in ./auth.ts. This assertion is what makes that a
+  // deliberate change rather than an incidental one.
   it("sets the cookie with HttpOnly, Secure, SameSite=Lax, Path=/, and a 30-day Max-Age", async () => {
     const { setCookie } = await post("/auth/register", { email: "cookie-attrs@example.com", password: STRONG_PASSWORD });
     expect(setCookie).not.toBeNull();

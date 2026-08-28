@@ -908,6 +908,23 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         const loaded = await store.listAudit(run.id);
         expect(loaded.map((e) => e.id)).toEqual(["audit-run8-a", "audit-run8-b", "audit-run8-c"]);
       });
+
+      it("caps listAudit at the given limit", async () => {
+        const run = makeRun("run-audit-limit");
+        await store.createRun(run);
+
+        const entries: AuditEntry[] = [
+          { id: "audit-limit-a", runId: run.id, at: "2026-08-25T02:00:00.000Z", kind: "run_created", detail: "a" },
+          { id: "audit-limit-b", runId: run.id, at: "2026-08-25T02:10:00.000Z", kind: "gate_approved", detail: "b" },
+          { id: "audit-limit-c", runId: run.id, at: "2026-08-25T02:20:00.000Z", kind: "action_executed", detail: "c" }
+        ];
+        for (const entry of entries) {
+          await store.appendAudit(entry);
+        }
+
+        const loaded = await store.listAudit(run.id, 2);
+        expect(loaded).toHaveLength(2);
+      });
     });
 
     describe("listRecentAudit", () => {

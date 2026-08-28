@@ -196,7 +196,14 @@ export interface Store {
   decideGate(gate: ApprovedGate | RejectedGate, runId: string, at: string): Promise<boolean>;
 
   appendAudit(entry: AuditEntry): Promise<void>;
-  listAudit(runId: string): Promise<AuditEntry[]>;
+  /** Oldest-first (a run's own history reads top-to-bottom as a timeline).
+   * `limit`, when given, bounds how many entries come back — a route that
+   * advertises `?limit=` must apply it here too, not just on
+   * `listRecentAudit`'s path. Omitted only where a caller genuinely wants
+   * the run's entire history (there is no unbounded-request surface for
+   * this form: a single run's audit trail is operator-created, not
+   * attacker-controlled input). */
+  listAudit(runId: string, limit?: number): Promise<AuditEntry[]>;
   /** The most recent audit entries across every run, newest first, capped at
    * `limit`. Backs a cross-run recent-activity view — a use case
    * `listAudit` (scoped to one run) can't provide. */

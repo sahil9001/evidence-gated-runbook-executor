@@ -22,9 +22,12 @@ export const auditRoutes = new Hono<AuthedEnv>();
 auditRoutes.get("/audit", async (c) => {
   const store = createD1Store(c.env.DB);
   const runId = c.req.query("runId");
+  const limit = parseLimit(c.req.query("limit"));
 
-  const entries =
-    runId === undefined ? await store.listRecentAudit(parseLimit(c.req.query("limit"))) : await store.listAudit(runId);
+  // `?limit=` is honoured on BOTH paths — a client asking for
+  // `?runId=...&limit=1` must not fall through to the unbounded
+  // `listAudit(runId)` call this route advertises a cap for.
+  const entries = runId === undefined ? await store.listRecentAudit(limit) : await store.listAudit(runId, limit);
 
   return c.json({ ok: true, data: entries });
 });

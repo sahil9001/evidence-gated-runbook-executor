@@ -470,10 +470,14 @@ export function createD1Store(db: D1Database): Store {
         .run();
     },
 
-    async listAudit(runId: string): Promise<AuditEntry[]> {
+    async listAudit(runId: string, limit?: number): Promise<AuditEntry[]> {
+      const limitClause = limit !== undefined ? ` LIMIT ?` : "";
+      const params = limit !== undefined ? [runId, limit] : [runId];
       const { results } = await db
-        .prepare(`SELECT id, run_id, at, kind, detail FROM audit_log WHERE run_id = ? ORDER BY at ASC, id ASC`)
-        .bind(runId)
+        .prepare(
+          `SELECT id, run_id, at, kind, detail FROM audit_log WHERE run_id = ? ORDER BY at ASC, id ASC${limitClause}`
+        )
+        .bind(...params)
         .all<AuditRecord>();
       return results.map(toAuditEntry);
     },

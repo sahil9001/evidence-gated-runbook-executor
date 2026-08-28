@@ -310,15 +310,16 @@ export function createMemoryStore(): Store {
       auditLog.set(entry.id, clone(entry));
     },
 
-    async listAudit(runId: string): Promise<AuditEntry[]> {
-      return [...auditLog.values()]
+    async listAudit(runId: string, limit?: number): Promise<AuditEntry[]> {
+      let entries = [...auditLog.values()]
         .filter((e) => e.runId === runId)
         .sort((a, b) => {
           if (a.at !== b.at) return a.at < b.at ? -1 : 1;
           if (a.id !== b.id) return a.id < b.id ? -1 : 1;
           return 0;
-        })
-        .map(clone);
+        });
+      if (limit !== undefined) entries = entries.slice(0, limit);
+      return entries.map(clone);
     },
 
     async listRecentAudit(limit: number): Promise<AuditEntry[]> {

@@ -124,4 +124,27 @@ describe("GET /audit", () => {
     const body = json as ApiOk<unknown[]>;
     expect(body.data.length).toBeLessThanOrEqual(MAX_AUDIT_LIMIT);
   });
+
+  // Qodo finding: when `runId` is present, `?limit=` was silently ignored —
+  // the runId branch always called the unbounded `listAudit(runId)` path,
+  // so `/audit?runId=...&limit=1` could return every entry for that run.
+  it("honours ?limit= on the runId-scoped path too, not just the recent-activity path", async () => {
+    const cookie = await registeredCookie();
+    const app = buildApp();
+    const run = await createRun(app, cookie);
+
+    // The run's own creation writes exactly one audit entry in the happy
+    // path (see createRunWithArtifacts's call site in run.ts); append two
+    // more directly so this run genuinely has more entries than the limit
+    // being tested, making the assertion discriminate a real bug from a
+    // coincidentally-small history.
+    const store = createD1Store(env.DB);
+    await store.appendAudit({ id: crypto.randomUUID(), runId: run.id, at: new Date().toISOString(), kind: "note", detail: "extra-1" });
+    await store.appendAudit({ id: crypto.randomUUID(), runId: run.id, at: new Date().toISOString(), kind: "note", detail: "extra-2" });
+
+    const { status, json } = await request(app, "GET", `/audit?runId=${run.id}&limit=1`, undefined, cookie);
+    expect(status).toBe(200);
+    const body = json as ApiOk<{ runId: string }[]>;
+    expect(body.data.length).toBe(1);
+  });
 });

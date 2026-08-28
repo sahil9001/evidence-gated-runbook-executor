@@ -4,7 +4,7 @@ import { beforeAll, describe, it, expect } from "vitest";
 import { createD1Store } from "../store/d1";
 import { createSession } from "../auth/session";
 import { requireAuth, type AuthedEnv } from "../auth/middleware";
-import { incidentRoutes } from "./incidents";
+import { incidentRoutes, MAX_INCIDENT_LIMIT } from "./incidents";
 import type { IncidentRow } from "../domain/store";
 
 beforeAll(async () => {
@@ -101,6 +101,28 @@ describe("GET /incidents", () => {
     const ids = body.data.map((i) => i.id);
     expect(ids).toContain(resolved.id);
     expect(ids).not.toContain(open.id);
+  });
+
+  // Qodo finding: GET /incidents returned every matching incident with no
+  // pagination or maximum, unlike the capped run and audit listings. Seeds
+  // strictly MORE than MAX_INCIDENT_LIMIT rows directly through the store
+  // (bypassing the slower HTTP round trip) so this genuinely exercises the
+  // cap rather than coincidentally staying under it.
+  it("caps limit at MAX_INCIDENT_LIMIT even when a client asks for more", async () => {
+    const { cookie } = await registeredCookie();
+    const app = buildApp();
+    for (let i = 0; i < MAX_INCIDENT_LIMIT + 5; i += 1) await seedIncident();
+
+    const { status, json } = await request(
+      app,
+      "GET",
+      `/incidents?limit=${MAX_INCIDENT_LIMIT + 5000}`,
+      undefined,
+      cookie
+    );
+    expect(status).toBe(200);
+    const body = json as ApiOk<IncidentRow[]>;
+    expect(body.data.length).toBeLessThanOrEqual(MAX_INCIDENT_LIMIT);
   });
 });
 

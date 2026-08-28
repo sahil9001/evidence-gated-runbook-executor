@@ -484,13 +484,19 @@ export function createD1Store(db: D1Database): Store {
       return results.map(toAuditEntry);
     },
 
-    async listIncidents(filter?: { status?: string }): Promise<IncidentRow[]> {
+    async listIncidents(filter?: { status?: string; limit?: number }): Promise<IncidentRow[]> {
       const where = filter?.status !== undefined ? ` WHERE status = ?` : "";
-      const stmt = db.prepare(
-        `SELECT id, title, service, signals, status, created_by, created_at FROM incidents${where} ORDER BY created_at DESC`
-      );
-      const { results } =
-        filter?.status !== undefined ? await stmt.bind(filter.status).all<IncidentRecord>() : await stmt.all<IncidentRecord>();
+      const limitClause = filter?.limit !== undefined ? ` LIMIT ?` : "";
+      const params: unknown[] = [];
+      if (filter?.status !== undefined) params.push(filter.status);
+      if (filter?.limit !== undefined) params.push(filter.limit);
+
+      const { results } = await db
+        .prepare(
+          `SELECT id, title, service, signals, status, created_by, created_at FROM incidents${where} ORDER BY created_at DESC${limitClause}`
+        )
+        .bind(...params)
+        .all<IncidentRecord>();
       return results.map(toIncidentRow);
     },
 

@@ -967,6 +967,15 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         await expect(store.createIncident(makeIncident("inc-dup-1", { title: "different title" }))).rejects.toThrow();
       });
 
+      it("caps listIncidents at the given limit, newest-first", async () => {
+        await store.createIncident(makeIncident("inc-limit-a", { createdAt: "2026-08-25T08:00:00.000Z" }));
+        await store.createIncident(makeIncident("inc-limit-b", { createdAt: "2026-08-25T08:05:00.000Z" }));
+        await store.createIncident(makeIncident("inc-limit-c", { createdAt: "2026-08-25T08:10:00.000Z" }));
+
+        const loaded = await store.listIncidents({ limit: 2 });
+        expect(loaded).toHaveLength(2);
+      });
+
       it("counts incidents excluding a given status without returning the rows", async () => {
         // A dedicated status, never used elsewhere in this shared-store
         // suite, so the delta this test creates is exact.

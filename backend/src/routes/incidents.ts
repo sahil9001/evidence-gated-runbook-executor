@@ -12,6 +12,22 @@ import type { AuthedEnv } from "../auth/middleware";
  */
 const INITIAL_INCIDENT_STATUS = "open";
 
+/**
+ * `?limit=` is user-controlled input on a route with no other bound, so an
+ * uncapped value is a denial-of-service knob (a client asking for every
+ * incident ever created in one response). Same reasoning as `runs.ts`'s and
+ * `audit.ts`'s caps.
+ */
+export const DEFAULT_INCIDENT_LIMIT = 25;
+export const MAX_INCIDENT_LIMIT = 50;
+
+function parseLimit(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_INCIDENT_LIMIT;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_INCIDENT_LIMIT;
+  return Math.min(parsed, MAX_INCIDENT_LIMIT);
+}
+
 // `createdBy` is deliberately absent from this schema — the route handler
 // below takes it from `c.var.user.email` (the session `requireAuth`
 // resolved), never from the request body. Same discipline as `by` on
@@ -29,8 +45,9 @@ export const incidentRoutes = new Hono<AuthedEnv>();
 
 incidentRoutes.get("/incidents", async (c) => {
   const status = c.req.query("status");
+  const limit = parseLimit(c.req.query("limit"));
   const store = createD1Store(c.env.DB);
-  const incidents = await store.listIncidents(status === undefined ? undefined : { status });
+  const incidents = await store.listIncidents(status === undefined ? { limit } : { status, limit });
   return c.json({ ok: true, data: incidents });
 });
 

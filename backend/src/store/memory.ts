@@ -333,13 +333,15 @@ export function createMemoryStore(): Store {
         .map(clone);
     },
 
-    async listIncidents(filter?: { status?: string }): Promise<IncidentRow[]> {
+    async listIncidents(filter?: { status?: string; limit?: number }): Promise<IncidentRow[]> {
       let rows = [...incidents.values()];
       if (filter?.status !== undefined) {
         const wantedStatus = filter.status;
         rows = rows.filter((r) => r.status === wantedStatus);
       }
-      return rows.sort(byCreatedAtDesc).map(clone);
+      rows = rows.sort(byCreatedAtDesc);
+      if (filter?.limit !== undefined) rows = rows.slice(0, filter.limit);
+      return rows.map(clone);
     },
 
     async countIncidentsExcludingStatus(status: string): Promise<number> {

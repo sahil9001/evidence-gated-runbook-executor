@@ -198,7 +198,9 @@ export interface Store {
    * `listAudit` (scoped to one run) can't provide. */
   listRecentAudit(limit: number): Promise<AuditEntry[]>;
 
-  listIncidents(filter?: { status?: string }): Promise<IncidentRow[]>;
+  /** Newest-first. `limit`, when given, bounds the result the same way
+   * `listRuns`'s does. */
+  listIncidents(filter?: { status?: string; limit?: number }): Promise<IncidentRow[]>;
   getIncident(id: string): Promise<IncidentRow | null>;
   createIncident(row: IncidentRow): Promise<void>;
   /**

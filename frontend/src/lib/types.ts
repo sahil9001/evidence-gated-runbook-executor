@@ -110,9 +110,13 @@ export interface PacketResponse {
 
 // mirrors the `data` payload of POST /approvals/:id/approve and .../reject
 // (backend/src/routes/approvals.ts) — `execution` is present only on approve.
+// `runState` is the run's real resulting state ("executed" for approve,
+// "rejected" for reject) — distinct from `gate.state` ("approved" for
+// approve), which callers must not infer the run state from.
 export interface ApprovalResponse {
   readonly gate: ApprovalGate;
   readonly execution?: ExecutionResult;
+  readonly runState: RunRow["state"];
 }
 
 // mirrors the shape backend/src/routes/runs.ts builds for each `failures`

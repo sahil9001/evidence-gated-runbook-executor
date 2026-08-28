@@ -8,7 +8,8 @@ import type {
   ApprovalGate,
   Confidence,
   EvidencePacket,
-  ExecutionResult
+  ExecutionResult,
+  RunRow
 } from "../../../../../lib/types";
 import { RunbookPreview, type RunbookPreviewData, type TimelineEntry } from "../../../../components/RunbookPreview";
 import { humanizeErrorCode, toApiClientError } from "../shared";
@@ -98,7 +99,10 @@ interface ApprovalTabProps {
   readonly gate: ApprovalGate | null;
   readonly confidence: Confidence | null;
   readonly lastExecution: ExecutionResult | undefined;
-  readonly onDecided: (gate: ApprovalGate, execution?: ExecutionResult) => void;
+  // `runState` is the run's real resulting state (backend/src/routes/approvals.ts) —
+  // distinct from `gate.state`, which alone would give the wrong answer for
+  // approve (gate ends "approved" but the run ends "executed").
+  readonly onDecided: (gate: ApprovalGate, runState: RunRow["state"], execution?: ExecutionResult) => void;
 }
 
 export function ApprovalTab({
@@ -140,7 +144,7 @@ export function ApprovalTab({
     try {
       const result = await approve(currentGate.id);
       setDecisionState({ status: "idle" });
-      onDecided(result.gate, result.execution);
+      onDecided(result.gate, result.runState, result.execution);
     } catch (error) {
       setDecisionState({ status: "error", message: humanizeErrorCode(toApiClientError(error).code) });
     }
@@ -159,7 +163,7 @@ export function ApprovalTab({
       setDecisionState({ status: "idle" });
       setRejectOpen(false);
       setRejectReason("");
-      onDecided(result.gate, undefined);
+      onDecided(result.gate, result.runState, undefined);
     } catch (error) {
       setDecisionState({ status: "error", message: humanizeErrorCode(toApiClientError(error).code) });
     }

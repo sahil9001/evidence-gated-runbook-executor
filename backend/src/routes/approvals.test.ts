@@ -157,11 +157,16 @@ describe("POST /approvals/:id/approve", () => {
     const body = json as ApiOk<{
       gate: { state: string; decidedBy: string };
       execution: { executed: boolean; dryRun: boolean; output: string };
+      runState: string;
     }>;
     expect(body.data.gate.state).toBe("approved");
     expect(body.data.gate.decidedBy).toBe(email);
     expect(body.data.execution.executed).toBe(true);
     expect(body.data.execution.dryRun).toBe(false);
+    // Qodo finding: the run's actual final state ("executed") diverges from
+    // `gate.state` ("approved") — a client that infers run state from the
+    // gate alone gets this wrong. The response must carry the real value.
+    expect(body.data.runState).toBe("executed");
 
     const store = createD1Store(env.DB);
     const run = await store.getRun(id);
@@ -325,10 +330,11 @@ describe("POST /approvals/:id/reject", () => {
 
     const { status, json } = await post(app, `/approvals/${id}/reject`, { reason: "not confident yet" }, cookie);
     expect(status).toBe(200);
-    const body = json as ApiOk<{ gate: { state: string; decidedBy: string; reason: string } }>;
+    const body = json as ApiOk<{ gate: { state: string; decidedBy: string; reason: string }; runState: string }>;
     expect(body.data.gate.state).toBe("rejected");
     expect(body.data.gate.decidedBy).toBe(email);
     expect(body.data.gate.reason).toBe("not confident yet");
+    expect(body.data.runState).toBe("rejected");
 
     const store = createD1Store(env.DB);
     const run = await store.getRun(id);

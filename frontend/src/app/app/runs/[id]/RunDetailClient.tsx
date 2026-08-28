@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiClientError, getRun } from "../../../../lib/api";
-import type { ApprovalGate, ExecutionResult, RunDetailResponse } from "../../../../lib/types";
+import type { ApprovalGate, ExecutionResult, RunDetailResponse, RunRow } from "../../../../lib/types";
 import { ApprovalTab } from "./components/ApprovalTab";
 import { AuditTab } from "./components/AuditTab";
 import { DiagnosticsTab } from "./components/DiagnosticsTab";
@@ -122,8 +122,18 @@ export function RunDetailClient({ runId }: RunDetailClientProps) {
   // Approval tab must still be reflected if the operator switches away and
   // back, which only works if the updated gate lives above the tab that
   // unmounts.
-  function handleDecided(updatedGate: ApprovalGate, execution?: ExecutionResult): void {
-    setState((prev) => (prev.status === "loaded" ? { status: "loaded", data: { ...prev.data, gate: updatedGate } } : prev));
+  // Qodo finding: updating only `data.gate` left `data.run.state` at its
+  // pre-decision value, so the header kept showing "awaiting approval"
+  // after the backend had already moved the run to executed/rejected.
+  // `runState` is read straight off the decision response — never inferred
+  // from `updatedGate.state`, which for approve is "approved" while the
+  // run's real resulting state is "executed" (backend/src/routes/approvals.ts).
+  function handleDecided(updatedGate: ApprovalGate, runState: RunRow["state"], execution?: ExecutionResult): void {
+    setState((prev) =>
+      prev.status === "loaded"
+        ? { status: "loaded", data: { ...prev.data, gate: updatedGate, run: { ...prev.data.run, state: runState } } }
+        : prev
+    );
     setLastExecution(execution);
   }
 

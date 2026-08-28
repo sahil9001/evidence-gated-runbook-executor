@@ -165,7 +165,10 @@ export function createApprovalRoutes(makeStore: (env: Env) => Store = (env) => c
       detail: `Action ${action.id} executed: ${execution.output}`
     });
 
-    return c.json({ ok: true, data: { gate: approvedGate, execution } });
+    // Qodo finding: the run's final state here is "executed", not
+    // "approved" — `gate.state` alone doesn't tell a caller that. Rather
+    // than have the console infer it (wrongly), hand back the real value.
+    return c.json({ ok: true, data: { gate: approvedGate, execution, runState: "executed" as const } });
   });
 
   routes.post("/approvals/:id/reject", async (c) => {
@@ -217,7 +220,9 @@ export function createApprovalRoutes(makeStore: (env: Env) => Store = (env) => c
       detail: `Gate ${id} rejected by ${by}: ${reason}`
     });
 
-    return c.json({ ok: true, data: { gate: rejectedGate } });
+    // Same reasoning as approve's `runState` — hand back the run's actual
+    // final state rather than have the console infer it from the gate.
+    return c.json({ ok: true, data: { gate: rejectedGate, runState: "rejected" as const } });
   });
 
   return routes;

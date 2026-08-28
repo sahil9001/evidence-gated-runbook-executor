@@ -321,7 +321,11 @@ describe("RunDetailClient", () => {
     it("clicking Approve calls the API and renders the execution result", async () => {
       getRun.mockResolvedValue(makeDetail());
       const execution = makeExecution();
-      approve.mockResolvedValue({ gate: makeGate({ state: "approved", decidedBy: "a@b.com", decidedAt: "t" }), execution });
+      approve.mockResolvedValue({
+        gate: makeGate({ state: "approved", decidedBy: "a@b.com", decidedAt: "t" }),
+        execution,
+        runState: "executed"
+      });
       const user = userEvent.setup();
       render(<RunDetailClient runId="run-1" />);
 
@@ -331,6 +335,45 @@ describe("RunDetailClient", () => {
       expect(await screen.findByText(/rollback executed for payment-service/i)).toBeInTheDocument();
       expect(screen.getByText(/executed=true/)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /approve/i })).toBeDisabled();
+    });
+
+    // Qodo finding: the header showed "awaiting approval" even after a
+    // successful decision, because only `data.gate` was updated — the run's
+    // own `state` (which the header renders) was left untouched.
+    it("updates the header's run state after a successful approve", async () => {
+      getRun.mockResolvedValue(makeDetail());
+      const execution = makeExecution();
+      approve.mockResolvedValue({
+        gate: makeGate({ state: "approved", decidedBy: "a@b.com", decidedAt: "t" }),
+        execution,
+        runState: "executed"
+      });
+      const user = userEvent.setup();
+      render(<RunDetailClient runId="run-1" />);
+
+      expect(await screen.findByText(/awaiting approval/i)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /approve/i }));
+
+      expect(await screen.findByText(/^executed$/i)).toBeInTheDocument();
+      expect(screen.queryByText(/awaiting approval/i)).not.toBeInTheDocument();
+    });
+
+    it("updates the header's run state after a successful reject", async () => {
+      getRun.mockResolvedValue(makeDetail());
+      reject.mockResolvedValue({
+        gate: makeGate({ state: "rejected", decidedBy: "a@b.com", decidedAt: "t", reason: "nope" }),
+        runState: "rejected"
+      });
+      const user = userEvent.setup();
+      render(<RunDetailClient runId="run-1" />);
+
+      expect(await screen.findByText(/awaiting approval/i)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /review/i }));
+      await user.type(screen.getByLabelText(/reason for rejecting/i), "nope");
+      await user.click(screen.getByRole("button", { name: /confirm reject/i }));
+
+      expect(await screen.findByText(/^rejected$/i)).toBeInTheDocument();
+      expect(screen.queryByText(/awaiting approval/i)).not.toBeInTheDocument();
     });
 
     it("prevents rejecting without a reason", async () => {
@@ -351,7 +394,8 @@ describe("RunDetailClient", () => {
     it("submitting a reject reason calls the API and shows the outcome", async () => {
       getRun.mockResolvedValue(makeDetail());
       reject.mockResolvedValue({
-        gate: makeGate({ state: "rejected", decidedBy: "a@b.com", decidedAt: "t", reason: "not enough evidence" })
+        gate: makeGate({ state: "rejected", decidedBy: "a@b.com", decidedAt: "t", reason: "not enough evidence" }),
+        runState: "rejected"
       });
       const user = userEvent.setup();
       render(<RunDetailClient runId="run-1" />);

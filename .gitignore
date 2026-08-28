@@ -1,0 +1,9 @@
+# backend/ and frontend/ carry their own .gitignore for their installs. This
+# one covers the repo root, where tooling run from here (rather than from a
+# workspace) drops caches — vitest, for instance, writes node_modules/.vite
+# next to whatever directory it was invoked from, and there is no root
+# package.json for those to belong to.
+node_modules/
+
+# macOS
+.DS_Store

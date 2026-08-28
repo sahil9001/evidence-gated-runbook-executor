@@ -110,6 +110,12 @@ argument.
 - A polished Next.js frontend (`frontend/`) presents the evidence packet, the
   locked/approved gate state, and a disclosed risk-score display — see
   [What is NOT built](#what-is-not-built) for what that score actually is.
+- **An authenticated operator console** (`frontend/src/app/app/`) sits on top
+  of that: sign-in, an incident list and detail view, runbooks, run history, a
+  filterable audit log, and a run screen whose Evidence / Diagnostics /
+  Approval / Audit tabs are where an approval is actually granted or refused.
+  The landing page at `/` is unauthenticated; everything under `/app` is behind
+  the session guard.
 
 ## Repository structure
 
@@ -120,7 +126,11 @@ argument.
 │   ├── src/mcp/             # the 6 MCP tools + collectors
 │   ├── src/routes/mcp.ts    # /mcp transport, Origin allow-list, sessions
 │   └── scripts/             # register-mcp-server.mjs, register-model-provider.mjs
-├── frontend/                 # Next.js product UI (evidence packet, approval flow)
+├── frontend/                 # Next.js product UI + operator console
+│   ├── middleware.ts         # session guard over /app/*
+│   ├── src/app/page.tsx      # public landing page
+│   ├── src/app/(auth)/       # /login, /register
+│   └── src/app/app/          # the console, behind the guard
 ├── testing/
 │   ├── runbooks/             # checkout-failure.json
 │   ├── fixtures/             # fixed logs/deploys snapshot the diagnostic reads
@@ -167,13 +177,23 @@ Tool discovery works with **zero** model configuration — `GET
 /api/v1/mcp-servers/runproof/tools` will list all 6 tools right after step 3's
 first command. The model provider is only needed to drive a live agent turn.
 
-**4. (Optional) Run the frontend:**
+**4. Run the frontend and the operator console:**
 
 ```bash
 cd frontend
 npm install
 npm run dev   # http://localhost:3000
 ```
+
+`/` is the landing page and needs nothing else running. For the console at
+`/app`, the backend from step 2 must be up: register an account at
+`http://localhost:3000/register`, and you land in the console signed in.
+
+The console talks to the backend at `NEXT_PUBLIC_API_URL`, which defaults to
+`http://localhost:8787` — the same address step 2 prints, so no `.env` is
+needed for local dev. `frontend/.env.example` documents it, and
+[`docs/cloudflare-deployment.md`](docs/cloudflare-deployment.md) covers what to
+set when the two are deployed.
 
 Full step-by-step detail, including exactly what a judge should expect to see at
 each stage (tool discovery → a read-only call → the sandboxed diagnostic →
@@ -183,16 +203,19 @@ each stage (tool discovery → a read-only call → the sandboxed diagnostic →
 ### Verification
 
 ```bash
-cd backend && npm test && npm run typecheck   # 384 tests, clean typecheck
-cd ../frontend && npm run lint && npm run typecheck && npm run build
+cd backend && npm test && npm run typecheck   # 491 tests, clean typecheck
+cd ../frontend && npm test && npm run lint && npm run typecheck && npm run build
 ```
+
+`frontend` runs 174 tests of its own; both counts are as of PR #10.
 
 ## Qodo Code Review Evidence
 
-All four merged PRs went through a full Qodo review cycle. This section is meant
+All ten merged PRs went through a full Qodo review cycle. This section is meant
 as evidence of a working review loop, not a trophy list — the most interesting
 fact is that **several fixes introduced the next finding**, caught by re-review
-rather than by the original author.
+rather than by the original author. The table below is a selection, not the
+full log.
 
 | PR | Subject | Notable findings Qodo raised and we fixed |
 |---|---|---|
@@ -200,6 +223,8 @@ rather than by the original author.
 | [#2](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/2) | Runbooks + evidence collectors | Cross-service evidence leakage — per-entry cards weren't filtered by `ctx.service`, so another service's logs could enter an evidence packet. Duplicate signals skewed runbook matching. Invalid action params were accepted. |
 | [#3](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/3) | TrueForge MCP server | Source allow-list bypass — MCP tools called collectors directly, skipping the runbook scope check that is the product's core safety property. Missing `Origin` validation (DNS rebinding against a localhost server). Sessions never expired. Active SSE sessions got evicted mid-stream. |
 | [#4](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/4) | Sandboxed diagnostic step | Whitespace-only diagnostics were accepted. |
+| [#9](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/9) | Listing APIs for the console | Unbounded listings — every list endpoint returned the whole table, so request cost grew with history despite a capped response. Fixed with limits plus composite `(filter, created_at DESC)` indexes; re-review then caught that those composites are unusable on each query's *unfiltered* path, whose leading column is unconstrained, needing a second migration for the plain creation-time indexes. |
+| [#10](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/10) | Operator console frontend | Three rounds, each triggered by the previous fix. Cross-origin calls were blocked with no CORS on the backend; adding an allow-list left it empty, so a deployed console was still refused. Filter changes raced, then — once aborted properly — left the *previous* filter's rows on screen under the new filter's label; the fix for that looped forever on a non-memoized fetcher, so the hook was re-keyed on an explicit request key. Finally, a CSRF note added in one of those fixes claimed every route required `Content-Type: application/json`; it was true of none, since `c.req.json()` ignores the header and `/auth/logout` reads no body at all — now enforced by a mounted guard. |
 
 **Fixes that caused the next finding:**
 - PR #1's fingerprint serializer exists *because* fixing action substitution
@@ -261,11 +286,22 @@ everything else in the submission:
   only the local fallback has been exercised here.
 - **No CI workflow** runs on this repository. Tests and typecheck are run
   manually (`npm test`, `npm run typecheck` in `backend/`).
-- **No authentication exists yet.** The domain layer's `approvedBy` field is
-  free text with no identity verification behind it (see decision D5 in
-  `docs/IMPLEMENTATION-STATUS.md`) — there is no login flow, and consequently
-  no rate limiting on one. This is a vertical-slice prototype, not a
-  production-hardened multi-tenant system.
+- **Authentication exists, but it is not hardened.** The original "no auth"
+  decision (D5 in `docs/IMPLEMENTATION-STATUS.md`, now superseded) was replaced
+  across three PRs: #7 added the session layer, #8 made the approver derive
+  from it, #10 added the console's sign-in. So there is a real
+  register/login/logout flow, sessions are PBKDF2-derived and carried in an
+  `HttpOnly` cookie, and `approvedBy` is no longer free text — an approver's
+  identity comes from the resolved session, never from anything the client
+  sends. What is missing is everything around it: **no rate limiting on
+  login**, no lockout, no password reset, no email verification, no roles
+  (every authenticated user can approve anything), and no multi-tenancy. This
+  is a vertical-slice prototype, not a production-hardened multi-tenant system.
+- **The session cookie constrains where the console can be deployed.** It is
+  `SameSite=Lax`, so the console has to be served from the same registrable
+  domain as the API. See
+  [`docs/cloudflare-deployment.md`](docs/cloudflare-deployment.md) for the
+  supported topologies and what a cross-site split would require.
 
 ## Live deployment
 

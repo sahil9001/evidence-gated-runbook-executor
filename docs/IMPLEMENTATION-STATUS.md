@@ -67,7 +67,7 @@ Settled with the project owner on 2026-08-25. Do not relitigate these mid-implem
 | D2 | Persistence | Cloudflare D1, binding `DB`, database `runproof-db` |
 | D3 | Sandbox execution | **Deferred** — fixture only, not in this slice |
 | D4 | Evidence sources | Fixture-backed behind the `EvidenceSource` interface |
-| D5 | Auth | **None** — `by` is free text. Not production-safe |
+| D5 | Auth | ~~**None** — `by` is free text~~ **Superseded 2026-08-28** by PRs #7/#8/#10: session auth, `approvedBy` derived from the session. See the Handoff Log entry below |
 | D6 | Scope | Vertical slice only (roadmap Part 5) |
 
 Additional decisions made while writing the plan:
@@ -124,3 +124,36 @@ Locked D1/D2/D6 with the project owner. Wrote the 12-task plan and this status f
 Verified package versions against npm before writing them into the plan: hono 4.13.4, vitest 4.1.11, `@cloudflare/vitest-pool-workers` 0.22.0, wrangler 4.125.0, zod 4.4.3. Local Node is v25.5.0.
 
 Next agent: start T1. It is the only wave-1 task and everything else is blocked on it.
+
+### 2026-08-28 — D5 superseded — session auth shipped
+
+D5 said "Auth: **None** — `by` is free text. Not production-safe." That is no
+longer what the code does, so per the rule above this decision change is
+recorded here rather than left to be discovered from the diff.
+
+What replaced it, in order:
+- **PR #7** added the session layer: `backend/src/auth/` (PBKDF2 password
+  hashing, session issue/resolve/revoke), a `requireAuth` middleware, and an
+  `HttpOnly` session cookie.
+- **PR #8** made the approver derive from that session —
+  `routes/approvals.ts` reads `c.var.user.email` and ignores any approver the
+  client sends, which is what makes `approvedBy` non-forgeable rather than
+  merely present.
+- **PR #10** added the console's sign-in surface (`/login`, `/register`, and
+  the `/app/*` session guard).
+
+D5's *reasoning* still stands for what it covered — the slice was never meant
+to ship a hardened identity system, and it hasn't. Still absent: rate limiting
+on login, lockout, password reset, email verification, roles (every
+authenticated user can approve anything), and multi-tenancy. The README's
+"What is NOT built" section is the maintained list; keep it in sync rather than
+duplicating it here.
+
+One constraint worth carrying forward, because it is invisible until a deploy
+fails: the session cookie is `SameSite=Lax`, so the console must be served from
+the same registrable domain as the API. A cross-site split needs
+`SameSite=None` plus a CSRF defence — `docs/cloudflare-deployment.md` has the
+detail.
+
+Verified on `main` at `6e724fd`: backend `npm test` 491/491, frontend
+`npm test` 174/174, both typechecks clean, frontend lint clean.

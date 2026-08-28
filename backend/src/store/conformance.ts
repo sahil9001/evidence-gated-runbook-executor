@@ -909,7 +909,11 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         expect(loaded.map((e) => e.id)).toEqual(["audit-run8-a", "audit-run8-b", "audit-run8-c"]);
       });
 
-      it("caps listAudit at the given limit", async () => {
+      it("caps listAudit at the given limit, keeping the NEWEST entries (not the oldest)", async () => {
+        // A run with more entries than the limit must not display the
+        // beginning of its history and silently drop everything since —
+        // an operator reviewing a long-running incident needs the most
+        // recent activity, not the oldest.
         const run = makeRun("run-audit-limit");
         await store.createRun(run);
 
@@ -923,7 +927,10 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         }
 
         const loaded = await store.listAudit(run.id, 2);
-        expect(loaded).toHaveLength(2);
+        // Still oldest-first among the entries returned (the run-detail
+        // Audit tab's top-to-bottom contract), but the WINDOW is the two
+        // newest — "b" then "c", never "a".
+        expect(loaded.map((e) => e.id)).toEqual(["audit-limit-b", "audit-limit-c"]);
       });
     });
 

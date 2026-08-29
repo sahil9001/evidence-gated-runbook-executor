@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { hashPassword, verifyPassword } from "./password";
+import {
+  hashPassword,
+  verifyPassword,
+  PBKDF2_ITERATIONS,
+  WORKERS_PBKDF2_MAX_ITERATIONS
+} from "./password";
 
 describe("hashPassword", () => {
   it("produces different hash and salt for the same password across calls", async () => {
@@ -26,6 +31,19 @@ describe("hashPassword", () => {
   it("decodes the hash to exactly 32 bytes (256-bit derived key)", async () => {
     const { hash } = await hashPassword("correct horse battery staple");
     expect(Buffer.from(hash, "base64").length).toBe(32);
+  });
+});
+
+describe("PBKDF2 cost", () => {
+  // Local workerd does not enforce the runtime's iteration ceiling, so a
+  // too-high value hashes happily under vitest and throws only once deployed:
+  // every registration 500s, and every login is silently rejected because
+  // verifyPassword turns the throw into `false`. Timing assertions would not
+  // catch it either. Asserting the constant is the only check that can fail in
+  // the environment where this mistake gets made.
+  it("stays within the iteration ceiling the deployed Workers runtime enforces", () => {
+    expect(PBKDF2_ITERATIONS).toBeGreaterThan(0);
+    expect(PBKDF2_ITERATIONS).toBeLessThanOrEqual(WORKERS_PBKDF2_MAX_ITERATIONS);
   });
 });
 

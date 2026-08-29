@@ -256,6 +256,10 @@ cd backend && npm test && npm run typecheck   # 491 tests, clean typecheck
 cd ../frontend && npm test && npm run lint && npm run typecheck && npm run build
 ```
 
+These are the same commands CI runs on merge (minus the frontend `build`, which
+the deploy job covers via `opennextjs-cloudflare build`) — see
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
+
 `frontend` runs 174 tests of its own; both counts are as of PR #10.
 
 ## Qodo Code Review Evidence
@@ -333,8 +337,15 @@ everything else in the submission:
   for local dev, not a security boundary. Daytona provides actual sandbox
   isolation for hosted TrueForge deployments; RunProof works with either, but
   only the local fallback has been exercised here.
-- **No CI workflow** runs on this repository. Tests and typecheck are run
-  manually (`npm test`, `npm run typecheck` in `backend/`).
+- **CI verifies and deploys on merge, but nothing runs on a pull request.**
+  `.github/workflows/deploy.yml` runs both test suites, the lint and both
+  typechecks, then applies the D1 migrations and deploys the backend and the
+  console — all on a push to `main`, which is what a merged PR is. So the gate
+  is after the merge, not before it; a red build on `main` is the signal, and
+  running the same `verify` job on `pull_request` is the obvious next step.
+  Deploys need four repository secrets/variables, and each job stops with a
+  message naming what is missing — see
+  [`docs/cloudflare-deployment.md`](docs/cloudflare-deployment.md#continuous-deployment).
 - **Authentication exists, but it is not hardened.** The original "no auth"
   decision (D5 in `docs/IMPLEMENTATION-STATUS.md`, now superseded) was replaced
   across three PRs: #7 added the session layer, #8 made the approver derive

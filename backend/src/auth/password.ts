@@ -6,10 +6,24 @@
  */
 
 // OWASP's 2023 guidance for PBKDF2-SHA256 is >=600,000 iterations. This is
-// deliberately pinned lower, at 210,000, to bound per-request CPU time
-// against Workers' CPU limits — a conscious trade-off, not an oversight.
-// Revisit if Workers CPU limits change.
-const PBKDF2_ITERATIONS = 210_000;
+// pinned at Workers' hard ceiling instead, which is lower.
+//
+// The deployed runtime refuses anything above 100,000 outright:
+//
+//   NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not
+//   supported (requested 210000).
+//
+// It is a limit, not a tuning knob — exceeding it throws rather than running
+// slowly, so `hashPassword` fails and every registration 500s. Local workerd
+// (miniflare, and so vitest-pool-workers) does NOT enforce the cap, which is
+// why a value above it passed every test and only failed once deployed. See
+// the ceiling test in password.test.ts, which is the guard against this
+// being raised again.
+export const PBKDF2_ITERATIONS = 100_000;
+
+/** The ceiling the deployed Workers runtime enforces on PBKDF2 iterations.
+ * Exceeding it throws NotSupportedError rather than running slowly. */
+export const WORKERS_PBKDF2_MAX_ITERATIONS = 100_000;
 const SALT_LENGTH_BYTES = 16;
 const DERIVED_KEY_LENGTH_BITS = 256; // 32 bytes
 
@@ -99,7 +113,13 @@ export async function verifyPassword(plain: string, hash: string, salt: string):
     const derived = await deriveKeyBits(plain, saltBytes);
     const expected = fromBase64(hash);
     return constantTimeEqual(derived, expected);
-  } catch {
+  } catch (error) {
+    // The `false` is deliberate and stays (see the doc comment above): a
+    // corrupted row must be indistinguishable from a wrong password. But
+    // silence is not part of that guarantee, and it is what let a runtime
+    // failure to derive at all — every login rejected, for everyone, with
+    // no signal anywhere — look exactly like ordinary bad credentials.
+    console.error("verifyPassword: derivation failed", error);
     return false;
   }
 }

@@ -30,3 +30,30 @@ export async function me(): Promise<User> {
   const data = await request<{ user: User }>("/auth/me", { method: "GET" });
   return data.user;
 }
+
+/**
+ * Who is signed in, or `null` for nobody — for callers that are ASKING rather
+ * than assuming, like the public landing page's nav.
+ *
+ * `me()` is the wrong tool there twice over: it throws on an absent session,
+ * and it redirects to /login on the way out, which would eject every
+ * anonymous visitor from a public page. Here an absent session is the answer,
+ * not a failure.
+ *
+ * Every other error still propagates. A backend that is unreachable or broken
+ * must not be silently reported as "signed out", which would show a signed-in
+ * operator the anonymous nav and hide the console from them.
+ */
+export async function currentUser(): Promise<User | null> {
+  try {
+    const data = await request<{ user: User }>(
+      "/auth/me",
+      { method: "GET" },
+      { redirectOnExpiredSession: false }
+    );
+    return data.user;
+  } catch (error: unknown) {
+    if (error instanceof ApiClientError && error.code === "unauthenticated") return null;
+    throw error;
+  }
+}

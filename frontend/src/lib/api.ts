@@ -88,7 +88,25 @@ function redirectToLogin(): void {
  * envelope-unwrapping, error-mapping, credentialed-fetch logic as every
  * other client function here, instead of re-implementing it.
  */
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export type RequestOptions = {
+  /**
+   * Whether a 401 `unauthenticated` should bounce the browser to /login.
+   *
+   * True for every authenticated screen: the session is gone, and sitting
+   * there rendering stale data behind it is worse than a redirect. False for
+   * callers that ASK whether a session exists — the landing page's nav, say —
+   * where "not signed in" is an ordinary answer and redirecting on it would
+   * throw every anonymous visitor off a public page.
+   */
+  readonly redirectOnExpiredSession?: boolean;
+};
+
+export async function request<T>(
+  path: string,
+  init?: RequestInit,
+  options: RequestOptions = {}
+): Promise<T> {
+  const { redirectOnExpiredSession = true } = options;
   let response: Response;
   try {
     response = await fetch(`${baseUrl()}${path}`, {
@@ -108,7 +126,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     if (isApiErrorBody(body)) {
-      if (response.status === 401 && body.error.code === "unauthenticated") {
+      if (redirectOnExpiredSession && response.status === 401 && body.error.code === "unauthenticated") {
         redirectToLogin();
       }
       throw new ApiClientError(body.error.message, body.error.code, response.status);

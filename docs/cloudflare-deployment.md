@@ -147,7 +147,10 @@ never cancels a deploy mid-flight and strands applied migrations against
 undeployed code.
 
 `workflow_dispatch` is enabled, so a partial failure can be re-run from the
-Actions tab without an empty commit.
+Actions tab without an empty commit. The dispatch dropdown lets you pick any
+branch or tag, so both deploy jobs additionally require
+`github.ref == 'refs/heads/main'` — dispatching another branch runs the checks
+and stops there rather than shipping unreviewed code past branch protection.
 
 ### One-time setup
 

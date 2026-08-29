@@ -42,16 +42,24 @@
 	},
 	"d1_databases": [
 		{
+			// The one binding the Worker actually uses: every route reaches the
+			// database through `c.env.DB` (see createD1Store call sites).
+			//
+			// A real id rather than a placeholder, because `wrangler deploy`
+			// needs one and no CLI flag can override a D1 binding's
+			// database_id. It is an identifier, not a credential — using it
+			// still requires an API token — and `wrangler dev --local` ignores
+			// it entirely, serving from a local SQLite file under .wrangler/.
+			//
+			// Deliberately NOT marked `"remote": true`. That flag makes
+			// @cloudflare/vitest-pool-workers open a remote proxy session
+			// before it will run a single test, which needs Cloudflare
+			// credentials — so `npm test` passes on a machine that has run
+			// `wrangler login` and fails everywhere else, CI included.
 			"binding": "DB",
 			"database_name": "runproof-db",
-			"database_id": "local-dev-placeholder",
-			"migrations_dir": "./migrations"
-		},
-		{
-			"binding": "runproof_db",
-			"database_name": "runproof-db",
 			"database_id": "17023261-e7bf-47bd-8ef6-74f58ece9c7e",
-			"remote": true
+			"migrations_dir": "./migrations"
 		}
 	]
 }

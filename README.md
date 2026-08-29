@@ -21,6 +21,30 @@ a human has to look at the same evidence and explicitly sign off.
 
 That split is now enforced by two independent runtime checkpoints:
 
+```mermaid
+flowchart TB
+    alert["Incident alert"] --> agent["Agent turn, run by TrueForge"]
+
+    agent --> ro["Read-only tools<br/>collect_logs · collect_metrics · collect_deploys<br/>get_runbook · get_diagnostic_script"]
+    ro -->|"readOnlyHint: true — never gated"| ev["Evidence gathered · looking is free"]
+
+    agent --> pr["propose_rollback<br/>destructiveHint: true"]
+    pr --> g1{"GATE 1 — TrueForge<br/>@destructive checkpoint<br/>ToolApprovalRequiredEvent"}
+    h1["Human"] -.->|"allow / deny"| g1
+    g1 -->|"deny"| stop["the turn stops here"]
+    g1 -->|"allow"| mint["RunProof mints a LOCKED gate<br/>and executes nothing"]
+
+    op["Operator console"] --> run["POST /incidents/:id/run<br/>collects evidence, locks a gate<br/>response has no execution field"]
+    run --> g2{"GATE 2 — RunProof<br/>POST /approvals/:id/approve"}
+    h2["Human"] -.->|"approve / reject"| g2
+    g2 -->|"packet has zero cards"| refuse["409 insufficient_evidence"]
+    g2 -->|"already decided / expired"| conflict["409"]
+    g2 -->|"approved"| tok["approveGate() mints an ApprovalToken<br/>the only mint there is"]
+    tok --> exec["executeStateChanging(action, token)<br/>token is the mandatory second argument<br/>execution is simulated"]
+
+    mint -.->|"not persisted today — cannot be<br/>resolved through /approvals/:id"| g2
+```
+
 1. **TrueForge's approval checkpoint (enforced).** RunProof's `propose_rollback`
    MCP tool is annotated `destructiveHint: true`. TrueForge's default
    `require_approval_for_tools: ["@write", "@destructive"]` matches on that
@@ -63,35 +87,38 @@ argument.
 
 ## Architecture
 
-```text
-                     ┌─────────────────────────┐
-   incident alert →  │   TrueForge (harness)    │
-                     │  - runs the agent turn   │
-                     │  - discovers MCP tools    │
-                     │  - @destructive approval  │  ← human stops it here
-                     │    checkpoint             │
-                     │  - sandbox (local /       │
-                     │    Daytona) for code exec │
-                     └────────────┬─────────────┘
-                                  │ MCP over HTTP (/mcp)
-                     ┌────────────▼─────────────┐
-                     │   RunProof (this repo)    │
-                     │   Cloudflare Worker,       │
-                     │   no execution surface     │
-                     │                            │
-                     │  MCP tools (backend/src/mcp)│
-                     │  - collect_logs            │
-                     │  - collect_metrics         │
-                     │  - collect_deploys         │
-                     │  - get_runbook             │
-                     │  - get_diagnostic_script    │
-                     │  - propose_rollback (💥)    │
-                     │                            │
-                     │  Domain layer (backend/src/domain)
-                     │  - runbook matching + scope │
-                     │  - evidence packet assembly │
-                     │  - ApprovalToken / gate     │
-                     └────────────────────────────┘
+> The diagram below is the summary. [`docs/architecture.md`](docs/architecture.md)
+> has the full picture: request pipeline and middleware order, the operator and
+> agent flows as sequence diagrams, run and gate state machines, and the schema.
+
+```mermaid
+flowchart LR
+    alert["Incident alert"] --> tf
+
+    subgraph tf["TrueForge — the harness"]
+        direction TB
+        loop["Runs the agent turn"]
+        disco["Discovers MCP tools"]
+        gate["@destructive approval checkpoint"]
+        sbx["Sandbox — local fallback or Daytona"]
+    end
+
+    human["Human"] -.->|"stops it here"| gate
+
+    tf -->|"MCP over HTTP · /mcp"| rp
+
+    subgraph rp["RunProof — this repo · Cloudflare Worker, no execution surface"]
+        direction TB
+        tools["MCP tools — backend/src/mcp<br/>collect_logs · collect_metrics · collect_deploys<br/>get_runbook · get_diagnostic_script<br/>propose_rollback 💥"]
+        api["Console API — backend/src/routes<br/>incidents · runs · approvals · audit"]
+        dom["Domain layer — backend/src/domain<br/>runbook matching + scope<br/>evidence packet assembly<br/>ApprovalToken / gate"]
+        tools --> dom
+        api --> dom
+    end
+
+    console["Operator console — frontend/<br/>/app, behind the session guard"] --> api
+    d1[("D1")] --- api
+    tools -.->|"hands back script TEXT;<br/>TrueForge runs it"| sbx
 ```
 
 - **TrueForge is the harness.** It runs the agent loop, discovers RunProof's
@@ -136,6 +163,7 @@ argument.
 │   ├── fixtures/             # fixed logs/deploys snapshot the diagnostic reads
 │   └── tests/
 └── docs/
+    ├── architecture.md       # how the pieces fit, in Mermaid
     ├── trueforge-setup.md    # step-by-step TrueForge integration + judge walkthrough
     ├── writeup.md            # the agent's job, and what's enforced today vs. not yet
     ├── runbook-format.md
@@ -335,6 +363,8 @@ system, not the static deployment.
 
 ## Further reading
 
+- [`docs/architecture.md`](docs/architecture.md) — how the pieces fit, in
+  Mermaid: layering, both approval flows, state machines, schema.
 - [`docs/writeup.md`](docs/writeup.md) — the agent's job, and the full safety
   argument for the two independent approval gates.
 - [`docs/trueforge-setup.md`](docs/trueforge-setup.md) — step-by-step TrueForge

@@ -12,11 +12,6 @@
 
 set -euo pipefail
 
-# Job control, so each server becomes its own process group leader and the
-# cleanup below can signal the whole tree. `next dev` and `wrangler dev` both
-# spawn children that outlive a bare `kill <pid>` on the parent.
-set -m
-
 readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly API_PORT=8787
 readonly WEB_PORT=3000
@@ -56,6 +51,10 @@ log_done() {
   log "${GREEN}✓${RESET} ${what} in $(format_duration $(( SECONDS - began )))"
 }
 
+# Runs on Ctrl+C, on SIGTERM, and on any exit. It relies on this script being
+# the process that receives the interrupt, which is why job control is scoped
+# to the forks in start_server rather than left on for the whole run — see the
+# comment there.
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -66,12 +65,16 @@ cleanup() {
   fi
   printf '\n'
   log "shutting down..."
+  # Frontend first: it talks to the backend, so stopping it first avoids a
+  # burst of connection errors on the way out.
   local pid
   for pid in "$web_pid" "$api_pid"; do
     [[ -n "$pid" ]] || continue
     # Negative PID targets the process group, so children die with the parent.
     kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   done
+  # Give them the chance to shut down on their own terms before this script
+  # goes away; without this the servers outlive their own SIGTERM handlers.
   wait 2>/dev/null || true
   exit "$status"
 }
@@ -140,6 +143,49 @@ tree_has_stopped_process() {
     esac
   done
   return 1
+}
+
+# Starts `npm run dev` in $1 and reports the new pid in $started_pid. The pid
+# comes back in a global rather than on stdout because `pid=$(start_server x)`
+# would hang: the background job inherits the command substitution's pipe, so
+# bash waits for the server to exit before the assignment completes.
+#
+# Two details in here are load-bearing.
+#
+# `set -m` around the fork, and only around the fork. A process group is
+# assigned when a job is created, so enabling job control for that instant is
+# enough to give the server its own group — which is what lets cleanup signal
+# the whole tree with a negative pid, since `next dev` and `wrangler dev` both
+# spawn children that outlive a bare `kill <pid>` on the parent. It goes off
+# again immediately because while job control is on bash ALSO puts its own
+# foreground commands in their own process group and hands them the terminal:
+# the `sleep` in main's wait loop would own the terminal, so Ctrl+C would
+# deliver SIGINT to that `sleep` and never to this script. Bash then falls
+# back to running the handler itself, but with the function context already
+# unwound — it prints "pop_var_context: head of shell_variables not a function
+# context", the first `local` in cleanup fails with "can only be used in a
+# function", and under `set -e` the handler aborts on that line, leaving both
+# servers running with their ports still bound. That was the Ctrl+C bug.
+#
+# `</dev/null` is likewise not tidiness. `wrangler dev` puts stdin in raw mode
+# for its hotkeys ([x] to exit and friends) when it is a TTY — its bundled CLI
+# calls setRawMode in seven places. Raw mode is a tcsetattr on the controlling
+# terminal, and the server is in a BACKGROUND process group by the line above,
+# so the kernel answers that call with SIGTTOU, which STOPS the process rather
+# than killing it. What you see is a server that prints its startup banner,
+# suspends before it ever listens, and stays alive — so a liveness check finds
+# nothing wrong while the port never opens. A non-TTY stdin makes wrangler skip
+# raw mode entirely and run non-interactively, as it does in CI. `next dev`
+# does not currently touch raw mode, so it is not exposed to this today; it
+# gets the same treatment because the hazard is in the arrangement rather than
+# the tool, and the cost is nothing.
+started_pid=""
+start_server() {
+  local dir=$1
+  set -m
+  (cd "$ROOT/$dir" && exec npm run --silent dev) </dev/null &
+  started_pid=$!
+  set +m
 }
 
 # Polls until the URL answers at all. Any HTTP status counts: the frontend
@@ -226,33 +272,18 @@ main() {
   (cd "$ROOT/backend" && npm run --silent db:migrate)
   log_done "$began" "migrations applied"
 
-  # `</dev/null` is load-bearing, not tidiness. `wrangler dev` puts stdin in
-  # raw mode for its hotkeys ([x] to exit and friends) when it is a TTY — its
-  # bundled CLI calls setRawMode in seven places. Raw mode is a tcsetattr on
-  # the controlling terminal, and `set -m` above puts each server in its own
-  # process group, so that call arrives from a BACKGROUND process group and
-  # the kernel answers with SIGTTOU, which STOPS the process rather than
-  # killing it. What you see is a server that prints its startup banner,
-  # suspends before it ever listens, and stays alive — so a liveness check
-  # finds nothing wrong while the port never opens.
-  #
-  # A non-TTY stdin makes wrangler skip raw mode entirely and run
-  # non-interactively, as it does in CI. `next dev` does not currently touch
-  # raw mode, so it is not exposed to this today; it gets the same treatment
-  # because the hazard is in the arrangement rather than the tool, and the
-  # cost is nothing.
   began=$SECONDS
   log "starting backend on ${API_URL} ..."
-  (cd "$ROOT/backend" && exec npm run --silent dev) </dev/null &
-  api_pid=$!
+  start_server backend
+  api_pid=$started_pid
   wait_until_up "${API_URL}/health" "backend" "$api_pid"
   log_done "$began" "backend ready"
   log "  ${DIM}health: $(curl -sS "${API_URL}/health")${RESET}"
 
   began=$SECONDS
   log "starting frontend on ${WEB_URL} ..."
-  (cd "$ROOT/frontend" && exec npm run --silent dev) </dev/null &
-  web_pid=$!
+  start_server frontend
+  web_pid=$started_pid
   wait_until_up "$WEB_URL" "frontend" "$web_pid"
   log_done "$began" "frontend ready"
 

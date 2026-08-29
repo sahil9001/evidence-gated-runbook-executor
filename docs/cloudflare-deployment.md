@@ -123,6 +123,81 @@ npm ci && npm run deploy
 
 6. Add any environment variables in Cloudflare under **Build Variables and secrets** — see the next section for the ones this console needs.
 
+## Continuous deployment
+
+`.github/workflows/deploy.yml` deploys **both** Workers on every push to `main`
+— which is what a merged pull request is. Unlike the Cloudflare git integration
+above (which builds the frontend only), this covers the backend, its D1
+migrations, and the console, in that order:
+
+```text
+verify ──▶ deploy-backend ──▶ deploy-frontend
+  │             │                   │
+  │             ├─ apply D1 migrations (--remote)
+  │             └─ wrangler deploy (runproof-api)
+  │
+  ├─ backend:  npm test, npm run typecheck
+  └─ frontend: npm test, npm run lint, npm run typecheck
+```
+
+Order matters in two places. Migrations run **before** the Worker that queries
+the new tables, and the backend deploys **before** the console that calls it.
+The workflow serializes deploys with `concurrency: cancel-in-progress: false`,
+so a second push never cancels a deploy mid-flight and strands applied
+migrations against undeployed code. Runs that cannot deploy — a dispatch from
+a non-`main` ref — take a concurrency group of their own instead, so a branch
+check never holds up a real deploy.
+
+`workflow_dispatch` is enabled, so a partial failure can be re-run from the
+Actions tab without an empty commit. The dispatch dropdown lets you pick any
+branch or tag, so both deploy jobs additionally require
+`github.ref == 'refs/heads/main'` — dispatching another branch runs the checks
+and stops there rather than shipping unreviewed code past branch protection.
+
+### One-time setup
+
+Both jobs stop with a message naming exactly what is missing rather than
+failing later inside wrangler, so an unconfigured repository is obvious rather
+than mysterious.
+
+Create the D1 database once, and note the id it prints:
+
+```bash
+cd backend
+npx wrangler d1 create runproof-db
+```
+
+Then, under **Settings → Secrets and variables → Actions**:
+
+| Kind | Name | Value |
+|---|---|---|
+| Secret | `CLOUDFLARE_API_TOKEN` | An API token with **Workers Scripts: Edit** and **D1: Edit** |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account id |
+| Variable | `D1_DATABASE_ID` | The id printed by `wrangler d1 create` |
+| Variable | `NEXT_PUBLIC_API_URL` | The deployed backend's origin, e.g. `https://runproof-api.<your-subdomain>.workers.dev` |
+
+`NEXT_PUBLIC_API_URL` is a *variable*, not a secret: it is inlined into the
+client bundle at build time and is public by definition. It has no default in
+CI on purpose — silently falling back to `http://localhost:8787` would ship a
+console that looks deployed and cannot reach anything.
+
+`D1_DATABASE_ID` exists because `backend/wrangler.jsonc` ships
+`"database_id": "local-dev-placeholder"` — all `wrangler dev --local` needs,
+and deliberately not a real id in a public repository. No CLI flag overrides a
+D1 binding's `database_id`, so the deploy job substitutes it into the config
+before running. If you would rather commit the real id, do that and the
+substitution step detects it and leaves the file alone.
+
+### What CI does not do
+
+- **It does not run on pull requests.** Verification runs on `main`, after the
+  merge. Pointing the same `verify` job at `pull_request` is the obvious next
+  step if you want the gate before merge instead of after.
+- **It does not set `ALLOWED_FRONTEND_ORIGINS`.** That value lives in
+  `backend/wrangler.jsonc` and is deployed with the backend — if you move the
+  console, edit it there and merge. The next section explains why a deployed
+  console with the wrong value logs in and then 401s forever.
+
 ## Pointing the Console at a Deployed Backend
 
 The operator console is a browser client for the `runproof-api` Worker in

@@ -1,0 +1,275 @@
+name: Deploy
+
+# "On merge": a merged pull request lands on main as a push, and that is what
+# deploys. workflow_dispatch is here so a deploy that failed halfway — say the
+# backend shipped and the frontend did not — can be re-run without inventing an
+# empty commit.
+#
+# workflow_dispatch lets the person triggering it pick ANY branch or tag from
+# the dropdown, and GITHUB_SHA follows that choice, so on its own it is a way
+# to ship unreviewed code straight to production regardless of what branch
+# protection says about main. Both deploy jobs below therefore require
+# `github.ref == 'refs/heads/main'`; verify still runs on any ref, which is
+# what makes a dispatch from a branch useful for checking it without shipping
+# it.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One production deploy at a time, and never cancel one that is already
+# running. A cancelled run can leave D1 migrations applied with the Worker that
+# expects them undeployed, which is exactly the half-state that is painful to
+# reason about later. The lock is workflow-wide rather than per deploy job on
+# purpose: a job-level lock would let two runs interleave — run B's backend
+# between run A's backend and frontend — since nothing guarantees the order
+# queued jobs acquire it.
+#
+# Only deploy-capable runs belong in that lock. A dispatch from any other ref
+# can only reach `verify` (see the job conditions below), so it gets a group of
+# its own keyed on the run id; sharing the production group would let a branch
+# check hold up an actual deploy of main for no reason.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'deploy-production' || format('verify-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-fund --no-audit
+
+      - name: Backend tests
+        working-directory: backend
+        run: npm test
+
+      # `pretypecheck` runs `wrangler types` first, which only reads
+      # wrangler.jsonc — no Cloudflare credentials are needed for this job.
+      - name: Backend typecheck
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-fund --no-audit
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Frontend lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Note that this ref will not deploy
+        if: github.ref != 'refs/heads/main'
+        env:
+          REF: ${{ github.ref }}
+        run: echo "::notice::Verified $REF, but only refs/heads/main deploys — the deploy jobs will be skipped."
+
+      # Deliberately no `npm run build` here: the frontend deploy job runs
+      # `opennextjs-cloudflare build`, which performs the real Next.js build
+      # for the Workers runtime. Building twice would add minutes to every
+      # deploy to check the same thing.
+
+  deploy-backend:
+    name: Deploy backend Worker
+    needs: verify
+    # Only main deploys, whatever ref a manual dispatch selected. See the note
+    # on the triggers above.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # Fails with a readable message naming what is missing, rather than
+      # letting wrangler fail several minutes later with an auth error.
+      - name: Check deploy configuration
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing\n  - secret CLOUDFLARE_API_TOKEN (needs D1:Edit and Workers Scripts:Edit)"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing\n  - secret CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            printf 'Deploy is not configured. Missing:%b\n' "$missing"
+            echo "See docs/cloudflare-deployment.md, 'Continuous deployment'."
+            exit 1
+          fi
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-fund --no-audit
+
+      # backend/wrangler.jsonc ships `"database_id": "local-dev-placeholder"`,
+      # which is all `wrangler dev --local` needs and is deliberately not a
+      # real id in the repository. A remote deploy needs the real one, and
+      # there is no CLI flag that overrides a D1 binding's database_id, so it
+      # is substituted here from a repository variable.
+      - name: Point the D1 binding at the real database
+        working-directory: backend
+        env:
+          D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
+        run: |
+          set -euo pipefail
+          placeholder='"database_id": "local-dev-placeholder"'
+          if ! grep -qF "$placeholder" wrangler.jsonc; then
+            echo "wrangler.jsonc already carries a real database_id; leaving it as is."
+            exit 0
+          fi
+          if [ -z "${D1_DATABASE_ID:-}" ]; then
+            echo "backend/wrangler.jsonc still has the local-dev placeholder database_id,"
+            echo "and the D1_DATABASE_ID repository variable is not set, so this deploy"
+            echo "would create or target the wrong database."
+            echo
+            echo "Fix: create the database once with"
+            echo "  cd backend && npx wrangler d1 create runproof-db"
+            echo "then set its id as the D1_DATABASE_ID repository variable"
+            echo "(Settings -> Secrets and variables -> Actions -> Variables)."
+            exit 1
+          fi
+          # Write-and-move rather than `sed -i`: the in-place flag takes a
+          # mandatory argument on BSD sed and none on GNU sed, so the same
+          # line cannot be run both on the runner and on a maintainer's Mac.
+          sed "s|$placeholder|\"database_id\": \"$D1_DATABASE_ID\"|" wrangler.jsonc > wrangler.jsonc.tmp
+          mv wrangler.jsonc.tmp wrangler.jsonc
+          grep -qF "$D1_DATABASE_ID" wrangler.jsonc
+          echo "D1 binding now points at the configured database."
+
+      # Migrations run BEFORE the code that depends on them. The reverse order
+      # would serve a Worker whose queries reference tables that do not exist
+      # yet — the exact failure scripts/dev.sh applies migrations to avoid
+      # locally. Wrangler skips its confirmation prompt automatically in a
+      # non-interactive environment.
+      - name: Apply D1 migrations
+        working-directory: backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run db:migrate:remote
+
+      - name: Deploy runproof-api
+        working-directory: backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy
+
+  deploy-frontend:
+    name: Deploy frontend Worker
+    # Sequential, not parallel: the console calls the API, so the API should
+    # already be running the code (and schema) this commit expects before the
+    # console that talks to it goes live.
+    needs: deploy-backend
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # NEXT_PUBLIC_* is inlined at build time, so an unset value here does not
+      # fail — it ships a console hard-wired to http://localhost:8787, which
+      # looks deployed and then cannot reach anything. Refusing is the honest
+      # outcome.
+      - name: Check deploy configuration
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing\n  - secret CLOUDFLARE_API_TOKEN"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing\n  - secret CLOUDFLARE_ACCOUNT_ID"
+          [ -n "$NEXT_PUBLIC_API_URL" ] || missing="$missing\n  - variable NEXT_PUBLIC_API_URL (the deployed backend's origin)"
+          if [ -n "$missing" ]; then
+            printf 'Deploy is not configured. Missing:%b\n' "$missing"
+            echo "See docs/cloudflare-deployment.md, 'Continuous deployment'."
+            exit 1
+          fi
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-fund --no-audit
+
+      # `npm run deploy` is `opennextjs-cloudflare build && wrangler deploy` —
+      # the same command documented for a manual deploy, so CI and a human
+      # ship through one path rather than two that can drift.
+      - name: Build and deploy runproof-frontend
+        id: deploy
+        working-directory: frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+        run: npm run deploy
+
+      # `always()` so a failed deploy still reports, which means the wording
+      # has to be driven by the deploy step's own outcome — an unconditional
+      # "Deployed" here would describe production as fully shipped at exactly
+      # the moment it is half-shipped, which is when the summary matters most.
+      - name: Summary
+        if: always()
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+        run: |
+          if [ "$DEPLOY_OUTCOME" = "success" ]; then
+            {
+              echo "### Deployed \`${GITHUB_SHA:0:7}\`"
+              echo
+              echo "| Worker | Source | Status | Console points at |"
+              echo "|---|---|---|---|"
+              echo "| runproof-api | \`backend/\` | deployed | — |"
+              echo "| runproof-frontend | \`frontend/\` | deployed | ${NEXT_PUBLIC_API_URL:-unset} |"
+              echo
+              echo "The backend's \`ALLOWED_FRONTEND_ORIGINS\` (in \`backend/wrangler.jsonc\`) must name the console's own origin, or every request from it — login included — is refused by CORS."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### Partial deploy of \`${GITHUB_SHA:0:7}\`"
+              echo
+              echo "| Worker | Source | Status |"
+              echo "|---|---|---|"
+              echo "| runproof-api | \`backend/\` | deployed |"
+              echo "| runproof-frontend | \`frontend/\` | **NOT deployed** (\`$DEPLOY_OUTCOME\`) |"
+              echo
+              echo "Production is running the new backend behind the previous console. Fix the failure and re-run this workflow; the backend job is idempotent."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -343,7 +343,7 @@ everything else in the submission:
   console — all on a push to `main`, which is what a merged PR is. So the gate
   is after the merge, not before it; a red build on `main` is the signal, and
   running the same `verify` job on `pull_request` is the obvious next step.
-  Deploys need four repository secrets/variables, and each job stops with a
+  Deploys need three repository secrets/variables, and each job stops with a
   message naming what is missing — see
   [`docs/cloudflare-deployment.md`](docs/cloudflare-deployment.md#continuous-deployment).
 - **Authentication exists, but it is not hardened.** The original "no auth"

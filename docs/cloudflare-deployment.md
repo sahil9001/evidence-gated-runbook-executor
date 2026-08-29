@@ -173,7 +173,7 @@ Then, under **Settings → Secrets and variables → Actions**:
 |---|---|---|
 | Secret | `CLOUDFLARE_API_TOKEN` | An API token with **Workers Scripts: Edit** and **D1: Edit** |
 | Secret | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account id |
-| Variable | `D1_DATABASE_ID` | The id printed by `wrangler d1 create` |
+| Variable | `D1_DATABASE_ID` | Optional. `backend/wrangler.jsonc` already carries the real id, so the deploy job's substitution step no-ops. Only needed if that config is ever put back to a placeholder. |
 | Variable | `NEXT_PUBLIC_API_URL` | The deployed backend's origin, e.g. `https://runproof-api.<your-subdomain>.workers.dev` |
 
 `NEXT_PUBLIC_API_URL` is a *variable*, not a secret: it is inlined into the
@@ -181,12 +181,16 @@ client bundle at build time and is public by definition. It has no default in
 CI on purpose — silently falling back to `http://localhost:8787` would ship a
 console that looks deployed and cannot reach anything.
 
-`D1_DATABASE_ID` exists because `backend/wrangler.jsonc` ships
-`"database_id": "local-dev-placeholder"` — all `wrangler dev --local` needs,
-and deliberately not a real id in a public repository. No CLI flag overrides a
-D1 binding's `database_id`, so the deploy job substitutes it into the config
-before running. If you would rather commit the real id, do that and the
-substitution step detects it and leaves the file alone.
+`D1_DATABASE_ID` exists because no CLI flag overrides a D1 binding's
+`database_id`, so if the config carries a placeholder the deploy job has to
+substitute the real id before running. The config now carries the real id
+directly — an identifier, not a credential, and `wrangler dev --local` ignores
+it — so the step detects it and leaves the file alone.
+
+One thing not to do to that binding: mark it `"remote": true`. That flag makes
+`@cloudflare/vitest-pool-workers` open a remote proxy session before running
+any test, which needs Cloudflare credentials — so `npm test` passes on a
+machine that has run `wrangler login` and fails everywhere else, CI included.
 
 ### What CI does not do
 

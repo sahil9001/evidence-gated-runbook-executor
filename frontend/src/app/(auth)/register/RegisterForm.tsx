@@ -9,7 +9,7 @@ import { register } from "../../../lib/auth";
 import { resolveNextPath, withNextParam } from "../../../lib/next-redirect";
 import { FormField } from "../components/FormField";
 
-// Mirrors backend/src/routes/auth.ts MIN_PASSWORD_LENGTH — kept in sync
+// Mirrors backend/src/routes/auth.ts MIN_PASSWORD_LENGTH - kept in sync
 // manually since the frontend and backend are separate builds (see
 // lib/types.ts's header comment for why nothing is imported across that
 // boundary).
@@ -120,7 +120,7 @@ export function RegisterForm() {
         ) : (
           <ArrowRight className="h-4 w-4" strokeWidth={2} />
         )}
-        {isSubmitting ? "Creating account…" : "Create account"}
+        {isSubmitting ? "Creating account..." : "Create account"}
       </button>
 
       <p className="text-center text-sm text-neutral-600">

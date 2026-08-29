@@ -142,9 +142,11 @@ verify ──▶ deploy-backend ──▶ deploy-frontend
 
 Order matters in two places. Migrations run **before** the Worker that queries
 the new tables, and the backend deploys **before** the console that calls it.
-The workflow uses `concurrency: cancel-in-progress: false` so a second push
-never cancels a deploy mid-flight and strands applied migrations against
-undeployed code.
+The workflow serializes deploys with `concurrency: cancel-in-progress: false`,
+so a second push never cancels a deploy mid-flight and strands applied
+migrations against undeployed code. Runs that cannot deploy — a dispatch from
+a non-`main` ref — take a concurrency group of their own instead, so a branch
+check never holds up a real deploy.
 
 `workflow_dispatch` is enabled, so a partial failure can be re-run from the
 Actions tab without an empty commit. The dispatch dropdown lets you pick any

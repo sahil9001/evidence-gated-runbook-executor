@@ -20,9 +20,17 @@ on:
 # One production deploy at a time, and never cancel one that is already
 # running. A cancelled run can leave D1 migrations applied with the Worker that
 # expects them undeployed, which is exactly the half-state that is painful to
-# reason about later.
+# reason about later. The lock is workflow-wide rather than per deploy job on
+# purpose: a job-level lock would let two runs interleave — run B's backend
+# between run A's backend and frontend — since nothing guarantees the order
+# queued jobs acquire it.
+#
+# Only deploy-capable runs belong in that lock. A dispatch from any other ref
+# can only reach `verify` (see the job conditions below), so it gets a group of
+# its own keyed on the run id; sharing the production group would let a branch
+# check hold up an actual deploy of main for no reason.
 concurrency:
-  group: deploy-production
+  group: ${{ github.ref == 'refs/heads/main' && 'deploy-production' || format('verify-{0}', github.run_id) }}
   cancel-in-progress: false
 
 permissions:

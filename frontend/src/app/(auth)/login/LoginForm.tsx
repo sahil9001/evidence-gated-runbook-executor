@@ -30,7 +30,7 @@ function validatePassword(value: string): string | undefined {
 
 /**
  * Never rephrase this into anything that hints whether the email exists
- * (e.g. "no account with that email") — the backend deliberately returns the
+ * (e.g. "no account with that email") - the backend deliberately returns the
  * same `invalid_credentials` message, with the same response timing, for an
  * unknown email and a wrong password (see backend/src/routes/auth.ts). This
  * renders that message verbatim; the UI must not undo the work the server
@@ -120,7 +120,7 @@ export function LoginForm() {
         ) : (
           <ArrowRight className="h-4 w-4" strokeWidth={2} />
         )}
-        {isSubmitting ? "Signing in…" : "Sign in"}
+        {isSubmitting ? "Signing in..." : "Sign in"}
       </button>
 
       <p className="text-center text-sm text-neutral-600">

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function RegisterPage() {
   return (
-    <AuthShell title="Create your account" subtitle="Evidence before action, every time — for every operator on your team.">
+    <AuthShell title="Create your account" subtitle="Evidence before action, every time, for every operator on your team.">
       <Suspense fallback={null}>
         <RegisterForm />
       </Suspense>

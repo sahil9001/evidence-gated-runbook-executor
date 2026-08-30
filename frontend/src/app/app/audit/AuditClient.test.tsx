@@ -51,7 +51,7 @@ describe("AuditClient", () => {
     render(<AuditClient />);
 
     expect(await screen.findByText(/approval granted/i)).toBeInTheDocument();
-    expect(screen.getByText("Evidence collection had failures")).toBeInTheDocument();
+    expect(screen.getByText("Evidence incomplete")).toBeInTheDocument();
     expect(screen.getByText("Gate run-1 approved by lead@runproof.dev")).toBeInTheDocument();
   });
 

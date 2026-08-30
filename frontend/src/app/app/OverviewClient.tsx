@@ -4,20 +4,18 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
-  CheckCircle2,
   CircleAlert,
   FileSearch,
   ListChecks,
   LockKeyhole,
-  type LucideIcon,
   Play,
   RotateCcw,
-  Siren,
-  XCircle
+  Siren
 } from "lucide-react";
 import { ApiClientError, getOverview } from "../../lib/api";
 import { computeReadiness } from "../../lib/readiness";
 import type { AuditEntry, OverviewResponse } from "../../lib/types";
+import { activityPresentation, shortenIds } from "../../lib/audit-format";
 import { Band, ConsoleContainer, EmptyState, SectionTitle } from "./components/console/Surface";
 import { Figure } from "./components/console/Indicators";
 import { PipelineFlow } from "./components/console/PipelineFlow";
@@ -44,47 +42,6 @@ type OverviewState =
   | { status: "loading" }
   | { status: "error"; error: ApiClientError }
   | { status: "loaded"; data: OverviewResponse };
-
-/**
- * A human on-call engineer should never have to know what `gate_approved`
- * means. Each audit `kind` gets a plain-language label and an icon; the
- * backend's own `detail` string carries the specifics underneath.
- */
-const ACTIVITY_PRESENTATION: Readonly<
-  Record<string, { readonly label: string; readonly icon: LucideIcon; readonly className: string }>
-> = {
-  run_created: { label: "Run started", icon: Play, className: "bg-sky-50 text-signal" },
-  evidence_partial: {
-    label: "Evidence incomplete",
-    icon: CircleAlert,
-    className: "bg-amber-50 text-amber-700"
-  },
-  gate_approved: { label: "Approval granted", icon: CheckCircle2, className: "bg-emerald-50 text-emerald-700" },
-  action_executed: { label: "Action executed", icon: ListChecks, className: "bg-emerald-50 text-emerald-700" },
-  gate_rejected: { label: "Approval rejected", icon: XCircle, className: "bg-rose-50 text-rose-700" }
-};
-
-function activityPresentation(kind: string) {
-  return (
-    ACTIVITY_PRESENTATION[kind] ?? {
-      label: kind.replace(/_/g, " "),
-      icon: FileSearch,
-      className: "bg-neutral-100 text-neutral-600"
-    }
-  );
-}
-
-/**
- * Audit details embed full run/gate/incident UUIDs. Rendered verbatim they
- * push the readable half of every sentence off the row, so ids are shortened
- * to their first segment — enough to correlate against the run page, which is
- * one click away, without turning the feed into a wall of hex.
- */
-const UUID_PATTERN = /\b([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
-
-export function shortenIds(detail: string): string {
-  return detail.replace(UUID_PATTERN, (_match, head: string) => `${head}…`);
-}
 
 function formatTimestamp(iso: string): string {
   const date = new Date(iso);

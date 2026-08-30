@@ -53,7 +53,7 @@ export function SignalTagInput({ signals, onChange, suggestions = [] }: SignalTa
         {signals.map((signal) => (
           <span
             key={signal}
-            className="inline-flex items-center gap-1 rounded-full bg-panel px-2.5 py-1 text-xs font-semibold text-signal"
+            className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700"
           >
             <Tag className="h-3 w-3" strokeWidth={2} aria-hidden="true" />
             {signal}

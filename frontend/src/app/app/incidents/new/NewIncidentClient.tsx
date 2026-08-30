@@ -118,7 +118,7 @@ export function NewIncidentClient() {
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr]">
-      <section className="flex flex-col gap-5 rounded-3xl bg-white p-6 shadow-soft sm:p-7">
+      <section className="flex flex-col gap-5">
         {submitState.status === "error" ? (
           <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
             Could not create the incident: {submitState.message}

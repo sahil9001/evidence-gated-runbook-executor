@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Loader2, PlayCircle } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, PlayCircle, Radio } from "lucide-react";
+import { SectionTitle } from "../../components/console/Surface";
+import { Pill } from "../../components/console/Indicators";
 import { ApiClientError, getIncident, startRun } from "../../../../lib/api";
 import type { IncidentDetailResponse, RunRow } from "../../../../lib/types";
 
@@ -46,7 +48,7 @@ function formatTimestamp(iso: string): string {
 
 function DetailSkeleton() {
   return (
-    <div className="animate-pulse rounded-3xl bg-white p-6 shadow-soft" role="status" aria-label="Loading incident">
+    <div className="animate-pulse py-2" role="status" aria-label="Loading incident">
       <div className="h-4 w-48 rounded-full bg-neutral-200" />
       <div className="mt-4 h-3 w-32 rounded-full bg-neutral-100" />
       <div className="mt-8 h-24 w-full rounded-2xl bg-neutral-100" />
@@ -61,7 +63,7 @@ interface DetailErrorProps {
 
 function DetailError({ error, onRetry }: DetailErrorProps) {
   return (
-    <div className="rounded-3xl bg-white p-6 shadow-soft sm:p-8">
+    <div className="border-y border-rose-100 bg-rose-50/40 px-6 py-10">
       <p className="text-sm font-semibold text-rose-700">Could not load this incident</p>
       <p className="mt-1 text-sm text-neutral-600">{humanizeErrorCode(error.code)}</p>
       <button
@@ -84,7 +86,7 @@ function RunListItem({ run }: RunListItemProps) {
     <li>
       <Link
         href={`/app/runs/${encodeURIComponent(run.id)}`}
-        className="group flex items-center justify-between gap-3 rounded-xl px-3 py-3 transition hover:bg-panel focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+        className="group flex items-center justify-between gap-3 py-3.5 transition hover:bg-sky-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
       >
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-ink">{run.id}</p>
@@ -115,7 +117,7 @@ function OrphanedIncident({ startState, onStart }: OrphanedIncidentProps) {
   const isStarting = startState.status === "starting";
 
   return (
-    <div className="rounded-2xl bg-panel p-5">
+    <div className="border-l-2 border-signal bg-sky-50/70 p-5">
       <p className="text-sm font-semibold text-ink">No run has started for this incident yet.</p>
       <p className="mt-1 text-xs text-neutral-600">
         Evidence collection hasn&apos;t begun. Start a run using this incident&apos;s service and signals.
@@ -132,7 +134,7 @@ function OrphanedIncident({ startState, onStart }: OrphanedIncidentProps) {
         type="button"
         onClick={onStart}
         disabled={isStarting}
-        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
       >
         {isStarting ? (
           <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden="true" />
@@ -193,40 +195,54 @@ export function IncidentDetailClient({ incidentId }: IncidentDetailClientProps) 
   const { incident, runs } = state.data;
 
   return (
-    <div className="flex flex-col gap-4">
-      <section className="rounded-3xl bg-white p-6 shadow-soft sm:p-8">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-ink">{incident.title}</h2>
-            <p className="mt-1 text-sm font-medium text-neutral-500">{incident.service}</p>
+    <div className="flex flex-col">
+      <section className="pb-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">
+              {incident.service}
+            </p>
+            <h2
+              className="mt-2 text-balance font-semibold tracking-[-0.02em] text-ink"
+              style={{ fontSize: "clamp(1.4rem, 1.1rem + 1vw, 2rem)", lineHeight: 1.1 }}
+            >
+              {incident.title}
+            </h2>
           </div>
-          <span className="inline-flex items-center rounded-full bg-panel px-3 py-1 text-xs font-semibold text-signal">
-            {incident.status}
-          </span>
+          <Pill tone={incident.status === "resolved" ? "good" : "info"}>{incident.status}</Pill>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
           {incident.signals.map((signal) => (
-            <span key={signal} className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700">
+            <span
+              key={signal}
+              className="inline-flex items-center gap-1.5 rounded-md bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700"
+            >
+              <Radio className="h-3 w-3" strokeWidth={2.2} aria-hidden="true" />
               {signal}
             </span>
           ))}
         </div>
 
-        <p className="mt-4 text-xs text-neutral-500">
+        <p className="mt-5 text-xs text-neutral-500">
           Opened by {incident.createdBy} on {formatTimestamp(incident.createdAt)}
         </p>
       </section>
 
-      <section className="rounded-3xl bg-white p-5 shadow-soft sm:p-6">
-        <h3 className="text-sm font-semibold text-signal">Runs</h3>
+      <section className="border-t border-sky-100 pt-8">
+        <SectionTitle
+          title="Runs"
+          hint={
+            runs.length === 0
+              ? "No evidence has been gathered for this incident yet."
+              : `${runs.length} run${runs.length === 1 ? "" : "s"} against this incident.`
+          }
+        />
 
         {runs.length === 0 ? (
-          <div className="mt-4">
-            <OrphanedIncident startState={startState} onStart={handleStartRun} />
-          </div>
+          <OrphanedIncident startState={startState} onStart={handleStartRun} />
         ) : (
-          <ul className="mt-3 flex flex-col divide-y divide-neutral-100">
+          <ul className="divide-y divide-sky-100 border-y border-sky-100">
             {runs.map((run) => (
               <RunListItem key={run.id} run={run} />
             ))}

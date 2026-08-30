@@ -14,7 +14,7 @@ vi.mock("../../lib/api", async () => {
 });
 
 // Imported after the mock above so the module under test picks it up.
-import { OverviewClient, shortenIds } from "./OverviewClient";
+import { OverviewClient } from "./OverviewClient";
 
 const NO_RUNS: Record<RunRow["state"], number> = {
   collecting: 0,
@@ -220,25 +220,5 @@ describe("OverviewClient", () => {
       "href",
       "/app/incidents/new"
     );
-  });
-});
-
-describe("shortenIds", () => {
-  it("truncates embedded UUIDs so the readable half of the sentence survives", () => {
-    expect(shortenIds("Gate 7814bdea-f883-4b95-b478-496d59607512 rejected by sam")).toBe(
-      "Gate 7814bdea… rejected by sam"
-    );
-  });
-
-  it("shortens every id in a detail line, not just the first", () => {
-    const detail =
-      "Evidence collected for incident dd809c19-4abb-4ce5-8c26-c27f5a057b40; action 7814bdea-f883-4b95-b478-496d59607512 locked";
-    expect(shortenIds(detail)).toBe(
-      "Evidence collected for incident dd809c19…; action 7814bdea… locked"
-    );
-  });
-
-  it("leaves details with no ids untouched", () => {
-    expect(shortenIds("Approved by oncall@runproof.dev")).toBe("Approved by oncall@runproof.dev");
   });
 });

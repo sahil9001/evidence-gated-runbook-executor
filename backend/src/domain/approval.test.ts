@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { createAction } from "./action";
-import { createGate, approveGate, rejectGate, isExpired, tokenAuthorizes, type ApprovalToken } from "./approval";
+import {
+  createGate,
+  approveGate,
+  rejectGate,
+  isExpired,
+  stableStringify,
+  tokenAuthorizes,
+  type ApprovalToken
+} from "./approval";
 
 const BEFORE_T0 = "2026-08-25T01:00:00.000Z";
 const T0 = "2026-08-25T02:00:00.000Z";
@@ -292,5 +300,62 @@ describe("token content binding", () => {
       params: { region: "us-east", version: "17" }, reversible: true, description: "Roll back"
     });
     expect(tokenAuthorizes(token, reordered)).toBe(true);
+  });
+});
+
+/**
+ * `stableStringify` is exported and used beyond `fingerprintAction` — the MCP
+ * tool handlers compare runbook params with it. Its collision guarantees are
+ * therefore a contract in their own right, and several of them are unreachable
+ * through `createAction`, whose schema rejects NaN and bigint before the
+ * serializer ever sees them. Testing the primitive directly is the only way to
+ * pin the behaviour those callers depend on.
+ */
+describe("stableStringify", () => {
+  it("keeps every non-finite number distinct from each other and from null", () => {
+    const encoded = [NaN, Infinity, -Infinity, 0, null, undefined].map((v) => stableStringify(v));
+
+    // The whole point of a type-tagged serializer: no two of these may collide,
+    // or a token approved for one action would authorize another.
+    expect(new Set(encoded).size).toBe(encoded.length);
+  });
+
+  it("distinguishes a bigint from the number and string with the same digits", () => {
+    const encoded = [10n, 10, "10"].map((v) => stableStringify(v));
+    expect(new Set(encoded).size).toBe(3);
+  });
+
+  it("distinguishes booleans from the strings that spell them", () => {
+    expect(stableStringify(true)).not.toBe(stableStringify("true"));
+  });
+
+  it("is order-independent for object keys but not for array elements", () => {
+    expect(stableStringify({ a: 1, b: 2 })).toBe(stableStringify({ b: 2, a: 1 }));
+    expect(stableStringify([1, 2])).not.toBe(stableStringify([2, 1]));
+  });
+
+  it("refuses a value it cannot fingerprint rather than silently eliding it", () => {
+    // A function or symbol has no stable serialization, and encoding either as
+    // "undefined" would let two materially different actions fingerprint alike.
+    expect(() => stableStringify({ fn: () => 1 })).toThrow(/function/i);
+    expect(() => stableStringify({ sym: Symbol("s") })).toThrow(/symbol/i);
+  });
+
+  it("names the path to the offending value so a failure is actionable", () => {
+    expect(() => stableStringify({ outer: { inner: [() => 1] } })).toThrow(/outer\.inner\[0\]/);
+  });
+
+  it("throws on a cyclic structure instead of overflowing the stack", () => {
+    type Cyclic = { self?: Cyclic };
+    const cyclic: Cyclic = {};
+    cyclic.self = cyclic;
+    expect(() => stableStringify(cyclic)).toThrow(/cyclic/i);
+  });
+
+  it("allows the same object to appear twice when it is not a cycle", () => {
+    // A shared reference is not a cycle; rejecting it would refuse ordinary
+    // params that happen to reuse one nested object.
+    const shared = { a: 1 };
+    expect(() => stableStringify({ x: shared, y: shared })).not.toThrow();
   });
 });

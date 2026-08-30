@@ -1,13 +1,14 @@
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
 import { createAction, type Action } from "../domain/action";
 import { approvalGateSchema, type ApprovalGate, type ApprovedGate, type RejectedGate } from "../domain/approval";
-import type {
-  Store,
-  RunRow,
-  AuditEntry,
-  IncidentRow,
-  UserRow,
-  SessionRow
+import {
+  RUN_STATES,
+  type Store,
+  type RunRow,
+  type AuditEntry,
+  type IncidentRow,
+  type UserRow,
+  type SessionRow
 } from "../domain/store";
 
 type RunRecord = {
@@ -203,6 +204,23 @@ export function createD1Store(db: D1Database): Store {
         .bind(sinceIso)
         .first<{ count: number }>();
       return record?.count ?? 0;
+    },
+
+    async countRunsGroupedByState(): Promise<Readonly<Record<RunRow["state"], number>>> {
+      const result = await db
+        .prepare(`SELECT state, COUNT(*) as count FROM runs GROUP BY state`)
+        .all<{ state: RunRow["state"]; count: number }>();
+
+      // Seeded with zeros so a state with no rows still reads as 0 rather
+      // than undefined; GROUP BY only returns states that actually occur.
+      const counts = Object.fromEntries(RUN_STATES.map((state) => [state, 0])) as Record<
+        RunRow["state"],
+        number
+      >;
+      for (const row of result.results ?? []) {
+        if (row.state in counts) counts[row.state] = row.count;
+      }
+      return counts;
     },
 
     async createRunWithArtifacts(input: {
@@ -516,6 +534,14 @@ export function createD1Store(db: D1Database): Store {
         .bind(...params)
         .all<IncidentRecord>();
       return results.map(toIncidentRow);
+    },
+
+    async countRunsWithAuditKind(kind: string): Promise<number> {
+      const record = await db
+        .prepare(`SELECT COUNT(DISTINCT run_id) as count FROM audit_log WHERE kind = ?`)
+        .bind(kind)
+        .first<{ count: number }>();
+      return record?.count ?? 0;
     },
 
     async countIncidentsExcludingStatus(status: string): Promise<number> {

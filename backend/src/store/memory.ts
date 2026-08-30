@@ -2,6 +2,7 @@ import { createAction, type Action } from "../domain/action";
 import { approvalGateSchema, type ApprovalGate, type ApprovedGate, type RejectedGate } from "../domain/approval";
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
 import {
+  RUN_STATES,
   StoreConflictError,
   type Store,
   type RunRow,
@@ -120,6 +121,15 @@ export function createMemoryStore(): Store {
 
     async countRunsSince(sinceIso: string): Promise<number> {
       return [...runs.values()].filter((r) => r.createdAt >= sinceIso).length;
+    },
+
+    async countRunsGroupedByState(): Promise<Readonly<Record<RunRow["state"], number>>> {
+      const counts = Object.fromEntries(RUN_STATES.map((state) => [state, 0])) as Record<
+        RunRow["state"],
+        number
+      >;
+      for (const run of runs.values()) counts[run.state] += 1;
+      return counts;
     },
 
     async createRunWithArtifacts(input: {
@@ -326,6 +336,14 @@ export function createMemoryStore(): Store {
       // tab's top-to-bottom contract for an unlimited call).
       const windowed = limit !== undefined ? ascending.slice(Math.max(0, ascending.length - limit)) : ascending;
       return windowed.map(clone);
+    },
+
+    async countRunsWithAuditKind(kind: string): Promise<number> {
+      const runIds = new Set<string>();
+      for (const entry of auditLog.values()) {
+        if (entry.kind === kind) runIds.add(entry.runId);
+      }
+      return runIds.size;
     },
 
     async listRecentAudit(limit: number): Promise<AuditEntry[]> {

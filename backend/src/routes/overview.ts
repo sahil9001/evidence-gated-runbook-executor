@@ -18,7 +18,8 @@ overviewRoutes.get("/overview", async (c) => {
   // Store#countRunsByState / #countRunsSince / #countIncidentsExcludingStatus.
   const startOfTodayIso = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z").toISOString();
 
-  const [awaitingApproval, activeIncidents, runsToday, recentActivity] = await Promise.all([
+  const [awaitingApproval, activeIncidents, runsToday, recentActivity, runsByState, partialEvidenceRuns] =
+    await Promise.all([
     // The number that matters most on this screen: how many runs are stuck
     // waiting on a human right now.
     store.countRunsByState("awaiting_approval"),
@@ -29,12 +30,25 @@ overviewRoutes.get("/overview", async (c) => {
     // counts as active by default.
     store.countIncidentsExcludingStatus("resolved"),
     store.countRunsSince(startOfTodayIso),
-    store.listRecentAudit(RECENT_ACTIVITY_LIMIT)
+    store.listRecentAudit(RECENT_ACTIVITY_LIMIT),
+    // Backs the Overview readiness score. One GROUP BY rather than five
+    // separate counts, for the same reason the counts above are counts.
+    store.countRunsGroupedByState(),
+    // Runs whose evidence packet is missing at least one allowed source.
+    // DISTINCT by run, so a run that lost three sources still counts once.
+    store.countRunsWithAuditKind("evidence_partial")
   ]);
 
   return c.json({
     ok: true,
-    data: { awaitingApproval, activeIncidents, runsToday, recentActivity }
+    data: {
+      awaitingApproval,
+      activeIncidents,
+      runsToday,
+      recentActivity,
+      runsByState,
+      partialEvidenceRuns
+    }
   });
 });
 

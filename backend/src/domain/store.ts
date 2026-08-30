@@ -81,6 +81,19 @@ export type SessionRow = {
   expiresAt: string;
 };
 
+/**
+ * Every run state, in lifecycle order. Exported so the grouped-count adapters
+ * can seed a zero for states the query returned no rows for, rather than each
+ * one hard-coding the same five strings.
+ */
+export const RUN_STATES: readonly RunRow["state"][] = [
+  "collecting",
+  "awaiting_approval",
+  "approved",
+  "rejected",
+  "executed"
+];
+
 export interface Store {
   createRun(run: RunRow): Promise<void>;
   getRun(id: string): Promise<RunRow | null>;
@@ -112,6 +125,16 @@ export interface Store {
    * the Worker. Same reasoning as `countRunsByState`.
    */
   countRunsSince(sinceIso: string): Promise<number>;
+  /**
+   * Every run state and how many runs are in it, as one `GROUP BY state`
+   * query. The Overview screen's readiness score needs all five counts at
+   * once; issuing five separate `countRunsByState` round trips for a single
+   * render would be five times the work for the same answer.
+   *
+   * States with no runs are present with a count of 0, so callers can read
+   * `result.rejected` without a null check.
+   */
+  countRunsGroupedByState(): Promise<Readonly<Record<RunRow["state"], number>>>;
 
   /**
    * Creates a run and every artifact it is born with — its evidence packet,
@@ -208,6 +231,16 @@ export interface Store {
    * `limit`. Backs a cross-run recent-activity view — a use case
    * `listAudit` (scoped to one run) can't provide. */
   listRecentAudit(limit: number): Promise<AuditEntry[]>;
+  /**
+   * `COUNT(*) ... WHERE kind = ?` across every run. Backs the Overview
+   * score's evidence-completeness term, which needs to know how many runs
+   * recorded an `evidence_partial` entry without materializing the audit
+   * log. Same reasoning as `countRunsByState`.
+   *
+   * Counts DISTINCT runs, not entries: a run that failed to collect from
+   * three sources writes three rows but is still one incomplete run.
+   */
+  countRunsWithAuditKind(kind: string): Promise<number>;
 
   /** Newest-first. `limit`, when given, bounds the result the same way
    * `listRuns`'s does. */

@@ -8,13 +8,19 @@ import { requireAuth, type AuthedEnv } from "../auth/middleware";
 import { createRunRoutes } from "./run";
 import { overviewRoutes } from "./overview";
 import { ALL_SOURCES } from "../mcp";
-import type { IncidentRow, RunRow, Store } from "../domain/store";
+import { RUN_STATES, type IncidentRow, type RunRow, type Store } from "../domain/store";
 
 beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 type ApiOk<T> = { ok: true; data: T };
+
+/** The slice of GET /overview that feeds the console's readiness score. */
+type OverviewScoreShape = {
+  runsByState: Record<RunRow["state"], number>;
+  partialEvidenceRuns: number;
+};
 
 function buildApp(): Hono<AuthedEnv> {
   const app = new Hono<AuthedEnv>();
@@ -187,5 +193,34 @@ describe("GET /overview", () => {
 
     expect(listRunsSpy).not.toHaveBeenCalled();
     expect(listIncidentsSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports run counts per state and incomplete-evidence runs for the readiness score", async () => {
+    const cookie = await registeredCookie();
+    const app = buildApp();
+
+    const before = await request(app, "GET", "/overview", undefined, cookie);
+    const beforeData = (before.json as ApiOk<OverviewScoreShape>).data;
+
+    // A run left locked on its gate, so awaiting_approval moves by exactly one.
+    const incident = await seedIncident();
+    await request(app, "POST", `/incidents/${incident.id}/run`, {}, cookie);
+
+    const after = await request(app, "GET", "/overview", undefined, cookie);
+    expect(after.status).toBe(200);
+    const afterData = (after.json as ApiOk<OverviewScoreShape>).data;
+
+    // Every state is present as a number even when no run is in it, so the
+    // client can read `runsByState.approved` without a null check.
+    for (const state of RUN_STATES) {
+      expect(typeof afterData.runsByState[state]).toBe("number");
+    }
+    expect(afterData.runsByState.awaiting_approval - beforeData.runsByState.awaiting_approval).toBe(1);
+
+    // Present and numeric; the fixture sources all succeed, so this run adds
+    // nothing to it. Asserting the delta is 0 would be asserting the
+    // fixtures, not the route.
+    expect(typeof afterData.partialEvidenceRuns).toBe("number");
+    expect(afterData.partialEvidenceRuns).toBeGreaterThanOrEqual(0);
   });
 });

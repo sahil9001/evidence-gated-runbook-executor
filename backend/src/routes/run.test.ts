@@ -168,4 +168,28 @@ describe("POST /incidents/:id/run", () => {
     const partials = audit.filter((entry) => entry.kind === "evidence_partial");
     expect(partials).toHaveLength(1);
   });
+
+  it("appends evidence_partial when a source returns cleanly but contributes no cards", async () => {
+    const cookie = await registeredCookie();
+    const incident = await seedIncident();
+    // Succeeds, throws nothing, and yields nothing. This leaves exactly the
+    // same hole in the packet as a thrown CollectorError, and GET /runs/:id
+    // reports it as a missing source either way -- so the audit log has to
+    // agree. It previously recorded nothing here.
+    const emptySource: EvidenceSource = {
+      kind: "metrics",
+      collect: async () => []
+    };
+    const app = buildApp([emptySource]);
+    const { status, json } = await post(app, `/incidents/${incident.id}/run`, {}, cookie);
+
+    expect(status).toBe(200);
+    const body = json as ApiOk<{ run: { id: string } }>;
+
+    const store = createD1Store(env.DB);
+    const audit = await store.listAudit(body.data.run.id);
+    const partials = audit.filter((entry) => entry.kind === "evidence_partial");
+    expect(partials).toHaveLength(1);
+    expect(partials[0]?.detail).toContain("metrics");
+  });
 });

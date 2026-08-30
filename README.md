@@ -293,9 +293,13 @@ PR #25; CI runs the same two suites on every merge to `main`.
 
 ## Qodo Code Review Evidence
 
-All 25 merged PRs went through a full Qodo review cycle. Every substantive
-change in this repository landed through a reviewed pull request; nothing was
-pushed straight to `main`.
+All 25 merged PRs went through a full Qodo review cycle, and every substantive
+change landed through one of them. One honest exception, since it takes a
+single `git log --first-parent` to find: the first day's nine commits —
+Next.js scaffolding and landing-page work, 2026-08-24 — were pushed straight
+to `main` before PR #1 opened. Everything after that point, which is the
+backend, the MCP server, the approval gate and the console in their entirety,
+went through a reviewed pull request.
 
 **Representative merged PR: [#1 — backend foundation and the non-forgeable
 approval gate][pr1].** It is the one to open first, because Qodo's review there
@@ -342,6 +346,46 @@ selection, not the full log.
   deployment. We chose an honest, documented limitation over a rushed migration
   this close to the deadline — see "Known limitations" in
   [`docs/trueforge-setup.md`](docs/trueforge-setup.md#known-limitations-local-dev-scope).
+
+### Every merged pull request
+
+[![Qodo review: 25 of 25 merged PRs](https://img.shields.io/badge/Qodo%20review-25%20of%2025%20merged%20PRs-6f42c1?style=for-the-badge)](https://github.com/sahil9001/evidence-gated-runbook-executor/pulls?q=is%3Apr+is%3Amerged)
+
+The button opens the merged-PR list on GitHub; every row below links to one of
+them. The **Qodo** column counts everything Qodo posted on that PR — its
+summary comment, its code review, and any inline review threads. Two is a
+single clean pass; anything higher means findings, a re-review after new
+commits, or both.
+
+| PR | Merged | Title | Qodo |
+|---|---|---|---|
+| [#1](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1) | 2026-08-26 | feat: backend foundation and the non-forgeable approval gate | 6 |
+| [#2](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/2) | 2026-08-26 | feat: runbook schema, matcher, and fixture-backed evidence collectors | 4 |
+| [#3](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/3) | 2026-08-26 | RunProof as a TrueForge MCP server | 7 |
+| [#4](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/4) | 2026-08-26 | Sandboxed diagnostic step: get_diagnostic_script MCP tool | 4 |
+| [#5](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/5) | 2026-08-26 | docs: hackathon submission write-up + Qodo review evidence | 6 |
+| [#6](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/6) | 2026-08-27 | feat: pluggable D1/memory persistence layer | 6 |
+| [#7](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/7) | 2026-08-27 | feat: session auth for provable approver identity | 6 |
+| [#8](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/8) | 2026-08-27 | feat: token-gated executor and evidence-gated approval API | 8 |
+| [#9](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/9) | 2026-08-28 | feat: listing APIs for the operator console | 8 |
+| [#10](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/10) | 2026-08-28 | feat: operator console frontend | 9 |
+| [#11](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/11) | 2026-08-28 | docs: correct the auth claims that PRs #7-#10 made false | 3 |
+| [#12](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/12) | 2026-08-28 | docs: bring the roadmap's "what exists today" back to reality | 2 |
+| [#13](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/13) | 2026-08-28 | feat: one command to run the whole stack locally | 2 |
+| [#14](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/14) | 2026-08-28 | feat: make dev.sh say what it is doing and how long it took | 3 |
+| [#15](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/15) | 2026-08-28 | fix: stop the risk gauge failing hydration on the landing page | 2 |
+| [#16](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/16) | 2026-08-28 | fix: stop wrangler suspending itself before it ever listens | 2 |
+| [#17](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/17) | 2026-08-28 | fix: report real elapsed time while waiting, not loop iterations | 3 |
+| [#18](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/18) | 2026-08-29 | feat: make the landing page nav aware of the session | 3 |
+| [#19](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/19) | 2026-08-29 | fix: stop Ctrl+C leaving both dev servers running | 2 |
+| [#20](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/20) | 2026-08-29 | docs: add an architecture doc with Mermaid diagrams | 2 |
+| [#21](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/21) | 2026-08-29 | ci: deploy the backend and the console on merge to main | 5 |
+| [#22](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/22) | 2026-08-29 | fix: stop the D1 binding forcing a remote proxy session in tests | 3 |
+| [#23](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/23) | 2026-08-29 | fix: make frontend/package-lock.json installable with npm 10 | 2 |
+| [#24](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/24) | 2026-08-29 | fix: bring PBKDF2 iterations under the limit the Workers runtime enforces | 3 |
+| [#25](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/25) | 2026-08-29 | Redesign auth pages with full-bleed split layout | 2 |
+
+Every one of them carries Qodo review activity; none was merged unreviewed.
 
 ## What is NOT built
 

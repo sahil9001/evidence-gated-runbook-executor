@@ -196,7 +196,8 @@ describe("GET /runs/:id", () => {
       state: "collecting",
       createdAt: nowIso,
       updatedAt: nowIso,
-      createdBy: null
+      createdBy: null,
+      evidenceGapCount: 0
     });
 
     const { status, json } = await request(app, "GET", `/runs/${runId}`, undefined, cookie);

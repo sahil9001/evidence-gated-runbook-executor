@@ -167,6 +167,16 @@ export interface OverviewResponse {
   readonly activeIncidents: number;
   readonly runsToday: number;
   readonly recentActivity: readonly AuditEntry[];
+  // Every run state with a count, including states holding zero runs, so the
+  // readiness score can read `runsByState.approved` without a null check.
+  readonly runsByState: Readonly<Record<RunRow["state"], number>>;
+  // How many runs have a recorded evidence-gap measurement at all. Runs
+  // created before that measurement existed are excluded, so the score can
+  // treat them as unmeasured rather than silently complete.
+  readonly evidenceMeasuredRuns: number;
+  // Of those measured runs, how many are missing at least one source their
+  // runbook allows. Counted per run, not per missing source.
+  readonly partialEvidenceRuns: number;
 }
 
 // mirrors backend/src/domain/store.ts IncidentRow

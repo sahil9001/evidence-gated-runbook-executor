@@ -2,6 +2,7 @@ import { createAction, type Action } from "../domain/action";
 import { approvalGateSchema, type ApprovalGate, type ApprovedGate, type RejectedGate } from "../domain/approval";
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
 import {
+  RUN_STATES,
   StoreConflictError,
   type Store,
   type RunRow,
@@ -120,6 +121,26 @@ export function createMemoryStore(): Store {
 
     async countRunsSince(sinceIso: string): Promise<number> {
       return [...runs.values()].filter((r) => r.createdAt >= sinceIso).length;
+    },
+
+    async countRunsByEvidenceMeasurement(): Promise<{ measured: number; withGaps: number }> {
+      let measured = 0;
+      let withGaps = 0;
+      for (const run of runs.values()) {
+        if (run.evidenceGapCount === null || run.evidenceGapCount === undefined) continue;
+        measured += 1;
+        if (run.evidenceGapCount > 0) withGaps += 1;
+      }
+      return { measured, withGaps };
+    },
+
+    async countRunsGroupedByState(): Promise<Readonly<Record<RunRow["state"], number>>> {
+      const counts = Object.fromEntries(RUN_STATES.map((state) => [state, 0])) as Record<
+        RunRow["state"],
+        number
+      >;
+      for (const run of runs.values()) counts[run.state] += 1;
+      return counts;
     },
 
     async createRunWithArtifacts(input: {

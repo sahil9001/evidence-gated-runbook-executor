@@ -2,7 +2,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AuditEntry, OverviewResponse } from "../../lib/types";
+import type { AuditEntry, OverviewResponse, RunRow } from "../../lib/types";
 
 const getOverview = vi.fn();
 vi.mock("../../lib/api", async () => {
@@ -15,6 +15,14 @@ vi.mock("../../lib/api", async () => {
 
 // Imported after the mock above so the module under test picks it up.
 import { OverviewClient } from "./OverviewClient";
+
+const NO_RUNS: Record<RunRow["state"], number> = {
+  collecting: 0,
+  awaiting_approval: 0,
+  approved: 0,
+  rejected: 0,
+  executed: 0
+};
 
 function makeEntry(overrides: Partial<AuditEntry> = {}): AuditEntry {
   return {
@@ -33,8 +41,18 @@ function makeOverview(overrides: Partial<OverviewResponse> = {}): OverviewRespon
     activeIncidents: 0,
     runsToday: 0,
     recentActivity: [],
+    runsByState: NO_RUNS,
+    evidenceMeasuredRuns: 0,
+    partialEvidenceRuns: 0,
     ...overrides
   };
+}
+
+/** Reads the figure rendered under a given uppercase label. */
+function figureValue(label: string): string {
+  const heading = screen.getByText(label);
+  const block = heading.closest("div")?.parentElement;
+  return block?.querySelector("p.tabular-nums")?.textContent ?? "";
 }
 
 describe("OverviewClient", () => {
@@ -42,48 +60,171 @@ describe("OverviewClient", () => {
     getOverview.mockReset();
   });
 
-  it("renders counts from a mocked getOverview", async () => {
-    getOverview.mockResolvedValue(makeOverview({ awaitingApproval: 3, activeIncidents: 2, runsToday: 5 }));
-    render(<OverviewClient />);
-
-    expect(await screen.findByText("3")).toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText("5")).toBeInTheDocument();
-    expect(screen.getByText("Active incidents")).toBeInTheDocument();
-    expect(screen.getByText("Runs today")).toBeInTheDocument();
-  });
-
-  it("renders the awaiting-approval figure and links it to a filtered view", async () => {
-    getOverview.mockResolvedValue(makeOverview({ awaitingApproval: 4 }));
-    render(<OverviewClient />);
-
-    const link = await screen.findByRole("link", { name: /4 gates awaiting approval/i });
-    expect(link).toHaveAttribute("href", "/app/incidents");
-    expect(within(link).getByText("4")).toBeInTheDocument();
-  });
-
-  it("links recent-activity entries to /app/runs/:runId", async () => {
+  it("renders the headline figures from a mocked getOverview", async () => {
     getOverview.mockResolvedValue(
-      makeOverview({
-        recentActivity: [makeEntry({ id: "a1", runId: "run-42", kind: "gate_approved" })]
-      })
+      makeOverview({ awaitingApproval: 3, activeIncidents: 2, runsToday: 5 })
     );
     render(<OverviewClient />);
 
-    const link = await screen.findByRole("link", { name: /approval granted/i });
-    expect(link).toHaveAttribute("href", "/app/runs/run-42");
+    expect(await screen.findByText("Awaiting approval")).toBeInTheDocument();
+    expect(figureValue("Awaiting approval")).toBe("3");
+    expect(figureValue("Active incidents")).toBe("2");
+    expect(figureValue("Runs today")).toBe("5");
   });
 
-  it("shows a plain-language label for activity kinds", async () => {
-    getOverview.mockResolvedValue(
-      makeOverview({
-        recentActivity: [makeEntry({ id: "a1", runId: "run-1", kind: "gate_approved" })]
-      })
-    );
-    render(<OverviewClient />);
+  describe("readiness score", () => {
+    it("scores a fully decided, fully evidenced history and shows its working", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          runsByState: { ...NO_RUNS, executed: 3, rejected: 1 },
+          evidenceMeasuredRuns: 4
+        })
+      );
+      render(<OverviewClient />);
 
-    expect(await screen.findByText("Approval granted")).toBeInTheDocument();
-    expect(screen.queryByText("gate_approved")).not.toBeInTheDocument();
+      expect(await screen.findByText("Operational readiness")).toBeInTheDocument();
+      expect(screen.getByText("100")).toBeInTheDocument();
+      expect(screen.getByText("Strong")).toBeInTheDocument();
+
+      // The raw counts behind each component are on screen, not hidden in a
+      // tooltip — an unauditable score is what this product argues against.
+      expect(screen.getByText("Decision coverage")).toBeInTheDocument();
+      expect(screen.getByText("Evidence completeness")).toBeInTheDocument();
+      expect(screen.getAllByText("4/4").length).toBeGreaterThan(0);
+    });
+
+    it("marks down a backlog of undecided gates and says how to fix it", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          awaitingApproval: 5,
+          runsByState: { ...NO_RUNS, executed: 5, awaiting_approval: 5 },
+          evidenceMeasuredRuns: 10
+        })
+      );
+      render(<OverviewClient />);
+
+      // 0.55 * 50 + 0.45 * 100 = 72.5 -> 73
+      expect(await screen.findByText("73")).toBeInTheDocument();
+      expect(screen.getByText(/still waiting on a human decision/i)).toBeInTheDocument();
+    });
+
+    it("reports no score at all on an install where nothing has run", async () => {
+      getOverview.mockResolvedValue(makeOverview());
+      render(<OverviewClient />);
+
+      // Neither 0 nor 100: a brand-new install has earned neither.
+      expect(await screen.findByText("No data")).toBeInTheDocument();
+      expect(screen.getAllByText("Not measurable yet").length).toBe(2);
+    });
+
+    it("presents gate discipline as a guarantee rather than a scored component", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({ runsByState: { ...NO_RUNS, executed: 2 }, evidenceMeasuredRuns: 2 })
+      );
+      render(<OverviewClient />);
+
+      expect(await screen.findByText(/Gate discipline verified/i)).toBeInTheDocument();
+      expect(screen.getByText(/not scored above/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("pipeline flow", () => {
+    it("shows every stage with its live count", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          activeIncidents: 2,
+          runsByState: { ...NO_RUNS, collecting: 1, awaiting_approval: 4, executed: 3 }
+        })
+      );
+      render(<OverviewClient />);
+
+      expect(await screen.findByText("Signal")).toBeInTheDocument();
+      expect(screen.getByText("Evidence")).toBeInTheDocument();
+      expect(screen.getByText("Approval gate")).toBeInTheDocument();
+      expect(screen.getByText("Action")).toBeInTheDocument();
+
+      const gateStage = screen.getByRole("link", { name: /approval gate/i });
+      expect(gateStage).toHaveAttribute("href", "/app/incidents");
+      expect(within(gateStage).getByText("4")).toBeInTheDocument();
+      expect(within(gateStage).getByText("waiting")).toBeInTheDocument();
+    });
+
+    it("counts only executed runs at the Action stage", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          runsByState: { ...NO_RUNS, executed: 3, rejected: 2 },
+          evidenceMeasuredRuns: 5
+        })
+      );
+      render(<OverviewClient />);
+
+      // A rejected gate closes without running the runbook step, so counting
+      // rejections here would report actions that never happened.
+      const actionStage = (await screen.findByText("Action")).closest("a");
+      expect(actionStage).not.toBeNull();
+      expect(within(actionStage as HTMLElement).getByText("3")).toBeInTheDocument();
+      expect(within(actionStage as HTMLElement).getByText("executed")).toBeInTheDocument();
+      expect(within(actionStage as HTMLElement).queryByText("5")).toBeNull();
+    });
+
+    it("still surfaces rejections at the Action stage rather than hiding them", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          runsByState: { ...NO_RUNS, executed: 1, rejected: 2 },
+          evidenceMeasuredRuns: 3
+        })
+      );
+      render(<OverviewClient />);
+
+      expect(await screen.findByText(/2 rejected at the gate — never ran/i)).toBeInTheDocument();
+    });
+
+    it("omits the rejection note when there are none", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({ runsByState: { ...NO_RUNS, executed: 2 }, evidenceMeasuredRuns: 2 })
+      );
+      render(<OverviewClient />);
+
+      await screen.findByText("Action");
+      expect(screen.queryByText(/rejected at the gate/i)).toBeNull();
+    });
+  });
+
+  describe("recent activity", () => {
+    it("links entries to /app/runs/:runId", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          recentActivity: [makeEntry({ id: "a1", runId: "run-42", kind: "gate_approved" })]
+        })
+      );
+      render(<OverviewClient />);
+
+      const link = await screen.findByRole("link", { name: /approval granted/i });
+      expect(link).toHaveAttribute("href", "/app/runs/run-42");
+    });
+
+    it("shows a plain-language label for activity kinds", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          recentActivity: [makeEntry({ id: "a1", runId: "run-1", kind: "gate_approved" })]
+        })
+      );
+      render(<OverviewClient />);
+
+      expect(await screen.findByText("Approval granted")).toBeInTheDocument();
+      expect(screen.queryByText("gate_approved")).not.toBeInTheDocument();
+    });
+
+    it("falls back to a readable label for an unrecognised kind", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          recentActivity: [makeEntry({ id: "a1", kind: "some_future_kind" })]
+        })
+      );
+      render(<OverviewClient />);
+
+      expect(await screen.findByText("some future kind")).toBeInTheDocument();
+    });
   });
 
   it("renders a loading skeleton before the response resolves", () => {
@@ -103,7 +244,7 @@ describe("OverviewClient", () => {
     getOverview.mockResolvedValueOnce(makeOverview({ awaitingApproval: 1 }));
     await user.click(screen.getByRole("button", { name: /retry/i }));
 
-    expect(await screen.findByText("1")).toBeInTheDocument();
+    expect(await screen.findByText("Awaiting approval")).toBeInTheDocument();
     expect(screen.queryByText(/could not load the overview/i)).not.toBeInTheDocument();
   });
 
@@ -115,12 +256,14 @@ describe("OverviewClient", () => {
     expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
   });
 
-  it("renders a calm empty state when nothing is awaiting approval and there is no activity", async () => {
+  it("offers a first action when nothing has ever run", async () => {
     getOverview.mockResolvedValue(makeOverview());
     render(<OverviewClient />);
 
-    expect(await screen.findByRole("link", { name: /nothing awaiting approval/i })).toBeInTheDocument();
-    expect(screen.getByText(/all clear/i)).toBeInTheDocument();
-    expect(screen.getByText(/no activity yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/nothing has run yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /new incident/i })).toHaveAttribute(
+      "href",
+      "/app/incidents/new"
+    );
   });
 });

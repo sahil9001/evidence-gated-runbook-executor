@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import type { Store, RunRow, AuditEntry, IncidentRow, UserRow, SessionRow } from "../domain/store";
+import {
+  RUN_STATES,
+  type Store,
+  type RunRow,
+  type AuditEntry,
+  type IncidentRow,
+  type UserRow,
+  type SessionRow
+} from "../domain/store";
 import { evidencePacketSchema, type EvidencePacket } from "../domain/evidence";
 import { createAction, type Action } from "../domain/action";
 import { createGate, approveGate, rejectGate } from "../domain/approval";
@@ -16,7 +24,16 @@ const makeRun = (id: string, overrides: Partial<RunRow> = {}): RunRow => ({
   createdAt: T0,
   updatedAt: T0,
   createdBy: "sahil@example.com",
+  evidenceGapCount: 0,
   ...overrides
+});
+
+const makeAudit = (id: string, runId: string, kind: string, at: string = T0): AuditEntry => ({
+  id,
+  runId,
+  at,
+  kind,
+  detail: `${kind} on ${runId}`
 });
 
 const makePacket = (id: string, incidentId: string, builtAt: string = T0): EvidencePacket =>
@@ -215,6 +232,57 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
         await store.createRun(makeRun("run-count-since-new-2", { incidentId, createdAt: "2026-08-25T11:00:00.000Z", updatedAt: "2026-08-25T11:00:00.000Z" }));
 
         expect(await store.countRunsSince(cutoff)).toBe(beforeCutoff + 2);
+      });
+    });
+
+    describe("countRunsGroupedByState", () => {
+      it("returns a count for every state, including states with no runs", async () => {
+        const counts = await store.countRunsGroupedByState();
+
+        // Every state is present as a number, so callers can read
+        // `counts.rejected` without a null check even on an empty store.
+        for (const state of RUN_STATES) {
+          expect(typeof counts[state]).toBe("number");
+        }
+      });
+
+      it("agrees with countRunsByState for each state", async () => {
+        const incidentId = "inc-grouped-counts";
+        await store.createRun(makeRun("run-grouped-a", { incidentId, state: "executed" }));
+        await store.createRun(makeRun("run-grouped-b", { incidentId, state: "executed" }));
+        await store.createRun(makeRun("run-grouped-c", { incidentId, state: "collecting" }));
+
+        const grouped = await store.countRunsGroupedByState();
+
+        // The grouped query is an optimisation over N single-state counts;
+        // if the two ever disagree the optimisation is a bug.
+        for (const state of RUN_STATES) {
+          expect(grouped[state]).toBe(await store.countRunsByState(state));
+        }
+      });
+    });
+
+    describe("countRunsByEvidenceMeasurement", () => {
+      it("counts only runs whose gap was actually measured", async () => {
+        const before = await store.countRunsByEvidenceMeasurement();
+
+        await store.createRun(makeRun("run-gap-complete", { evidenceGapCount: 0 }));
+        await store.createRun(makeRun("run-gap-partial", { evidenceGapCount: 2 }));
+        // Predates the measurement: excluded from both counts rather than
+        // being treated as a complete packet.
+        await store.createRun(makeRun("run-gap-unmeasured", { evidenceGapCount: null }));
+
+        const after = await store.countRunsByEvidenceMeasurement();
+        expect(after.measured - before.measured).toBe(2);
+        expect(after.withGaps - before.withGaps).toBe(1);
+      });
+
+      it("round-trips the gap count on the run itself", async () => {
+        await store.createRun(makeRun("run-gap-roundtrip", { evidenceGapCount: 3 }));
+        await store.createRun(makeRun("run-gap-null", { evidenceGapCount: null }));
+
+        expect((await store.getRun("run-gap-roundtrip"))?.evidenceGapCount).toBe(3);
+        expect((await store.getRun("run-gap-null"))?.evidenceGapCount).toBeNull();
       });
     });
 

@@ -4,6 +4,7 @@ import { apiError } from "../index";
 import { parseJsonBody } from "./http";
 import { loadRunbook, matchRunbook, type Runbook } from "../domain/runbook";
 import { collectEvidence, ScopeViolationError } from "../domain/packet-builder";
+import { missingSources } from "../domain/evidence";
 import { createAction } from "../domain/action";
 import { createGate } from "../domain/approval";
 import { createD1Store } from "../store/d1";
@@ -95,6 +96,13 @@ export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES
 
     const { packet, failures } = collected;
 
+    // A gap in the evidence must be observable, not silently absorbed into a
+    // packet that looks complete. Measured the same way GET /runs/:id measures
+    // it -- a source the runbook allows that contributed no cards -- not merely
+    // by which collectors threw. A collector that returns cleanly with zero
+    // cards leaves exactly the same hole in the packet.
+    const absentSources = missingSources(packet, runbook.allowedSources);
+
     // The action and gate share the run's id. Separate tables mean no
     // primary key collision, and it lets /approvals/:id locate the run (and
     // hence its mutable `state`) from the gate id alone.
@@ -118,13 +126,17 @@ export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES
       createdAt: nowIso,
       updatedAt: nowIso,
       // From the session requireAuth resolved, never client-suppliable.
-      createdBy: c.var.user.email
+      createdBy: c.var.user.email,
+      // Recorded on the run itself rather than left to be inferred from the
+      // audit log later: the score counts against this column, and a log is a
+      // record of events, not a projection to aggregate.
+      evidenceGapCount: absentSources.length
     };
 
-    // A source failing must be observable, not silently absorbed into a
-    // packet that looks complete. One audit entry names every failed source
-    // (not one per failure), giving the log a single, greppable marker for
-    // "this run's evidence has a gap".
+    // One audit entry names every absent source (not one per failure), giving
+    // the log a single, greppable marker for "this run's evidence has a gap".
+    // The score does not read this -- it counts `runs.evidence_gap_count` --
+    // but an operator reading the trail still needs the gap recorded there.
     const auditEntries = [
       {
         id: crypto.randomUUID(),
@@ -133,14 +145,14 @@ export function createRunRoutes(sources: readonly EvidenceSource[] = ALL_SOURCES
         kind: "run_created",
         detail: `Evidence collected for incident ${incidentId}; action ${action.id} locked pending approval`
       },
-      ...(failures.length > 0
+      ...(absentSources.length > 0
         ? [
             {
               id: crypto.randomUUID(),
               runId,
               at: nowIso,
               kind: "evidence_partial",
-              detail: `Evidence collection incomplete for run ${runId}: ${failures.map((f) => f.kind).join(", ")} failed`
+              detail: `Evidence collection incomplete for run ${runId}: no cards from ${absentSources.join(", ")}`
             }
           ]
         : [])

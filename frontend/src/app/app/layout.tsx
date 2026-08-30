@@ -17,11 +17,13 @@ export default function ConsoleLayout({ children }: Readonly<{ children: ReactNo
   const closeNav = useCallback(() => setIsNavOpen(false), []);
 
   return (
-    <div className="flex min-h-[100dvh] w-full flex-col gap-3 bg-paper p-3 font-sans sm:gap-4 sm:p-4 lg:flex-row">
+    // One continuous white page: no grey mat, no gutter between the rail and
+    // the content, nothing floating. Regions are separated by hairlines.
+    <div className="flex min-h-[100dvh] w-full flex-col bg-white font-sans lg:flex-row">
       <Sidebar isOpen={isNavOpen} onClose={closeNav} />
-      <div className="flex min-w-0 flex-1 flex-col gap-3 sm:gap-4">
+      <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onOpenNav={openNav} />
-        <main className="flex-1 pb-6">{children}</main>
+        <main className="flex-1 pb-16">{children}</main>
       </div>
     </div>
   );

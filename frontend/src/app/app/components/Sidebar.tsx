@@ -77,14 +77,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
       <nav
         aria-label="Console navigation"
-        className={`fixed inset-y-3 left-3 z-50 flex w-64 flex-col gap-6 rounded-3xl bg-panel p-5 shadow-soft transition-transform duration-300 ease-out lg:sticky lg:top-4 lg:z-auto lg:h-[calc(100dvh-32px)] lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col gap-7 border-r border-sky-100 bg-white px-4 py-6 transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:z-auto lg:h-[100dvh] lg:translate-x-0 ${
           isOpen ? "translate-x-0" : "-translate-x-[120%] lg:translate-x-0"
         }`}
       >
         <Link
           href="/app"
           aria-label="RunProof console home"
-          className="flex items-center rounded-xl px-1 py-1 transition hover:opacity-80"
+          className="flex items-center rounded-lg px-2 py-1 transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal focus-visible:ring-offset-2"
         >
           <Image
             src="/brand/runproof-logo-blue.png"
@@ -96,7 +96,11 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           />
         </Link>
 
-        <ul className="flex flex-1 flex-col gap-1.5">
+        <p className="px-2 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">
+          Console
+        </p>
+
+        <ul className="-mt-4 flex flex-1 flex-col gap-0.5">
           {NAV_ITEMS.map((item) => {
             const active = isItemActive(pathname, item.href);
             const Icon = item.icon;
@@ -105,8 +109,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal ${
-                    active ? "bg-white text-ink shadow-sm" : "text-neutral-600 hover:bg-white/70 hover:text-ink"
+                  className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal focus-visible:ring-offset-2 ${
+                    active ? "bg-sky-50 text-ink" : "text-neutral-600 hover:bg-neutral-50 hover:text-ink"
                   }`}
                 >
                   <Icon
@@ -115,7 +119,10 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   />
                   {item.label}
                   {active ? (
-                    <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-signal" aria-hidden="true" />
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-signal"
+                    />
                   ) : null}
                 </Link>
               </li>
@@ -123,9 +130,12 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           })}
         </ul>
 
-        <p className="text-[11px] font-medium leading-relaxed text-neutral-400">
-          Evidence-gated. Nothing executes without approval.
-        </p>
+        <div className="border-t border-sky-100 pt-4">
+          <p className="flex items-start gap-2 px-2 text-[11px] font-medium leading-relaxed text-neutral-400">
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" strokeWidth={2} aria-hidden="true" />
+            Evidence-gated. Nothing executes without approval.
+          </p>
+        </div>
       </nav>
     </>
   );

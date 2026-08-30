@@ -46,6 +46,16 @@ export type RunRow = {
    * this from the authenticated caller, the same discipline `by` on
    * approvals follows. */
   createdBy: string | null;
+  /**
+   * How many sources the run's runbook allows that its packet has no cards
+   * from -- 0 for a complete packet.
+   *
+   * `null` means the run predates this measurement, which is NOT the same as
+   * 0. The Overview score excludes null runs from its evidence term rather
+   * than counting them as complete, because "we never recorded it" and "we
+   * recorded no gaps" are different claims.
+   */
+  evidenceGapCount: number | null;
 };
 
 export type AuditEntry = {
@@ -81,6 +91,19 @@ export type SessionRow = {
   expiresAt: string;
 };
 
+/**
+ * Every run state, in lifecycle order. Exported so the grouped-count adapters
+ * can seed a zero for states the query returned no rows for, rather than each
+ * one hard-coding the same five strings.
+ */
+export const RUN_STATES: readonly RunRow["state"][] = [
+  "collecting",
+  "awaiting_approval",
+  "approved",
+  "rejected",
+  "executed"
+];
+
 export interface Store {
   createRun(run: RunRow): Promise<void>;
   getRun(id: string): Promise<RunRow | null>;
@@ -112,6 +135,27 @@ export interface Store {
    * the Worker. Same reasoning as `countRunsByState`.
    */
   countRunsSince(sinceIso: string): Promise<number>;
+  /**
+   * Every run state and how many runs are in it, as one `GROUP BY state`
+   * query. The Overview screen's readiness score needs all five counts at
+   * once; issuing five separate `countRunsByState` round trips for a single
+   * render would be five times the work for the same answer.
+   *
+   * States with no runs are present with a count of 0, so callers can read
+   * `result.rejected` without a null check.
+   */
+  countRunsGroupedByState(): Promise<Readonly<Record<RunRow["state"], number>>>;
+  /**
+   * How many runs have a recorded evidence-gap measurement, and how many of
+   * those recorded a gap. Both as counts; the score needs the pair, and a
+   * caller that fetched rows to derive them would pay a cost that grows with
+   * history forever.
+   *
+   * `measured` excludes runs predating the measurement (see
+   * `RunRow#evidenceGapCount`), so the score's denominator only ever contains
+   * runs it can actually speak to.
+   */
+  countRunsByEvidenceMeasurement(): Promise<{ readonly measured: number; readonly withGaps: number }>;
 
   /**
    * Creates a run and every artifact it is born with — its evidence packet,

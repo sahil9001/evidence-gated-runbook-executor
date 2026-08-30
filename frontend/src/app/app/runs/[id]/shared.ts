@@ -1,3 +1,7 @@
+import type { LucideIcon } from "lucide-react";
+import { Activity, FileText, GitPullRequest, Terminal } from "lucide-react";
+import type { Tone } from "@/app/app/components/console/Indicators";
+import type { Confidence, EvidenceSourceKind } from "@/lib/types";
 import { ApiClientError } from "../../../../lib/api";
 
 /**
@@ -13,6 +17,41 @@ export type TabId = (typeof TAB_IDS)[number];
 export function isTabId(value: string | null): value is TabId {
   return value !== null && (TAB_IDS as readonly string[]).includes(value);
 }
+
+/** Evidence sources always read in collection order, so a packet's shape is
+ * comparable between two runs at a glance. */
+export const SOURCE_ORDER: readonly EvidenceSourceKind[] = ["logs", "metrics", "deploys", "sandbox"];
+
+export const SOURCE_LABELS: Readonly<Record<EvidenceSourceKind, string>> = {
+  logs: "Logs",
+  metrics: "Metrics",
+  deploys: "Deploys",
+  sandbox: "Sandbox"
+};
+
+export const SOURCE_ICONS: Readonly<Record<EvidenceSourceKind, LucideIcon>> = {
+  logs: FileText,
+  metrics: Activity,
+  deploys: GitPullRequest,
+  sandbox: Terminal
+};
+
+/**
+ * Confidence is a three-level enum, not a number — these are presentation
+ * lengths for the meter, chosen so "medium" reads as clearly short of full
+ * rather than as a passing grade. Never treat them as a computed score.
+ */
+export const CONFIDENCE_PERCENT: Readonly<Record<Confidence, number>> = {
+  high: 100,
+  medium: 60,
+  low: 28
+};
+
+export const CONFIDENCE_TONE: Readonly<Record<Confidence, Tone>> = {
+  high: "good",
+  medium: "warn",
+  low: "bad"
+};
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   network_error: "Could not reach the RunProof API. Check your connection.",

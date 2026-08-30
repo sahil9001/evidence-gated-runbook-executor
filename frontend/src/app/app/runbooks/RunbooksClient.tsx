@@ -48,8 +48,8 @@ interface ScopeSectionProps {
  */
 function ScopeSection({ allowedSources }: ScopeSectionProps) {
   return (
-    <div className="rounded-2xl border-2 border-signal/25 bg-panel p-4 sm:p-5">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-signal">
+    <div className="border-l-2 border-signal bg-sky-50/70 p-4 sm:p-5">
+      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-signal">
         <Lock className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
         Scope — permitted to read
       </div>
@@ -59,7 +59,7 @@ function ScopeSection({ allowedSources }: ScopeSectionProps) {
           return (
             <span
               key={source}
-              className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-ink shadow-sm"
+              className="inline-flex items-center gap-1.5 rounded-md border border-sky-100 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink"
             >
               <Icon className="h-3.5 w-3.5 text-signal" strokeWidth={2} aria-hidden="true" />
               {source}
@@ -97,15 +97,15 @@ interface StepsListProps {
 
 function StepsList({ steps }: StepsListProps) {
   return (
-    <div className="rounded-2xl bg-white p-4">
-      <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
+    <div>
+      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-400">
         <ScrollText className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
         Steps
       </div>
       <ol className="mt-3 flex flex-col gap-2.5">
         {steps.map((step, index) => (
           <li key={step.id} className="flex gap-3 text-xs">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-panel text-[11px] font-bold text-signal">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-50 text-[11px] font-bold text-signal">
               {index + 1}
             </span>
             <span>
@@ -126,11 +126,11 @@ interface ProposedActionCardProps {
 function ProposedActionCard({ action }: ProposedActionCardProps) {
   const isStateChanging = STATE_CHANGING_ACTION_KINDS.includes(action.kind);
   return (
-    <div className="rounded-2xl bg-white p-4">
+    <div className="border-t border-sky-100 pt-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-neutral-700">Proposed action</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-400">Proposed action</p>
         <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+          className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] ${
             isStateChanging ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
           }`}
         >
@@ -159,17 +159,19 @@ interface RunbookCardProps {
 
 function RunbookCard({ runbook }: RunbookCardProps) {
   return (
-    <article className="overflow-hidden rounded-3xl bg-white shadow-soft">
-      <header className="bg-ink p-6 text-white sm:p-7">
-        <h2 className="text-lg font-semibold">{runbook.title}</h2>
-        <div className="mt-3">
-          <TriggerRow trigger={runbook.trigger} />
+    <article className="border-t border-sky-100 py-8 first:border-t-0 first:pt-0">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold text-ink">{runbook.title}</h2>
+          <div className="mt-3">
+            <TriggerRow trigger={runbook.trigger} />
+          </div>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 p-5 sm:p-6 lg:grid-cols-[1fr_1.1fr] lg:gap-6">
+      <div className="mt-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_1.15fr] lg:gap-10">
         <ScopeSection allowedSources={runbook.allowedSources} />
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-5">
           <StepsList steps={runbook.steps} />
           <ProposedActionCard action={runbook.proposedAction} />
         </div>
@@ -182,13 +184,14 @@ function RunbooksSkeleton() {
   return (
     <div className="flex flex-col gap-4" role="status" aria-label="Loading runbooks">
       {[0, 1].map((row) => (
-        <div key={row} className="animate-pulse overflow-hidden rounded-3xl bg-white shadow-soft">
-          <div className="h-24 bg-neutral-200" />
-          <div className="grid grid-cols-1 gap-4 p-6 lg:grid-cols-[1fr_1.1fr]">
-            <div className="h-28 rounded-2xl bg-neutral-100" />
+        <div key={row} className="animate-pulse border-t border-sky-100 py-8 first:border-t-0">
+          <div className="h-5 w-56 rounded-full bg-sky-50" />
+          <div className="mt-3 h-3 w-40 rounded-full bg-sky-50" />
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1.15fr]">
+            <div className="h-28 bg-sky-50" />
             <div className="flex flex-col gap-4">
-              <div className="h-24 rounded-2xl bg-neutral-100" />
-              <div className="h-20 rounded-2xl bg-neutral-100" />
+              <div className="h-20 bg-sky-50" />
+              <div className="h-16 bg-sky-50" />
             </div>
           </div>
         </div>
@@ -204,7 +207,7 @@ interface RunbooksErrorProps {
 
 function RunbooksError({ error, onRetry }: RunbooksErrorProps) {
   return (
-    <div className="rounded-3xl bg-white p-6 shadow-soft sm:p-8">
+    <div className="border-y border-rose-100 bg-rose-50/40 px-6 py-10">
       <p className="text-sm font-semibold text-rose-700">Could not load runbooks</p>
       <p className="mt-1 text-sm text-neutral-600">{humanizeErrorCode(error.code)}</p>
       <button
@@ -220,8 +223,8 @@ function RunbooksError({ error, onRetry }: RunbooksErrorProps) {
 
 function EmptyRunbooks() {
   return (
-    <section className="flex flex-col items-center gap-3 rounded-3xl bg-white px-6 py-16 text-center shadow-soft">
-      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-panel text-signal">
+    <section className="flex flex-col items-center gap-3 border-y border-sky-100 px-6 py-16 text-center">
+      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-signal">
         <AlertOctagon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
       </span>
       <p className="text-sm font-semibold text-ink">No runbooks configured yet.</p>

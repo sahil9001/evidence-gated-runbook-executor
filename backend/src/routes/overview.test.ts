@@ -8,13 +8,20 @@ import { requireAuth, type AuthedEnv } from "../auth/middleware";
 import { createRunRoutes } from "./run";
 import { overviewRoutes } from "./overview";
 import { ALL_SOURCES } from "../mcp";
-import type { IncidentRow, RunRow, Store } from "../domain/store";
+import { RUN_STATES, type IncidentRow, type RunRow, type Store } from "../domain/store";
 
 beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 type ApiOk<T> = { ok: true; data: T };
+
+/** The slice of GET /overview that feeds the console's readiness score. */
+type OverviewScoreShape = {
+  runsByState: Record<RunRow["state"], number>;
+  evidenceMeasuredRuns: number;
+  partialEvidenceRuns: number;
+};
 
 function buildApp(): Hono<AuthedEnv> {
   const app = new Hono<AuthedEnv>();
@@ -151,7 +158,8 @@ describe("GET /overview", () => {
       state,
       createdAt: nowIso,
       updatedAt: nowIso,
-      createdBy: null
+      createdBy: null,
+      evidenceGapCount: 0
     });
     await store.createRun(runRow("awaiting_approval", "a"));
     await store.createRun(runRow("awaiting_approval", "b"));
@@ -187,5 +195,66 @@ describe("GET /overview", () => {
 
     expect(listRunsSpy).not.toHaveBeenCalled();
     expect(listIncidentsSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports run counts per state and incomplete-evidence runs for the readiness score", async () => {
+    const cookie = await registeredCookie();
+    const app = buildApp();
+
+    const before = await request(app, "GET", "/overview", undefined, cookie);
+    const beforeData = (before.json as ApiOk<OverviewScoreShape>).data;
+
+    // A run left locked on its gate, so awaiting_approval moves by exactly one.
+    const incident = await seedIncident();
+    await request(app, "POST", `/incidents/${incident.id}/run`, {}, cookie);
+
+    const after = await request(app, "GET", "/overview", undefined, cookie);
+    expect(after.status).toBe(200);
+    const afterData = (after.json as ApiOk<OverviewScoreShape>).data;
+
+    // Every state is present as a number even when no run is in it, so the
+    // client can read `runsByState.approved` without a null check.
+    for (const state of RUN_STATES) {
+      expect(typeof afterData.runsByState[state]).toBe("number");
+    }
+    expect(afterData.runsByState.awaiting_approval - beforeData.runsByState.awaiting_approval).toBe(1);
+
+    // The new run is measured either way, so the denominator moves by one.
+    // Whether it also has a gap depends on the fixture sources, so asserting a
+    // specific delta there would be asserting the fixtures, not the route.
+    expect(afterData.evidenceMeasuredRuns - beforeData.evidenceMeasuredRuns).toBe(1);
+    expect(afterData.partialEvidenceRuns).toBeGreaterThanOrEqual(0);
+    // The score's denominator can never exceed what was measured.
+    expect(afterData.partialEvidenceRuns).toBeLessThanOrEqual(afterData.evidenceMeasuredRuns);
+  });
+
+  it("excludes runs that predate the evidence measurement from the denominator", async () => {
+    const cookie = await registeredCookie();
+    const app = buildApp();
+    const store = createD1Store(env.DB);
+
+    const before = (await request(app, "GET", "/overview", undefined, cookie))
+      .json as ApiOk<OverviewScoreShape>;
+
+    // A legacy row: an incomplete packet whose gap was never recorded. Counting
+    // it as complete is exactly what inflated the score before.
+    const nowIso = new Date().toISOString();
+    await store.createRun({
+      id: `run-legacy-${Date.now()}`,
+      incidentId: "inc-legacy",
+      runbookId: "checkout-failure",
+      service: "payment-service",
+      state: "executed",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      createdBy: null,
+      evidenceGapCount: null
+    });
+
+    const after = (await request(app, "GET", "/overview", undefined, cookie))
+      .json as ApiOk<OverviewScoreShape>;
+
+    expect(after.data.evidenceMeasuredRuns).toBe(before.data.evidenceMeasuredRuns);
+    expect(after.data.partialEvidenceRuns).toBe(before.data.partialEvidenceRuns);
   });
 });

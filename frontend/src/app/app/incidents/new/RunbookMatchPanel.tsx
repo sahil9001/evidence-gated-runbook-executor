@@ -28,7 +28,9 @@ interface PanelShellProps {
 }
 
 function PanelShell({ children }: PanelShellProps) {
-  return <section className="flex flex-col gap-4 rounded-3xl bg-panel p-6 shadow-soft sm:p-7">{children}</section>;
+  return (
+    <section className="flex flex-col gap-4 border-l-2 border-signal bg-sky-50/70 p-5 sm:p-6">{children}</section>
+  );
 }
 
 function PromptForService() {
@@ -113,7 +115,7 @@ function MatchedRunbook({ runbook }: MatchedRunbookProps) {
         </div>
       </div>
 
-      <div className="rounded-2xl bg-white p-4">
+      <div className="border border-sky-100 bg-white p-4">
         <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
           <Lock className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
           Scope: what the agent will be permitted to read
@@ -127,7 +129,7 @@ function MatchedRunbook({ runbook }: MatchedRunbookProps) {
             return (
               <span
                 key={source}
-                className="inline-flex items-center gap-1.5 rounded-full bg-panel px-2.5 py-1 text-xs font-semibold text-signal"
+                className="inline-flex items-center gap-1.5 rounded-md bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700"
               >
                 <Icon className="h-3 w-3" strokeWidth={2} aria-hidden="true" />
                 {source}
@@ -137,7 +139,7 @@ function MatchedRunbook({ runbook }: MatchedRunbookProps) {
         </div>
       </div>
 
-      <div className="rounded-2xl bg-white p-4">
+      <div className="border border-sky-100 bg-white p-4">
         <p className="text-xs font-semibold text-neutral-700">Steps</p>
         <ol className="mt-2 space-y-2">
           {runbook.steps.map((step) => (
@@ -148,7 +150,7 @@ function MatchedRunbook({ runbook }: MatchedRunbookProps) {
         </ol>
       </div>
 
-      <div className="rounded-2xl bg-white p-4">
+      <div className="border border-sky-100 bg-white p-4">
         <p className="text-xs font-semibold text-neutral-700">Proposed action (locked until approved)</p>
         <p className="mt-1 text-sm text-ink">{runbook.proposedAction.description}</p>
       </div>

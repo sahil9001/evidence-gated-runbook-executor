@@ -137,8 +137,10 @@ describe("HistoryClient", () => {
     await screen.findByText("payment-service");
     expect(listRuns).toHaveBeenCalledWith({ state: "rejected", limit: expect.any(Number) }, expect.any(AbortSignal));
 
-    const select = screen.getByLabelText(/state/i) as HTMLSelectElement;
-    expect(select.value).toBe("rejected");
+    // The filter is a segmented radio group, not a select: the run states are
+    // this screen's vocabulary and stay legible rather than hiding in a menu.
+    expect(screen.getByRole("radio", { name: "Rejected" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "All" })).not.toBeChecked();
   });
 
   it("updates the URL when the state filter changes", async () => {
@@ -150,7 +152,7 @@ describe("HistoryClient", () => {
     listRuns.mockClear();
     listRuns.mockResolvedValue([]);
 
-    await user.selectOptions(screen.getByLabelText(/state/i), "executed");
+    await user.click(screen.getByRole("radio", { name: "Executed" }));
 
     expect(push).toHaveBeenCalledWith("/app/history?state=executed");
   });

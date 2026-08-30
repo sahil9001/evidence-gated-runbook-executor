@@ -10,14 +10,11 @@ vi.mock("next/image", () => ({
 }));
 
 describe("LandingSections", () => {
-  it("renders expanded homepage sections with daytime nature assets", () => {
+  it("renders the product homepage sections with daytime nature assets", () => {
     const { container } = render(<LandingSections />);
 
     expect(
       screen.getByRole("heading", { name: /From noisy alert to approved run/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: /Built like a real incident review/i })
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /A control layer for AI-assisted operations/i })
@@ -26,17 +23,17 @@ describe("LandingSections", () => {
       screen.getByRole("heading", { name: /Packed with proof-first features/i })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: /Built for the people who carry incidents/i })
-    ).toBeInTheDocument();
-    expect(
       screen.getByRole("heading", { name: /Designed for the stack that already wakes you up/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: /Safer automation starts with a stop point/i })
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /Ready to review the incident loop/i })
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Built like a real incident review/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Built for the people who carry incidents/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Safer automation starts with a stop point/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/visible boundary between investigation and production execution/i)
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/judges can understand/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/hackathon story/i)).not.toBeInTheDocument();
 
@@ -68,9 +65,6 @@ describe("LandingSections", () => {
     expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
     expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
     expect(screen.getByRole("link", { name: "Security" })).toHaveAttribute("href", "/security");
-    expect(screen.getByRole("link", { name: "Read security" })).toHaveAttribute(
-      "href",
-      "/security"
-    );
+    expect(screen.queryByRole("link", { name: "Read security" })).not.toBeInTheDocument();
   });
 });

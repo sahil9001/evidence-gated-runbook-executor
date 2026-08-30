@@ -3,7 +3,6 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
-  Boxes,
   CheckCircle2,
   Play,
   Radio,
@@ -11,12 +10,9 @@ import {
   Terminal
 } from "lucide-react";
 import {
-  assuranceItems,
   footerGroups,
   outcomes,
   platformCards,
-  proofSteps,
-  teamCards,
   workflowRows
 } from "./landingContent";
 import { IntegrationFlow } from "./IntegrationFlow";
@@ -352,42 +348,6 @@ function WorkflowSection() {
   );
 }
 
-function ProofStepsSection() {
-  return (
-    <section className="px-2 py-8 sm:px-4 lg:py-12">
-      <div className="mx-auto max-w-5xl">
-        <div className="max-w-2xl">
-          <h2 className="text-3xl font-semibold leading-tight text-ink sm:text-4xl">
-            Built like a real incident review.
-          </h2>
-          <p className="mt-4 text-base leading-7 text-neutral-600">
-            Each stage exists to make the next step more inspectable, not more automatic.
-          </p>
-        </div>
-
-        <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {proofSteps.map((step) => {
-            const Icon = step.icon;
-
-            return (
-              <div
-                key={step.title}
-                className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm"
-              >
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-signal">
-                  <Icon className="h-5 w-5" strokeWidth={1.8} />
-                </div>
-                <h3 className="mt-5 text-lg font-semibold text-ink">{step.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-neutral-600">{step.body}</p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function PlatformSection() {
   return (
     <SectionShell id="platform" className="bg-white">
@@ -544,90 +504,10 @@ function FinalCtaSection() {
   );
 }
 
-function TeamsSection() {
-  return (
-    <section className="px-2 py-8 sm:px-4 lg:py-12">
-      <div className="mx-auto max-w-5xl">
-        <div>
-          <h2 className="max-w-2xl text-3xl font-semibold leading-tight text-ink sm:text-4xl">
-            Built for the people who carry incidents.
-          </h2>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-neutral-600">
-            RunProof gives each stakeholder the same proof packet, tuned to different decisions.
-          </p>
-        </div>
-
-        <div className="mt-8 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-          <article className="rounded-2xl border border-sky-100 bg-sky-50 p-6 shadow-sm sm:p-8">
-            <h3 className="text-2xl font-semibold text-ink">Operations stay human-led.</h3>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-neutral-600">
-              Agents can gather context faster than a person can open every system. RunProof keeps that speed useful by stopping at the approval gate.
-            </p>
-            <div className="mt-8 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
-              {teamCards.map((card) => (
-                <div key={card.title} className="rounded-2xl bg-white p-4 shadow-sm first:lg:col-span-2">
-                  <h4 className="text-sm font-semibold text-ink">{card.title}</h4>
-                  <p className="mt-2 text-sm leading-6 text-neutral-600">{card.body}</p>
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-8">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-signal">
-              <Boxes className="h-5 w-5" strokeWidth={1.8} />
-            </div>
-            <h3 className="mt-6 text-2xl font-semibold leading-tight text-ink">
-              Same incident, one shared source of truth.
-            </h3>
-            <p className="mt-4 text-sm leading-6 text-neutral-600">
-              The packet carries alert context, evidence, sandbox output, approval state, and audit history in one place.
-            </p>
-          </article>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function IntegrationSection() {
   return (
     <SectionShell id="integrations" className="bg-white">
       <IntegrationFlow />
-    </SectionShell>
-  );
-}
-
-function SecuritySection() {
-  return (
-    <SectionShell id="security" className="bg-[#f7fbff]">
-      <div className="grid gap-0 lg:grid-cols-[1fr_1fr]">
-        <div className="px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
-          <h2 className="max-w-xl text-3xl font-semibold leading-tight text-ink sm:text-4xl">
-            Safer automation starts with a stop point.
-          </h2>
-          <p className="mt-4 max-w-xl text-base leading-7 text-neutral-600">
-            The product is built around a visible boundary between investigation and production execution.
-          </p>
-          <Link
-            href="/security"
-            className="mt-7 inline-flex w-fit items-center gap-3 rounded-full border border-sky-200 bg-white py-2.5 pl-5 pr-2 text-sm font-semibold text-ink transition hover:bg-sky-50"
-          >
-            Read security
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-100 text-signal">
-              <ArrowRight className="h-4 w-4" strokeWidth={2} />
-            </span>
-          </Link>
-        </div>
-        <div className="grid gap-3 p-4 sm:p-6 lg:p-8">
-          {assuranceItems.map((item) => (
-            <div key={item} className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
-              <ShieldCheck className="h-5 w-5 shrink-0 text-signal" strokeWidth={1.8} />
-              <p className="text-sm font-semibold text-neutral-700">{item}</p>
-            </div>
-          ))}
-        </div>
-      </div>
     </SectionShell>
   );
 }
@@ -673,12 +553,9 @@ export function LandingSections() {
   return (
     <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 pt-4 sm:gap-5 sm:pt-5">
       <WorkflowSection />
-      <ProofStepsSection />
       <PlatformSection />
       <FeatureGridSection />
-      <TeamsSection />
       <IntegrationSection />
-      <SecuritySection />
       <FinalCtaSection />
       <Footer />
     </div>

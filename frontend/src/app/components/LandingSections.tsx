@@ -1,48 +1,42 @@
 import type { ReactNode } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import {
+  ArrowRight,
+  Boxes,
   CheckCircle2,
   Play,
   Radio,
   ShieldCheck,
+  Slack,
   Terminal
 } from "lucide-react";
-
-const workflowRows = [
-  ["Fetching logs", "10s", "complete"],
-  ["Processing traces", "20s", "complete"],
-  ["Running sandbox", "30s", "complete"],
-  ["Writing proof packet", "40s", "complete"],
-  ["Waiting for approval", "50s", "pending"]
-];
-
-const footerLinks = [
-  {
-    label: "Privacy Policy",
-    href: "#"
-  },
-  {
-    label: "Terms of Service",
-    href: "#"
-  },
-  {
-    label: "Security",
-    href: "#"
-  }
-];
+import {
+  assuranceItems,
+  footerGroups,
+  integrations,
+  outcomes,
+  platformCards,
+  proofSteps,
+  teamCards,
+  workflowRows
+} from "./landingContent";
 
 function SectionShell({
   children,
-  id,
-  className = ""
+  className,
+  id
 }: {
   children: ReactNode;
-  id?: string;
   className?: string;
+  id?: string;
 }) {
+  const sectionClassName = className ?? "bg-white";
+
   return (
     <section
       id={id}
-      className={`overflow-hidden rounded-2xl bg-white shadow-sm sm:rounded-3xl ${className}`}
+      className={`overflow-hidden rounded-2xl shadow-sm sm:rounded-3xl ${sectionClassName}`}
     >
       {children}
     </section>
@@ -50,42 +44,32 @@ function SectionShell({
 }
 
 function FeatureTile({
+  body,
   children,
   className = "",
-  title,
-  body
+  title
 }: {
+  body: string;
   children: ReactNode;
   className?: string;
   title: string;
-  body: string;
 }) {
   return (
-    <div
-      className={`relative overflow-hidden border-sky-100 bg-white ${className}`}
-    >
+    <div className={`relative overflow-hidden border-sky-100 bg-white ${className}`}>
       <div className="px-4 pt-5 md:px-8 md:pt-8">
-        <h3 className="text-left text-xl font-semibold tracking-[-0.015em] text-ink md:text-2xl md:leading-snug">
+        <h3 className="text-left text-xl font-semibold text-ink md:text-2xl md:leading-snug">
           {title}
         </h3>
         <p className="mx-0 mt-2 max-w-sm text-left text-sm leading-6 text-neutral-500">
           {body}
         </p>
       </div>
-      <div className="h-full max-h-[390px] w-full pt-3 md:pt-5">
-        {children}
-      </div>
+      <div className="h-full max-h-[390px] w-full pt-3 md:pt-5">{children}</div>
     </div>
   );
 }
 
-function TimeBadge({
-  time,
-  tone
-}: {
-  time: string;
-  tone: "green" | "yellow" | "red";
-}) {
+function TimeBadge({ time, tone }: { time: string; tone: "green" | "yellow" | "red" }) {
   const toneClass = {
     green: "border-emerald-300 bg-emerald-300/10 text-emerald-600",
     red: "border-red-300 bg-red-300/10 text-red-500",
@@ -93,11 +77,9 @@ function TimeBadge({
   }[tone];
 
   return (
-    <div
-      className={`flex w-fit items-center gap-1 rounded-full border px-1.5 py-1 ${toneClass}`}
-    >
+    <div className={`flex w-fit items-center gap-1 rounded-full border px-1.5 py-1 ${toneClass}`}>
       <Radio className="h-3 w-3" strokeWidth={1.8} />
-      <p className="text-[10px] font-bold uppercase">{time}</p>
+      <p className="text-[10px] font-bold">{time}</p>
     </div>
   );
 }
@@ -118,9 +100,7 @@ function TiltedAgentCard({
   tone: "green" | "yellow" | "red";
 }) {
   return (
-    <div
-      className={`absolute h-fit w-full rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-2xl ${className}`}
-    >
+    <div className={`absolute h-fit w-full rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-2xl ${className}`}>
       <div className="flex items-center gap-3">
         <CheckCircle2 className="h-4 w-4 shrink-0 text-signal" strokeWidth={1.8} />
         <p className="text-sm font-semibold text-ink">{title}</p>
@@ -129,10 +109,7 @@ function TiltedAgentCard({
       <p className="mt-3 text-sm leading-5 text-neutral-500">{description}</p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {tags.map((tag) => (
-          <div
-            key={tag}
-            className="rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700"
-          >
+          <div key={tag} className="rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700">
             {tag}
           </div>
         ))}
@@ -158,24 +135,24 @@ function IssueTrackerBoard() {
             title="Evidence packet"
             description="Collects deploy diffs, logs, metrics, and runbook rules before any action is suggested."
             tags={["deploy", "logs", "metrics"]}
-            tone="green"
             time="10s"
+            tone="green"
           />
           <TiltedAgentCard
             className="bottom-24 left-10 z-20 max-w-[72%]"
             title="Incident tracker"
             description="Keeps the checkout failure, likely cause, and operator decision in one visible place."
             tags={["checkout", "timeout", "p95"]}
-            tone="yellow"
             time="40s"
+            tone="yellow"
           />
           <TiltedAgentCard
             className="bottom-40 left-4 z-10 max-w-[66%]"
             title="Risk analysis"
-            description="Shows why rollback is useful, what it touches, and why approval is required."
+            description="Shows what rollback touches and why approval is required."
             tags={["rollback", "risk", "gate"]}
-            tone="red"
             time="120s"
+            tone="red"
           />
         </div>
       </div>
@@ -211,12 +188,7 @@ function EvidenceCardStack() {
                           state === "pending" ? "bg-amber-500" : "bg-emerald-500"
                         }`}
                       >
-                        <CheckCircle2
-                          className={`h-3 w-3 text-white ${
-                            state === "pending" ? "rp-pulse" : ""
-                          }`}
-                          strokeWidth={2.2}
-                        />
+                        <CheckCircle2 className={`h-3 w-3 text-white ${state === "pending" ? "rp-pulse" : ""}`} strokeWidth={2.2} />
                       </div>
                       <p className="text-sm font-medium text-neutral-500">{label}</p>
                     </div>
@@ -244,7 +216,7 @@ function ReplayPreview() {
       count: "(12)",
       detail: "4 affected log lines",
       icon: Terminal,
-      label: "LOG",
+      label: "Log",
       progress: "border-sky-500 after:bg-sky-500",
       title: "Checkout timeout reproduced in sandbox"
     },
@@ -252,15 +224,15 @@ function ReplayPreview() {
       count: "(08)",
       detail: "2 matching traces",
       icon: Radio,
-      label: "TRACE",
-      progress: "border-indigo-500 after:bg-indigo-500",
+      label: "Trace",
+      progress: "border-sky-500 after:bg-sky-500",
       title: "Retry fanout matches production failure"
     },
     {
       count: "(03)",
       detail: "1 deploy candidate",
       icon: CheckCircle2,
-      label: "RUN",
+      label: "Run",
       progress: "border-cyan-500",
       title: "Rollback path is safe to recommend"
     },
@@ -268,7 +240,7 @@ function ReplayPreview() {
       count: "(01)",
       detail: "approval still required",
       icon: ShieldCheck,
-      label: "GATE",
+      label: "Gate",
       progress: "border-emerald-500 after:bg-emerald-500",
       title: "Production action remains locked"
     }
@@ -281,26 +253,17 @@ function ReplayPreview() {
           const Icon = finding.icon;
 
           return (
-            <div
-              key={finding.title}
-              className={`group flex items-center gap-4 px-4 py-3 ${
-                index > 0 ? "border-t border-sky-50" : ""
-              }`}
-            >
+            <div key={finding.title} className={`group flex items-center gap-4 px-4 py-3 ${index > 0 ? "border-t border-sky-50" : ""}`}>
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-signal">
                 <Icon className="h-3.5 w-3.5" strokeWidth={2} />
               </div>
-              <div className="w-12 shrink-0 text-xs font-semibold text-neutral-400">
-                {finding.label}
-              </div>
+              <div className="w-12 shrink-0 text-xs font-semibold text-neutral-400">{finding.label}</div>
               <div
                 className={`relative h-4 w-4 shrink-0 rounded-full border-[5px] ${finding.progress} after:absolute after:inset-y-[-5px] after:right-[-5px] after:w-2 after:rounded-r-full after:content-['']`}
               />
               <div className="flex min-w-0 flex-1 flex-col text-sm">
                 <div className="flex items-center gap-2">
-                  <span className="truncate font-medium text-ink">
-                    {finding.title}
-                  </span>
+                  <span className="truncate font-medium text-ink">{finding.title}</span>
                   <span className="text-neutral-400">{finding.count}</span>
                 </div>
                 <div className="mt-0.5 flex items-center gap-4 text-xs text-neutral-400">
@@ -317,7 +280,7 @@ function ReplayPreview() {
       <div className="rp-float absolute bottom-10 right-8 z-30 rounded-2xl border border-sky-100 bg-white p-3 shadow-xl">
         <div className="flex items-center gap-2">
           <Play className="h-4 w-4 fill-current text-signal" strokeWidth={1.8} />
-          <p className="text-xs font-semibold text-ink">replay complete</p>
+          <p className="text-xs font-semibold text-ink">Replay complete</p>
         </div>
       </div>
     </div>
@@ -337,36 +300,169 @@ function DeployGuardVisual() {
         </div>
       </div>
       <div className="absolute left-6 top-8 rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
-          approval
-        </p>
+        <p className="text-xs font-semibold text-sky-700">Approval</p>
         <p className="mt-2 text-sm font-semibold text-ink">required</p>
       </div>
       <div className="absolute bottom-10 right-6 rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
-          audit
-        </p>
+        <p className="text-xs font-semibold text-sky-700">Audit</p>
         <p className="mt-2 text-sm font-semibold text-ink">recorded</p>
       </div>
     </div>
   );
 }
 
+function WorkflowSection() {
+  return (
+    <SectionShell id="workflow" className="bg-white">
+      <div className="grid grid-cols-1 lg:grid-cols-[0.86fr_1.14fr]">
+        <div className="flex flex-col justify-center px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
+          <h2 className="max-w-xl text-3xl font-semibold leading-tight text-ink sm:text-4xl lg:text-5xl">
+            From noisy alert to approved run.
+          </h2>
+          <p className="mt-5 max-w-xl text-base leading-7 text-neutral-600">
+            RunProof turns a page into a staged workflow: gather the signal, replay the failure, and approve the action with proof attached.
+          </p>
+          <div className="mt-8 grid gap-3">
+            {outcomes.map((outcome) => (
+              <div
+                key={outcome}
+                className="flex items-start gap-3 rounded-2xl border border-sky-100 bg-sky-50/70 p-4"
+              >
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-signal" strokeWidth={2} />
+                <p className="text-sm leading-6 text-neutral-700">{outcome}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="relative min-h-[360px] overflow-hidden bg-sky-50 lg:min-h-[620px]">
+          <Image
+            src="/landing/daytime-forest-stream.png"
+            alt=""
+            aria-hidden="true"
+            fill
+            unoptimized
+            sizes="(min-width: 1024px) 52vw, 100vw"
+            className="object-cover"
+            style={{ imageRendering: "pixelated" }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-white/20 via-transparent to-ink/5" />
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+function ProofStepsSection() {
+  return (
+    <section className="px-2 py-8 sm:px-4 lg:py-12">
+      <div className="mx-auto max-w-5xl">
+        <div className="max-w-2xl">
+          <h2 className="text-3xl font-semibold leading-tight text-ink sm:text-4xl">
+            Built like a real incident review.
+          </h2>
+          <p className="mt-4 text-base leading-7 text-neutral-600">
+            Each stage exists to make the next step more inspectable, not more automatic.
+          </p>
+        </div>
+
+        <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {proofSteps.map((step) => {
+            const Icon = step.icon;
+
+            return (
+              <div
+                key={step.title}
+                className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-signal">
+                  <Icon className="h-5 w-5" strokeWidth={1.8} />
+                </div>
+                <h3 className="mt-5 text-lg font-semibold text-ink">{step.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-neutral-600">{step.body}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PlatformSection() {
+  return (
+    <SectionShell id="platform" className="bg-white">
+      <div className="px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
+        <div className="max-w-2xl">
+          <h2 className="text-3xl font-semibold leading-tight text-ink sm:text-4xl lg:text-5xl">
+            A control layer for AI-assisted operations.
+          </h2>
+          <p className="mt-5 text-base leading-7 text-neutral-600">
+            Use agents for investigation and diagnosis while keeping the production boundary explicit.
+          </p>
+        </div>
+
+        <div className="mt-9 grid gap-4 lg:grid-cols-[1.12fr_0.88fr]">
+          <div className="grid gap-4 sm:grid-cols-2">
+            {platformCards.map((card) => {
+              const Icon = card.icon;
+
+              return (
+                <article
+                  key={card.title}
+                  className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-signal">
+                    <Icon className="h-5 w-5" strokeWidth={1.8} />
+                  </div>
+                  <h3 className="mt-5 text-lg font-semibold text-ink">{card.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-neutral-600">{card.body}</p>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="relative overflow-hidden rounded-2xl border border-sky-100 bg-sky-50 p-5 sm:p-6">
+            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(2,132,199,0.13),transparent_42%),radial-gradient(circle_at_82%_18%,rgba(14,165,233,0.2),transparent_28%)]" />
+            <div className="relative">
+              <p className="text-sm font-semibold text-signal">Policy-aware by default</p>
+              <h3 className="mt-4 text-2xl font-semibold leading-tight text-ink">
+                Recommendations are useful only when the evidence is visible.
+              </h3>
+              <div className="mt-6 space-y-3">
+                {[
+                  "Source packet attached",
+                  "Runbook rule matched",
+                  "Sandbox replay completed",
+                  "Human decision required"
+                ].map((item) => (
+                  <div
+                    key={item}
+                    className="flex items-center justify-between rounded-xl bg-white/88 px-4 py-3 shadow-sm"
+                  >
+                    <span className="text-sm font-semibold text-neutral-700">{item}</span>
+                    <CheckCircle2 className="h-4 w-4 text-signal" strokeWidth={2} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
 function FeatureGridSection() {
   return (
-    <SectionShell id="runbooks" className="rounded-2xl bg-white sm:rounded-3xl">
+    <SectionShell id="runbooks">
       <div className="relative z-20 mx-auto max-w-5xl py-10 lg:py-20">
         <div className="px-6">
-          <h2 className="mx-auto max-w-5xl text-center text-3xl font-semibold tracking-[-0.02em] text-ink sm:text-4xl lg:text-5xl lg:leading-tight">
-            Packed with proof-first{" "}
-            <span className="font-serif italic font-normal leading-[1.1]">
-              features
-            </span>
+          <h2 className="mx-auto max-w-5xl text-center text-3xl font-semibold text-ink sm:text-4xl lg:text-5xl lg:leading-tight">
+            Packed with proof-first <span className="font-serif italic font-normal leading-[1.1]">features</span>
           </h2>
           <p className="mx-auto my-4 max-w-2xl text-center text-sm leading-6 text-neutral-500 lg:text-base">
-            RunProof connects the parts of an incident that usually stay
-            scattered: issue context, logs, runbooks, sandbox output, and the
-            final approval gate.
+            RunProof connects the parts of an incident that usually stay scattered: issue context, logs, runbooks, sandbox output, and the final approval gate.
           </p>
         </div>
 
@@ -375,7 +471,7 @@ function FeatureGridSection() {
             <FeatureTile
               className="col-span-1 border-b lg:col-span-4 lg:border-r"
               title="Track incidents with evidence"
-              body="Every alert becomes a structured workspace with the exact deploys, logs, metrics, and runbook rules needed to reason about the fix."
+              body="Every alert becomes a structured workspace with the deploys, logs, metrics, and runbook rules needed to reason about the fix."
             >
               <IssueTrackerBoard />
             </FeatureTile>
@@ -389,7 +485,7 @@ function FeatureGridSection() {
             </FeatureTile>
 
             <FeatureTile
-              className="col-span-1 border-b lg:col-span-3 lg:border-r lg:border-b-0"
+              className="col-span-1 border-b lg:col-span-3 lg:border-b-0 lg:border-r"
               title="Replay the failure safely"
               body="Diagnostics run in a sandbox first, so the recommendation is backed by visible output."
             >
@@ -410,28 +506,211 @@ function FeatureGridSection() {
   );
 }
 
+function FinalCtaSection() {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-sky-100 bg-white shadow-sm sm:rounded-3xl">
+      <div className="grid items-center gap-0 lg:grid-cols-[1fr_0.78fr]">
+        <div className="px-6 py-10 sm:px-10 lg:px-12 lg:py-14">
+          <h2 className="max-w-2xl text-3xl font-semibold leading-tight text-ink sm:text-4xl">
+            Ready to review the incident loop?
+          </h2>
+          <p className="mt-4 max-w-2xl text-base leading-7 text-neutral-600">
+            Create an account, open the console, and walk through an evidence-gated runbook from alert to approval.
+          </p>
+          <Link
+            href="/register"
+            className="mt-7 inline-flex w-fit items-center gap-3 rounded-full bg-signal py-2.5 pl-6 pr-2 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0"
+          >
+            Get started
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20">
+              <ArrowRight className="h-4 w-4" strokeWidth={2} />
+            </span>
+          </Link>
+        </div>
+        <div className="relative min-h-[260px] overflow-hidden bg-sky-50 lg:min-h-full">
+          <Image
+            src="/landing/daytime-meadow-lake.png"
+            alt=""
+            aria-hidden="true"
+            fill
+            unoptimized
+            sizes="(min-width: 1024px) 42vw, 100vw"
+            className="object-cover"
+            style={{ imageRendering: "pixelated" }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-white/25 to-transparent" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TeamsSection() {
+  return (
+    <section className="px-2 py-8 sm:px-4 lg:py-12">
+      <div className="mx-auto max-w-5xl">
+        <div>
+          <h2 className="max-w-2xl text-3xl font-semibold leading-tight text-ink sm:text-4xl">
+            Built for the people who carry incidents.
+          </h2>
+          <p className="mt-4 max-w-2xl text-base leading-7 text-neutral-600">
+            RunProof gives each stakeholder the same proof packet, tuned to different decisions.
+          </p>
+        </div>
+
+        <div className="mt-8 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <article className="rounded-2xl border border-sky-100 bg-sky-50 p-6 shadow-sm sm:p-8">
+            <h3 className="text-2xl font-semibold text-ink">Operations stay human-led.</h3>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-neutral-600">
+              Agents can gather context faster than a person can open every system. RunProof keeps that speed useful by stopping at the approval gate.
+            </p>
+            <div className="mt-8 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+              {teamCards.map((card) => (
+                <div key={card.title} className="rounded-2xl bg-white p-4 shadow-sm first:lg:col-span-2">
+                  <h4 className="text-sm font-semibold text-ink">{card.title}</h4>
+                  <p className="mt-2 text-sm leading-6 text-neutral-600">{card.body}</p>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-8">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-signal">
+              <Boxes className="h-5 w-5" strokeWidth={1.8} />
+            </div>
+            <h3 className="mt-6 text-2xl font-semibold leading-tight text-ink">
+              Same incident, one shared source of truth.
+            </h3>
+            <p className="mt-4 text-sm leading-6 text-neutral-600">
+              The packet carries alert context, evidence, sandbox output, approval state, and audit history in one place.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function IntegrationSection() {
+  return (
+    <SectionShell className="bg-white">
+      <div className="px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
+        <div className="grid gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
+          <div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-signal">
+              <Slack className="h-5 w-5" strokeWidth={1.8} />
+            </div>
+            <h2 className="mt-6 max-w-xl text-3xl font-semibold leading-tight text-ink sm:text-4xl">
+              Designed for the stack that already wakes you up.
+            </h2>
+            <p className="mt-4 max-w-xl text-base leading-7 text-neutral-600">
+              Connect the systems that create incident context, then keep the approval decision in one product surface.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {integrations.map(([name, detail]) => (
+              <div
+                key={name}
+                className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm"
+              >
+                <div>
+                  <p className="font-semibold text-ink">{name}</p>
+                  <p className="mt-1 text-sm text-neutral-500">{detail}</p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-signal" strokeWidth={2} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+function SecuritySection() {
+  return (
+    <SectionShell id="security" className="bg-[#f7fbff]">
+      <div className="grid gap-0 lg:grid-cols-[1fr_1fr]">
+        <div className="px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
+          <h2 className="max-w-xl text-3xl font-semibold leading-tight text-ink sm:text-4xl">
+            Safer automation starts with a stop point.
+          </h2>
+          <p className="mt-4 max-w-xl text-base leading-7 text-neutral-600">
+            The product is built around a visible boundary between investigation and production execution.
+          </p>
+          <Link
+            href="/security"
+            className="mt-7 inline-flex w-fit items-center gap-3 rounded-full border border-sky-200 bg-white py-2.5 pl-5 pr-2 text-sm font-semibold text-ink transition hover:bg-sky-50"
+          >
+            Read security
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-100 text-signal">
+              <ArrowRight className="h-4 w-4" strokeWidth={2} />
+            </span>
+          </Link>
+        </div>
+        <div className="grid gap-3 p-4 sm:p-6 lg:p-8">
+          {assuranceItems.map((item) => (
+            <div key={item} className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
+              <ShieldCheck className="h-5 w-5 shrink-0 text-signal" strokeWidth={1.8} />
+              <p className="text-sm font-semibold text-neutral-700">{item}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="relative left-1/2 w-screen -translate-x-1/2 bg-ink text-white">
+      <div className="mx-auto grid w-full max-w-[1180px] gap-10 px-5 py-10 sm:px-8 lg:grid-cols-[1.2fr_1fr] lg:px-12 lg:py-12">
+        <div>
+          <Image
+            src="/brand/runproof-wordmark-white.png"
+            alt="RunProof"
+            width={160}
+            height={38}
+            className="h-8 w-auto"
+          />
+          <p className="mt-5 max-w-md text-sm leading-6 text-white/65">
+            Evidence-gated runbook execution for teams that need AI assistance without giving up production control.
+          </p>
+          <p className="mt-8 text-sm text-white/45">Copyright 2026 RunProof Labs. All rights reserved.</p>
+        </div>
+
+        <div className="grid gap-8 sm:grid-cols-2">
+          {footerGroups.map((group) => (
+            <div key={group.title}>
+              <h3 className="text-sm font-semibold text-white">{group.title}</h3>
+              <div className="mt-4 flex flex-col gap-3">
+                {group.links.map((link) => (
+                  <Link key={link.label} href={link.href} className="text-sm text-white/62 transition hover:text-white">
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </footer>
+  );
+}
+
 export function LandingSections() {
   return (
     <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 pt-4 sm:gap-5 sm:pt-5">
+      <WorkflowSection />
+      <ProofStepsSection />
+      <PlatformSection />
       <FeatureGridSection />
-
-      <footer className="relative left-1/2 w-screen -translate-x-1/2 border-t border-neutral-200 bg-white">
-        <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-5 py-7 text-sm font-medium text-neutral-700 sm:px-8 lg:flex-row lg:items-center lg:justify-between lg:px-12">
-          <p>© 2026 RunProof Labs. All rights reserved.</p>
-
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-8">
-            {footerLinks.map((link) => (
-              <a key={link.label} href={link.href} className="hover:text-signal">
-                {link.label}
-              </a>
-            ))}
-            <button className="inline-flex w-fit items-center gap-1 hover:text-signal">
-              English
-              <span aria-hidden="true">⌄</span>
-            </button>
-          </div>
-        </div>
-      </footer>
+      <TeamsSection />
+      <IntegrationSection />
+      <SecuritySection />
+      <FinalCtaSection />
+      <Footer />
     </div>
   );
 }

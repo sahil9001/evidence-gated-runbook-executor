@@ -14,7 +14,10 @@ import { logout } from "../../lib/auth";
 
 const navItems = [
   { label: "Home", href: "#" },
-  { label: "Runbooks", href: "#runbooks" }
+  { label: "Workflow", href: "#workflow" },
+  { label: "Platform", href: "#platform" },
+  { label: "Runbooks", href: "#runbooks" },
+  { label: "Security", href: "#security" }
 ];
 
 export function Navbar() {
@@ -68,9 +71,6 @@ export function Navbar() {
               href={item.href}
               className="flex items-center gap-2 transition hover:text-ink"
             >
-              {item.label === "Home" ? (
-                <span className="h-1.5 w-1.5 rounded-full bg-ink" />
-              ) : null}
               {item.label}
             </a>
           ))}

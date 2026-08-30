@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createElement } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -7,7 +8,8 @@ import * as auth from "../../lib/auth";
 import { ApiClientError } from "../../lib/api";
 
 vi.mock("next/image", () => ({
-  default: (props: Record<string, unknown>) => <img alt={String(props.alt ?? "")} />
+  default: (props: Record<string, unknown>) =>
+    createElement("img", { alt: String(props.alt ?? "") })
 }));
 
 const USER = { id: "u1", email: "operator@example.com", createdAt: "2026-08-28T00:00:00.000Z" };
@@ -25,6 +27,12 @@ describe("Navbar", () => {
     await waitFor(() => expect(screen.getAllByRole("link", { name: "Sign in" })[0]).toBeTruthy());
     expect(screen.getAllByRole("link", { name: "Sign in" })[0].getAttribute("href")).toBe("/login");
     expect(screen.getByRole("link", { name: /Get started/ }).getAttribute("href")).toBe("/register");
+    expect(screen.getAllByRole("link", { name: "Platform" })[0].getAttribute("href")).toBe(
+      "#platform"
+    );
+    expect(screen.getAllByRole("link", { name: "Security" })[0].getAttribute("href")).toBe(
+      "#security"
+    );
     expect(screen.queryByRole("button", { name: /Sign out/ })).toBeNull();
   });
 

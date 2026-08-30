@@ -192,6 +192,21 @@ One thing not to do to that binding: mark it `"remote": true`. That flag makes
 any test, which needs Cloudflare credentials — so `npm test` passes on a
 machine that has run `wrangler login` and fails everywhere else, CI included.
 
+To develop against the deployed database anyway, use the `remotedb`
+environment at the bottom of `backend/wrangler.jsonc`, which carries that flag
+on a second copy of the binding that the test suite never loads:
+
+```bash
+./scripts/dev.sh --remote-db      # whole stack, local code, remote D1
+cd backend && npm run dev:remote  # backend only
+```
+
+It is for local development only — the deploy path stays the default
+environment, and `wrangler deploy --env remotedb` would publish a separate
+`runproof-api-remotedb` Worker whose console origin is the localhost one.
+Migrations are not applied for you there; `npm run db:migrate:remote` is the
+deliberate step for that.
+
 ### What CI does not do
 
 - **It does not run on pull requests.** Verification runs on `main`, after the

@@ -220,6 +220,21 @@ MCP/agent half, covered in the numbered steps below.
 > other service creates fine and then fails at "start run" with
 > `no_matching_runbook` — that is the matcher working, not a bug.
 
+The database behind that is a local SQLite file under `backend/.wrangler`, kept
+between runs, so it accumulates whatever you created while clicking around and
+drifts from the deployed data. To run the same local code against the real
+Cloudflare D1 instead:
+
+```bash
+./scripts/dev.sh --remote-db      # needs `wrangler login`
+```
+
+Only the database moves — both servers still run on your machine. Every write
+lands in production, so sign in with an account that already exists there
+rather than registering a new one. To reset the local database instead of
+reaching for the remote one, delete `backend/.wrangler/state/v3/d1` and start
+the script again; it reapplies the migrations to an empty file.
+
 ### Step by step
 
 You need: Node 22 LTS, a local [TrueForge](https://trueforge.dev) instance

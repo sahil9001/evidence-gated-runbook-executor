@@ -73,18 +73,39 @@ function authorizeSource(args: ScopeCheckArgs, source: EvidenceSourceKind): Runb
 }
 
 export async function handleCollectLogs(args: CollectArgs): Promise<EvidenceCard[]> {
-  authorizeSource(args, "logs");
-  return createLogSource().collect({ incidentId: args.incidentId, service: args.service, now: systemNow });
+  // The matched runbook is kept rather than discarded: collectors scope
+  // their records by it as well as by service (see CollectContext#runbookId).
+  const runbook = authorizeSource(args, "logs");
+  return createLogSource().collect({
+    incidentId: args.incidentId,
+    service: args.service,
+    runbookId: runbook.id,
+    now: systemNow
+  });
 }
 
 export async function handleCollectMetrics(args: CollectArgs): Promise<EvidenceCard[]> {
-  authorizeSource(args, "metrics");
-  return createMetricSource().collect({ incidentId: args.incidentId, service: args.service, now: systemNow });
+  // The matched runbook is kept rather than discarded: collectors scope
+  // their records by it as well as by service (see CollectContext#runbookId).
+  const runbook = authorizeSource(args, "metrics");
+  return createMetricSource().collect({
+    incidentId: args.incidentId,
+    service: args.service,
+    runbookId: runbook.id,
+    now: systemNow
+  });
 }
 
 export async function handleCollectDeploys(args: CollectArgs): Promise<EvidenceCard[]> {
-  authorizeSource(args, "deploys");
-  return createDeploySource().collect({ incidentId: args.incidentId, service: args.service, now: systemNow });
+  // The matched runbook is kept rather than discarded: collectors scope
+  // their records by it as well as by service (see CollectContext#runbookId).
+  const runbook = authorizeSource(args, "deploys");
+  return createDeploySource().collect({
+    incidentId: args.incidentId,
+    service: args.service,
+    runbookId: runbook.id,
+    now: systemNow
+  });
 }
 
 export type GetRunbookArgs = { service: string; signals: string[] };

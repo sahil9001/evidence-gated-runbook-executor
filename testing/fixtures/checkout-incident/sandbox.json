@@ -1,0 +1,10 @@
+[
+  {
+    "id": "sb-1",
+    "service": "payment-service",
+    "runbookId": "checkout-failure",
+    "recordedAt": "2026-08-25T02:04:00.000Z",
+    "exitCode": 0,
+    "stdout": "timeout_ms=3000\nfailed_requests=47\nlikely_commit=8f31c2b\nrecommendation=rollback\n"
+  }
+]

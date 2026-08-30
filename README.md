@@ -21,14 +21,18 @@ For a judge with five minutes:
 | **Demo video** | See [Demo](#demo). |
 | **Try it live** | Console <https://runproof-frontend.sahilsilare.workers.dev> · API <https://runproof-api.sahilsilare.workers.dev/health> |
 | **Run it locally** | `./scripts/dev.sh` — one command, both servers. See [How to run it](#how-to-run-it). |
-| **Qodo review evidence** | All 31 merged PRs went through Qodo review. Representative: [**PR #1 — the non-forgeable approval gate**](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1). Full log in [Qodo Code Review Evidence](#qodo-code-review-evidence). |
+| **Qodo review evidence** | All 33 merged PRs went through Qodo review. Representative: [**PR #1 — the non-forgeable approval gate**](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1). Full log in [Qodo Code Review Evidence](#qodo-code-review-evidence). |
 | **License / AI use** | [MIT](LICENSE) · Claude Code was used throughout — see [AI assistance disclosure](#ai-assistance-disclosure). |
 | **Honest scope** | [What is NOT built](#what-is-not-built), including the one thing worth knowing up front: tool discovery and the annotation-driven checkpoint are verified against a running TrueForge, but driving a full live agent turn needs a model-provider key this repo does not ship. |
 
 ## Demo
 
-> **Placeholder — the ~3 minute demo video is not linked yet.** Replace this
-> block with the URL before submitting. Nothing else in the README depends on it.
+> **The ~3 minute demo video is not linked yet — replace this line with the
+> URL before submitting.** Nothing else in the README depends on it.
+
+[`docs/demo-script.md`](docs/demo-script.md) is the shot-by-shot script the
+video follows: what is on screen for each beat, the exact command or click that
+produces it, and the setup required before recording.
 
 The walkthrough runs the system end to end: TrueForge discovering all six MCP
 tools with `propose_rollback` marked destructive and the evidence tools marked
@@ -316,7 +320,8 @@ These are the same commands CI runs — see
 frontend `build`, which the deploy job covers via `opennextjs-cloudflare
 build`).
 
-**758 tests total** — 528 backend, 230 frontend — from a local run at PR #32.
+**758 tests total** — 528 backend, 230 frontend — from a local run against
+the final commit.
 
 **Coverage.** `npm run test:coverage` enforces an 80% threshold and currently
 reports, over the domain layer:
@@ -335,7 +340,7 @@ archived gap is not an alert) and were not written to a percentage.
 
 ## Qodo Code Review Evidence
 
-All 31 merged PRs went through a full Qodo review cycle, and every substantive
+All 33 merged PRs went through a full Qodo review cycle, and every substantive
 change landed through one of them. One honest exception, since it takes a
 single `git log --first-parent` to find: the first day's nine commits —
 Next.js scaffolding and landing-page work, 2026-08-24 — were pushed straight
@@ -376,7 +381,7 @@ selection, not the full log.
 - PR #3's SSE eviction bug was introduced by adding the session idle-TTL that
   the *previous* finding ("sessions never expired") required.
 
-**Two High findings answered late, in [#32][pr32]:** PR #17's readiness loop
+**Two High findings answered late, in [#33][pr33]:** PR #17's readiness loop
 tested the *previous* pass's elapsed time, so `./scripts/dev.sh` could wait
 past the timeout it advertises; PR #22's deploy step checked for the
 placeholder `database_id` before reading `D1_DATABASE_ID`, so once a real id
@@ -384,7 +389,7 @@ was committed the variable was silently ignored and a fork would deploy
 against this repository's database rather than its own. Both are fixed; the
 delay is recorded here rather than tidied away.
 
-[pr32]: https://github.com/sahil9001/evidence-gated-runbook-executor/pull/32
+[pr33]: https://github.com/sahil9001/evidence-gated-runbook-executor/pull/33
 
 **Two findings we did not fix, and why:**
 - **PR #1 — "Serializer breaks strict typecheck."** Disputed: `npm run
@@ -399,9 +404,33 @@ delay is recorded here rather than tidied away.
   this close to the deadline — see "Known limitations" in
   [`docs/trueforge-setup.md`](docs/trueforge-setup.md#known-limitations-local-dev-scope).
 
+### The follow-up review against the final code
+
+The last full cycle is [#33][pr33], and it is the one to read as the review
+against the code as it now stands. Qodo raised three findings on it, all
+Medium, all correct:
+
+1. The pull-request workflow did not run the coverage command, so the coverage
+   threshold the README advertised did not actually gate anything — a finding
+   *inside the very change that claimed to gate CI*.
+2. The README's verification block ran `cd backend` from an already-entered
+   `backend` directory, so a reader following the documented steps would never
+   reach the coverage command at all.
+3. `wait_until_up` in `scripts/dev.sh` checked elapsed time before `curl`
+   rather than throughout the attempt, so a run could still exceed the timeout
+   it advertises — the second time that same loop needed correcting, after
+   [#17](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/17).
+
+All three were fixed in `103584c` before merge. The documentation pass this
+section ships in is the follow-up review against that final state: it carries
+no behaviour change, and exists to correct what the previous PRs left stale or
+wrong in the README — including one error in this section, where the two
+late-answered High findings above were attributed to #32 when they landed in
+#33.
+
 ### Every merged pull request
 
-[![Qodo review: 31 of 31 merged PRs](https://img.shields.io/badge/Qodo%20review-31%20of%2031%20merged%20PRs-6f42c1?style=for-the-badge)](https://github.com/sahil9001/evidence-gated-runbook-executor/pulls?q=is%3Apr+is%3Amerged)
+[![Qodo review: 33 of 33 merged PRs](https://img.shields.io/badge/Qodo%20review-33%20of%2033%20merged%20PRs-6f42c1?style=for-the-badge)](https://github.com/sahil9001/evidence-gated-runbook-executor/pulls?q=is%3Apr+is%3Amerged)
 
 The button opens the merged-PR list on GitHub; every row below links to one of
 them. The **Qodo** column counts everything Qodo posted on that PR — its
@@ -442,6 +471,8 @@ commits, or both.
 | [#29](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/29) | 2026-08-30 | feat: revamp the operator console | 3 |
 | [#30](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/30) | 2026-08-30 | feat: collect sandbox evidence so packets can satisfy their runbook | 3 |
 | [#31](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/31) | 2026-08-30 | fix: stop presenting archived evidence gaps as active failures | 3 |
+| [#32](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/32) | 2026-08-30 | chore: close the submission checklist gaps | 2 |
+| [#33](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/33) | 2026-08-30 | fix: gate pull requests on CI, answer the last High findings, fix coverage | 5 |
 
 Every one of them carries Qodo review activity; none was merged unreviewed.
 
@@ -481,12 +512,14 @@ everything else in the submission:
   for local dev, not a security boundary. Daytona provides actual sandbox
   isolation for hosted TrueForge deployments; RunProof works with either, but
   only the local fallback has been exercised here.
-- **CI verifies and deploys on merge, but nothing runs on a pull request.**
-  `.github/workflows/deploy.yml` runs both test suites, the lint and both
-  typechecks, then applies the D1 migrations and deploys the backend and the
-  console — all on a push to `main`, which is what a merged PR is. So the gate
-  is after the merge, not before it; a red build on `main` is the signal, and
-  running the same `verify` job on `pull_request` is the obvious next step.
+- **CI gates pull requests; making that gate mandatory is a repository
+  setting, not code.** `.github/workflows/deploy.yml` runs `verify` — both test
+  suites, the lint and both typechecks — on every pull request and again on
+  every push to `main`, and both deploy jobs are guarded on `refs/heads/main`,
+  so a pull-request run can reach `verify` and can never deploy. What this repo
+  cannot do is force the result to matter: whether a red `verify` actually
+  blocks a merge depends on `main`'s branch-protection configuration, which
+  lives in GitHub's repository settings rather than in version control here.
   Deploys need three repository secrets/variables, and each job stops with a
   message naming what is missing — see
   [`docs/cloudflare-deployment.md`](docs/cloudflare-deployment.md#continuous-deployment).
@@ -566,6 +599,8 @@ attribution and without warranty.
   argument for the two independent approval gates.
 - [`docs/trueforge-setup.md`](docs/trueforge-setup.md) — step-by-step TrueForge
   integration, including exactly what a judge should expect to see.
+- [`docs/demo-script.md`](docs/demo-script.md) — the shot-by-shot script the
+  demo video follows, and the setup required to record it.
 - [`docs/runbook-format.md`](docs/runbook-format.md) — the runbook schema and
   why it's JSON, not YAML.
 - [`docs/cloudflare-deployment.md`](docs/cloudflare-deployment.md) — deployment

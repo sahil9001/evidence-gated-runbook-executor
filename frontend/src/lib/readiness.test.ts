@@ -12,14 +12,20 @@ const EMPTY_STATES: Record<RunRow["state"], number> = {
 
 function overview(
   states: Partial<Record<RunRow["state"], number>>,
-  partialEvidenceRuns = 0
+  partialEvidenceRuns = 0,
+  /** Defaults to "every run was measured", which most cases want. */
+  evidenceMeasuredRuns?: number
 ): OverviewResponse {
+  const runsByState = { ...EMPTY_STATES, ...states };
+  const totalRuns = Object.values(runsByState).reduce((sum, n) => sum + n, 0);
+
   return {
     awaitingApproval: states.awaiting_approval ?? 0,
     activeIncidents: 0,
     runsToday: 0,
     recentActivity: [],
-    runsByState: { ...EMPTY_STATES, ...states },
+    runsByState,
+    evidenceMeasuredRuns: evidenceMeasuredRuns ?? totalRuns,
     partialEvidenceRuns
   };
 }
@@ -95,6 +101,26 @@ describe("computeReadiness", () => {
     expect(result.components[1].percent).toBe(100);
     // The single component with data carries the whole score rather than
     // being averaged against a missing half.
+    expect(result.score).toBe(100);
+  });
+
+  it("excludes runs that predate the evidence measurement from that term", () => {
+    // Four runs, but only two were measured and one of those has a gap.
+    // Scoring the two unmeasured runs as complete would report 75% for an
+    // install whose measurable evidence is actually 50%.
+    const result = computeReadiness(overview({ executed: 4 }, 1, 2));
+
+    expect(result.components[1].detail).toEqual({ met: 1, total: 2 });
+    expect(result.components[1].percent).toBe(50);
+  });
+
+  it("reports evidence as unmeasurable when no run carries a measurement", () => {
+    // A pre-existing install on the first deploy after the column lands.
+    const result = computeReadiness(overview({ executed: 5 }, 0, 0));
+
+    expect(result.components[1].percent).toBeNull();
+    // Decision coverage still has data, so it carries the whole score rather
+    // than being averaged against a term that cannot be computed.
     expect(result.score).toBe(100);
   });
 

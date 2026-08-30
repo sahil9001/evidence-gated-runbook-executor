@@ -46,6 +46,16 @@ export type RunRow = {
    * this from the authenticated caller, the same discipline `by` on
    * approvals follows. */
   createdBy: string | null;
+  /**
+   * How many sources the run's runbook allows that its packet has no cards
+   * from -- 0 for a complete packet.
+   *
+   * `null` means the run predates this measurement, which is NOT the same as
+   * 0. The Overview score excludes null runs from its evidence term rather
+   * than counting them as complete, because "we never recorded it" and "we
+   * recorded no gaps" are different claims.
+   */
+  evidenceGapCount: number | null;
 };
 
 export type AuditEntry = {
@@ -135,6 +145,17 @@ export interface Store {
    * `result.rejected` without a null check.
    */
   countRunsGroupedByState(): Promise<Readonly<Record<RunRow["state"], number>>>;
+  /**
+   * How many runs have a recorded evidence-gap measurement, and how many of
+   * those recorded a gap. Both as counts; the score needs the pair, and a
+   * caller that fetched rows to derive them would pay a cost that grows with
+   * history forever.
+   *
+   * `measured` excludes runs predating the measurement (see
+   * `RunRow#evidenceGapCount`), so the score's denominator only ever contains
+   * runs it can actually speak to.
+   */
+  countRunsByEvidenceMeasurement(): Promise<{ readonly measured: number; readonly withGaps: number }>;
 
   /**
    * Creates a run and every artifact it is born with — its evidence packet,
@@ -231,16 +252,6 @@ export interface Store {
    * `limit`. Backs a cross-run recent-activity view — a use case
    * `listAudit` (scoped to one run) can't provide. */
   listRecentAudit(limit: number): Promise<AuditEntry[]>;
-  /**
-   * `COUNT(*) ... WHERE kind = ?` across every run. Backs the Overview
-   * score's evidence-completeness term, which needs to know how many runs
-   * recorded an `evidence_partial` entry without materializing the audit
-   * log. Same reasoning as `countRunsByState`.
-   *
-   * Counts DISTINCT runs, not entries: a run that failed to collect from
-   * three sources writes three rows but is still one incomplete run.
-   */
-  countRunsWithAuditKind(kind: string): Promise<number>;
 
   /** Newest-first. `limit`, when given, bounds the result the same way
    * `listRuns`'s does. */

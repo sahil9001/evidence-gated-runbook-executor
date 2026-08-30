@@ -20,6 +20,7 @@ type RunRecord = {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  evidence_gap_count: number | null;
 };
 
 function toRunRow(record: RunRecord): RunRow {
@@ -31,7 +32,8 @@ function toRunRow(record: RunRecord): RunRow {
     state: record.state as RunRow["state"],
     createdAt: record.created_at,
     updatedAt: record.updated_at,
-    createdBy: record.created_by
+    createdBy: record.created_by,
+    evidenceGapCount: record.evidence_gap_count
   };
 }
 
@@ -119,17 +121,27 @@ export function createD1Store(db: D1Database): Store {
     async createRun(run: RunRow): Promise<void> {
       await db
         .prepare(
-          `INSERT INTO runs (id, incident_id, runbook_id, service, state, created_at, updated_at, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO runs (id, incident_id, runbook_id, service, state, created_at, updated_at, created_by, evidence_gap_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(run.id, run.incidentId, run.runbookId, run.service, run.state, run.createdAt, run.updatedAt, run.createdBy)
+        .bind(
+          run.id,
+          run.incidentId,
+          run.runbookId,
+          run.service,
+          run.state,
+          run.createdAt,
+          run.updatedAt,
+          run.createdBy,
+          run.evidenceGapCount
+        )
         .run();
     },
 
     async getRun(id: string): Promise<RunRow | null> {
       const record = await db
         .prepare(
-          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs WHERE id = ?`
+          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by, evidence_gap_count FROM runs WHERE id = ?`
         )
         .bind(id)
         .first<RunRecord>();
@@ -171,7 +183,7 @@ export function createD1Store(db: D1Database): Store {
 
       const { results } = await db
         .prepare(
-          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs${where} ORDER BY created_at DESC${limitClause}`
+          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by, evidence_gap_count FROM runs${where} ORDER BY created_at DESC${limitClause}`
         )
         .bind(...params)
         .all<RunRecord>();
@@ -183,7 +195,7 @@ export function createD1Store(db: D1Database): Store {
       const params = limit !== undefined ? [incidentId, limit] : [incidentId];
       const { results } = await db
         .prepare(
-          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by FROM runs WHERE incident_id = ? ORDER BY created_at DESC${limitClause}`
+          `SELECT id, incident_id, runbook_id, service, state, created_at, updated_at, created_by, evidence_gap_count FROM runs WHERE incident_id = ? ORDER BY created_at DESC${limitClause}`
         )
         .bind(...params)
         .all<RunRecord>();
@@ -221,6 +233,20 @@ export function createD1Store(db: D1Database): Store {
         if (row.state in counts) counts[row.state] = row.count;
       }
       return counts;
+    },
+
+    async countRunsByEvidenceMeasurement(): Promise<{ measured: number; withGaps: number }> {
+      // One row, two counts: SUM over a boolean beats a second round trip,
+      // and both terms stay index-backed by idx_runs_evidence_gap_count.
+      const record = await db
+        .prepare(
+          `SELECT COUNT(*) as measured,
+                  COALESCE(SUM(CASE WHEN evidence_gap_count > 0 THEN 1 ELSE 0 END), 0) as withGaps
+             FROM runs
+            WHERE evidence_gap_count IS NOT NULL`
+        )
+        .first<{ measured: number; withGaps: number }>();
+      return { measured: record?.measured ?? 0, withGaps: record?.withGaps ?? 0 };
     },
 
     async createRunWithArtifacts(input: {
@@ -273,8 +299,8 @@ export function createD1Store(db: D1Database): Store {
       await db.batch([
         db
           .prepare(
-            `INSERT INTO runs (id, incident_id, runbook_id, service, state, created_at, updated_at, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO runs (id, incident_id, runbook_id, service, state, created_at, updated_at, created_by, evidence_gap_count)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             run.id,
@@ -284,7 +310,8 @@ export function createD1Store(db: D1Database): Store {
             run.state,
             run.createdAt,
             run.updatedAt,
-            run.createdBy
+            run.createdBy,
+            run.evidenceGapCount
           ),
         db
           .prepare(`INSERT INTO packets (id, incident_id, run_id, data, built_at) VALUES (?, ?, ?, ?, ?)`)
@@ -534,14 +561,6 @@ export function createD1Store(db: D1Database): Store {
         .bind(...params)
         .all<IncidentRecord>();
       return results.map(toIncidentRow);
-    },
-
-    async countRunsWithAuditKind(kind: string): Promise<number> {
-      const record = await db
-        .prepare(`SELECT COUNT(DISTINCT run_id) as count FROM audit_log WHERE kind = ?`)
-        .bind(kind)
-        .first<{ count: number }>();
-      return record?.count ?? 0;
     },
 
     async countIncidentsExcludingStatus(status: string): Promise<number> {

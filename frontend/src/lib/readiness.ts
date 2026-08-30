@@ -61,7 +61,7 @@ function percentOf(met: number, total: number): number | null {
 }
 
 export function computeReadiness(overview: OverviewResponse): ReadinessScore {
-  const { runsByState, partialEvidenceRuns } = overview;
+  const { runsByState, evidenceMeasuredRuns, partialEvidenceRuns } = overview;
 
   const decided = runsByState.approved + runsByState.rejected + runsByState.executed;
   const awaiting = runsByState.awaiting_approval;
@@ -73,9 +73,12 @@ export function computeReadiness(overview: OverviewResponse): ReadinessScore {
   // penalise the operator for the agent's in-flight work.
   const decidable = decided + awaiting;
 
-  // `partialEvidenceRuns` counts runs missing at least one allowed source,
-  // measured the same way the run detail screen measures it.
-  const completeEvidence = Math.max(0, totalRuns - partialEvidenceRuns);
+  // Measured against `evidenceMeasuredRuns`, not every run ever recorded.
+  // Runs created before the gap was persisted have no measurement, and
+  // counting them as complete would inflate this term for exactly the
+  // installations most likely to have gaps.
+  const measuredEvidence = Math.max(0, evidenceMeasuredRuns);
+  const completeEvidence = Math.max(0, measuredEvidence - partialEvidenceRuns);
 
   const components: readonly ReadinessComponent[] = [
     {
@@ -90,9 +93,9 @@ export function computeReadiness(overview: OverviewResponse): ReadinessScore {
       id: "evidence-completeness",
       label: "Evidence completeness",
       description: "Runs whose packet collected every source their runbook allows.",
-      percent: percentOf(completeEvidence, totalRuns),
+      percent: percentOf(completeEvidence, measuredEvidence),
       weight: 0.45,
-      detail: { met: completeEvidence, total: totalRuns }
+      detail: { met: completeEvidence, total: measuredEvidence }
     }
   ];
 

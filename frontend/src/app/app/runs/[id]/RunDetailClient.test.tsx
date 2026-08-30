@@ -424,4 +424,44 @@ describe("RunDetailClient", () => {
       expect(listAudit).toHaveBeenCalledWith("run-1");
     });
   });
+
+  describe("stage strip", () => {
+    it("reports a run whose collectors all came back empty as blocked, not idle", async () => {
+      // Zero cards AND a full set of failures is reachable: every allowed
+      // source returning nothing leaves a packet with no cards and one failure
+      // per source. Showing the neutral "Nothing collected" for that hid a
+      // known evidence gap behind a state that reads as "nothing yet".
+      getRun.mockResolvedValue(
+        makeDetail({
+          packet: makePacket({ cards: [] }),
+          failures: [
+            { source: "logs", message: 'No evidence collected from source "logs"' },
+            { source: "metrics", message: 'No evidence collected from source "metrics"' }
+          ]
+        })
+      );
+      render(<RunDetailClient runId="run-1" />);
+
+      expect(await screen.findByText(/No cards — 2 source gaps/i)).toBeInTheDocument();
+      expect(screen.queryByText("Nothing collected")).toBeNull();
+    });
+
+    it("still reports a genuinely empty run with no failures as idle", async () => {
+      getRun.mockResolvedValue(makeDetail({ packet: makePacket({ cards: [] }), failures: [] }));
+      render(<RunDetailClient runId="run-1" />);
+
+      expect(await screen.findByText("Nothing collected")).toBeInTheDocument();
+    });
+
+    it("reports a partially collected packet with its gap count", async () => {
+      getRun.mockResolvedValue(
+        makeDetail({
+          failures: [{ source: "sandbox", message: 'No evidence collected from source "sandbox"' }]
+        })
+      );
+      render(<RunDetailClient runId="run-1" />);
+
+      expect(await screen.findByText(/1 card, 1 source gap/i)).toBeInTheDocument();
+    });
+  });
 });

@@ -42,6 +42,7 @@ function makeOverview(overrides: Partial<OverviewResponse> = {}): OverviewRespon
     runsToday: 0,
     recentActivity: [],
     runsByState: NO_RUNS,
+    evidenceMeasuredRuns: 0,
     partialEvidenceRuns: 0,
     ...overrides
   };
@@ -74,7 +75,10 @@ describe("OverviewClient", () => {
   describe("readiness score", () => {
     it("scores a fully decided, fully evidenced history and shows its working", async () => {
       getOverview.mockResolvedValue(
-        makeOverview({ runsByState: { ...NO_RUNS, executed: 3, rejected: 1 } })
+        makeOverview({
+          runsByState: { ...NO_RUNS, executed: 3, rejected: 1 },
+          evidenceMeasuredRuns: 4
+        })
       );
       render(<OverviewClient />);
 
@@ -93,7 +97,8 @@ describe("OverviewClient", () => {
       getOverview.mockResolvedValue(
         makeOverview({
           awaitingApproval: 5,
-          runsByState: { ...NO_RUNS, executed: 5, awaiting_approval: 5 }
+          runsByState: { ...NO_RUNS, executed: 5, awaiting_approval: 5 },
+          evidenceMeasuredRuns: 10
         })
       );
       render(<OverviewClient />);
@@ -114,7 +119,7 @@ describe("OverviewClient", () => {
 
     it("presents gate discipline as a guarantee rather than a scored component", async () => {
       getOverview.mockResolvedValue(
-        makeOverview({ runsByState: { ...NO_RUNS, executed: 2 } })
+        makeOverview({ runsByState: { ...NO_RUNS, executed: 2 }, evidenceMeasuredRuns: 2 })
       );
       render(<OverviewClient />);
 
@@ -142,6 +147,46 @@ describe("OverviewClient", () => {
       expect(gateStage).toHaveAttribute("href", "/app/incidents");
       expect(within(gateStage).getByText("4")).toBeInTheDocument();
       expect(within(gateStage).getByText("waiting")).toBeInTheDocument();
+    });
+
+    it("counts only executed runs at the Action stage", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          runsByState: { ...NO_RUNS, executed: 3, rejected: 2 },
+          evidenceMeasuredRuns: 5
+        })
+      );
+      render(<OverviewClient />);
+
+      // A rejected gate closes without running the runbook step, so counting
+      // rejections here would report actions that never happened.
+      const actionStage = (await screen.findByText("Action")).closest("a");
+      expect(actionStage).not.toBeNull();
+      expect(within(actionStage as HTMLElement).getByText("3")).toBeInTheDocument();
+      expect(within(actionStage as HTMLElement).getByText("executed")).toBeInTheDocument();
+      expect(within(actionStage as HTMLElement).queryByText("5")).toBeNull();
+    });
+
+    it("still surfaces rejections at the Action stage rather than hiding them", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({
+          runsByState: { ...NO_RUNS, executed: 1, rejected: 2 },
+          evidenceMeasuredRuns: 3
+        })
+      );
+      render(<OverviewClient />);
+
+      expect(await screen.findByText(/2 rejected at the gate — never ran/i)).toBeInTheDocument();
+    });
+
+    it("omits the rejection note when there are none", async () => {
+      getOverview.mockResolvedValue(
+        makeOverview({ runsByState: { ...NO_RUNS, executed: 2 }, evidenceMeasuredRuns: 2 })
+      );
+      render(<OverviewClient />);
+
+      await screen.findByText("Action");
+      expect(screen.queryByText(/rejected at the gate/i)).toBeNull();
     });
   });
 

@@ -123,6 +123,17 @@ export function createMemoryStore(): Store {
       return [...runs.values()].filter((r) => r.createdAt >= sinceIso).length;
     },
 
+    async countRunsByEvidenceMeasurement(): Promise<{ measured: number; withGaps: number }> {
+      let measured = 0;
+      let withGaps = 0;
+      for (const run of runs.values()) {
+        if (run.evidenceGapCount === null || run.evidenceGapCount === undefined) continue;
+        measured += 1;
+        if (run.evidenceGapCount > 0) withGaps += 1;
+      }
+      return { measured, withGaps };
+    },
+
     async countRunsGroupedByState(): Promise<Readonly<Record<RunRow["state"], number>>> {
       const counts = Object.fromEntries(RUN_STATES.map((state) => [state, 0])) as Record<
         RunRow["state"],
@@ -336,14 +347,6 @@ export function createMemoryStore(): Store {
       // tab's top-to-bottom contract for an unlimited call).
       const windowed = limit !== undefined ? ascending.slice(Math.max(0, ascending.length - limit)) : ascending;
       return windowed.map(clone);
-    },
-
-    async countRunsWithAuditKind(kind: string): Promise<number> {
-      const runIds = new Set<string>();
-      for (const entry of auditLog.values()) {
-        if (entry.kind === kind) runIds.add(entry.runId);
-      }
-      return runIds.size;
     },
 
     async listRecentAudit(limit: number): Promise<AuditEntry[]> {

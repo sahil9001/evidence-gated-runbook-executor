@@ -216,7 +216,8 @@ describe("GET /incidents/:id", () => {
         state: "collecting",
         createdAt: nowIso,
         updatedAt: nowIso,
-        createdBy: null
+        createdBy: null,
+        evidenceGapCount: 0
       });
     }
 

@@ -24,6 +24,7 @@ const makeRun = (id: string, overrides: Partial<RunRow> = {}): RunRow => ({
   createdAt: T0,
   updatedAt: T0,
   createdBy: "sahil@example.com",
+  evidenceGapCount: 0,
   ...overrides
 });
 
@@ -261,22 +262,27 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       });
     });
 
-    describe("countRunsWithAuditKind", () => {
-      it("counts distinct runs, not entries, for the given kind", async () => {
-        const before = await store.countRunsWithAuditKind("evidence_partial");
+    describe("countRunsByEvidenceMeasurement", () => {
+      it("counts only runs whose gap was actually measured", async () => {
+        const before = await store.countRunsByEvidenceMeasurement();
 
-        // Two entries on one run, one on another: three rows, two runs.
-        await store.appendAudit(makeAudit("audit-partial-a1", "run-partial-a", "evidence_partial"));
-        await store.appendAudit(makeAudit("audit-partial-a2", "run-partial-a", "evidence_partial"));
-        await store.appendAudit(makeAudit("audit-partial-b1", "run-partial-b", "evidence_partial"));
-        // A different kind on a third run must not be counted.
-        await store.appendAudit(makeAudit("audit-partial-c1", "run-partial-c", "run_created"));
+        await store.createRun(makeRun("run-gap-complete", { evidenceGapCount: 0 }));
+        await store.createRun(makeRun("run-gap-partial", { evidenceGapCount: 2 }));
+        // Predates the measurement: excluded from both counts rather than
+        // being treated as a complete packet.
+        await store.createRun(makeRun("run-gap-unmeasured", { evidenceGapCount: null }));
 
-        expect(await store.countRunsWithAuditKind("evidence_partial")).toBe(before + 2);
+        const after = await store.countRunsByEvidenceMeasurement();
+        expect(after.measured - before.measured).toBe(2);
+        expect(after.withGaps - before.withGaps).toBe(1);
       });
 
-      it("returns zero for a kind that never occurs", async () => {
-        expect(await store.countRunsWithAuditKind("kind_that_never_happens")).toBe(0);
+      it("round-trips the gap count on the run itself", async () => {
+        await store.createRun(makeRun("run-gap-roundtrip", { evidenceGapCount: 3 }));
+        await store.createRun(makeRun("run-gap-null", { evidenceGapCount: null }));
+
+        expect((await store.getRun("run-gap-roundtrip"))?.evidenceGapCount).toBe(3);
+        expect((await store.getRun("run-gap-null"))?.evidenceGapCount).toBeNull();
       });
     });
 

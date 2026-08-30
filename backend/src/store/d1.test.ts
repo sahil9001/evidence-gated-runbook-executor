@@ -20,7 +20,8 @@ const makeRun = (id: string): RunRow => ({
   state: "collecting",
   createdAt: T0,
   updatedAt: T0,
-  createdBy: "sahil@example.com"
+  createdBy: "sahil@example.com",
+  evidenceGapCount: 0
 });
 
 /**

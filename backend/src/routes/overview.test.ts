@@ -19,6 +19,7 @@ type ApiOk<T> = { ok: true; data: T };
 /** The slice of GET /overview that feeds the console's readiness score. */
 type OverviewScoreShape = {
   runsByState: Record<RunRow["state"], number>;
+  evidenceMeasuredRuns: number;
   partialEvidenceRuns: number;
 };
 
@@ -157,7 +158,8 @@ describe("GET /overview", () => {
       state,
       createdAt: nowIso,
       updatedAt: nowIso,
-      createdBy: null
+      createdBy: null,
+      evidenceGapCount: 0
     });
     await store.createRun(runRow("awaiting_approval", "a"));
     await store.createRun(runRow("awaiting_approval", "b"));
@@ -217,10 +219,42 @@ describe("GET /overview", () => {
     }
     expect(afterData.runsByState.awaiting_approval - beforeData.runsByState.awaiting_approval).toBe(1);
 
-    // Present and numeric; the fixture sources all succeed, so this run adds
-    // nothing to it. Asserting the delta is 0 would be asserting the
-    // fixtures, not the route.
-    expect(typeof afterData.partialEvidenceRuns).toBe("number");
+    // The new run is measured either way, so the denominator moves by one.
+    // Whether it also has a gap depends on the fixture sources, so asserting a
+    // specific delta there would be asserting the fixtures, not the route.
+    expect(afterData.evidenceMeasuredRuns - beforeData.evidenceMeasuredRuns).toBe(1);
     expect(afterData.partialEvidenceRuns).toBeGreaterThanOrEqual(0);
+    // The score's denominator can never exceed what was measured.
+    expect(afterData.partialEvidenceRuns).toBeLessThanOrEqual(afterData.evidenceMeasuredRuns);
+  });
+
+  it("excludes runs that predate the evidence measurement from the denominator", async () => {
+    const cookie = await registeredCookie();
+    const app = buildApp();
+    const store = createD1Store(env.DB);
+
+    const before = (await request(app, "GET", "/overview", undefined, cookie))
+      .json as ApiOk<OverviewScoreShape>;
+
+    // A legacy row: an incomplete packet whose gap was never recorded. Counting
+    // it as complete is exactly what inflated the score before.
+    const nowIso = new Date().toISOString();
+    await store.createRun({
+      id: `run-legacy-${Date.now()}`,
+      incidentId: "inc-legacy",
+      runbookId: "checkout-failure",
+      service: "payment-service",
+      state: "executed",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      createdBy: null,
+      evidenceGapCount: null
+    });
+
+    const after = (await request(app, "GET", "/overview", undefined, cookie))
+      .json as ApiOk<OverviewScoreShape>;
+
+    expect(after.data.evidenceMeasuredRuns).toBe(before.data.evidenceMeasuredRuns);
+    expect(after.data.partialEvidenceRuns).toBe(before.data.partialEvidenceRuns);
   });
 });

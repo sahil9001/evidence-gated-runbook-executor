@@ -47,17 +47,31 @@ interface RunStagesProps {
 
 function evidenceStage(packet: EvidencePacket | null, failures: readonly RunFailure[]): Stage {
   const cards = packet?.cards.length ?? 0;
-  if (cards === 0) {
-    return { label: "Evidence", icon: Layers, caption: "Nothing collected", status: "idle" };
-  }
-  if (failures.length > 0) {
+  const gaps = failures.length;
+  const sourceGaps = `${gaps} source ${gaps === 1 ? "gap" : "gaps"}`;
+
+  // Gaps are checked before the empty case. A run where every allowed
+  // collector came back empty has zero cards AND a full set of failures, and
+  // returning the neutral "Nothing collected" for it hid a known evidence gap
+  // behind a state that reads as "nothing has happened yet".
+  if (gaps > 0) {
     return {
       label: "Evidence",
       icon: Layers,
-      caption: `${cards} ${cards === 1 ? "card" : "cards"}, ${failures.length} source ${failures.length === 1 ? "gap" : "gaps"}`,
-      status: "partial"
+      caption:
+        cards === 0
+          ? `No cards — ${sourceGaps}`
+          : `${cards} ${cards === 1 ? "card" : "cards"}, ${sourceGaps}`,
+      // Nothing usable arrived at all, so the run is blocked rather than
+      // merely thin: there is no evidence here to reason about.
+      status: cards === 0 ? "blocked" : "partial"
     };
   }
+
+  if (cards === 0) {
+    return { label: "Evidence", icon: Layers, caption: "Nothing collected", status: "idle" };
+  }
+
   return {
     label: "Evidence",
     icon: Layers,

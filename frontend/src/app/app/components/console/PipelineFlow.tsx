@@ -22,12 +22,20 @@ interface Stage {
   readonly label: string;
   /** The stage where work is stuck waiting on a person. */
   readonly needsHuman?: boolean;
+  /** Secondary line, for an outcome the headline count deliberately omits. */
+  readonly note?: string;
   readonly unit: string;
 }
 
 export function buildStages(overview: OverviewResponse): readonly Stage[] {
   const { runsByState } = overview;
-  const acted = runsByState.executed + runsByState.rejected + runsByState.approved;
+
+  // Only runs that actually reached the executor. A rejected gate closes
+  // without running the runbook step, so counting rejections here would
+  // report actions at the stage described as "the runbook step runs" that
+  // never happened. They are surfaced as a note instead of being hidden.
+  const executed = runsByState.executed + runsByState.approved;
+  const rejected = runsByState.rejected;
 
   return [
     {
@@ -61,9 +69,10 @@ export function buildStages(overview: OverviewResponse): readonly Stage[] {
     {
       id: "action",
       label: "Action",
-      body: "The runbook step runs, and the decision is recorded.",
-      count: acted,
-      unit: "decided",
+      body: "The approved runbook step runs, and the decision is recorded.",
+      count: executed,
+      unit: "executed",
+      note: rejected > 0 ? `${rejected} rejected at the gate — never ran` : undefined,
       href: "/app/audit",
       icon: Terminal
     }
@@ -113,20 +122,25 @@ export function PipelineFlow({ overview }: { overview: OverviewResponse }) {
                 <p className="mt-1 text-xs leading-5 text-neutral-500">{stage.body}</p>
               </div>
 
-              <p className="mt-auto flex items-baseline gap-1.5 pt-2">
-                <span
-                  className={cn(
-                    "text-2xl font-semibold leading-none tabular-nums",
-                    alert ? "text-amber-600" : "text-ink"
-                  )}
-                >
-                  {stage.count}
-                </span>
-                <span className="text-xs font-medium text-neutral-500">{stage.unit}</span>
-                {alert ? (
-                  <span className="rp-pulse ml-1 h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+              <div className="mt-auto pt-2">
+                <p className="flex items-baseline gap-1.5">
+                  <span
+                    className={cn(
+                      "text-2xl font-semibold leading-none tabular-nums",
+                      alert ? "text-amber-600" : "text-ink"
+                    )}
+                  >
+                    {stage.count}
+                  </span>
+                  <span className="text-xs font-medium text-neutral-500">{stage.unit}</span>
+                  {alert ? (
+                    <span className="rp-pulse ml-1 h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                  ) : null}
+                </p>
+                {stage.note ? (
+                  <p className="mt-1.5 text-[11px] font-medium text-neutral-400">{stage.note}</p>
                 ) : null}
-              </p>
+              </div>
             </Link>
           </li>
         );

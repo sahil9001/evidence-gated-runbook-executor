@@ -10,6 +10,34 @@ approves it.
 
 > Looking is free. Touching needs a signature.
 
+## Submission at a glance
+
+For a judge with five minutes:
+
+| | |
+|---|---|
+| **What the agent does** | An alert fires. The agent follows the runbook the team already wrote — pulls logs, metrics and deploy history, runs a diagnostic in a sandbox, assembles an evidence packet, and proposes a rollback. The rollback stays **locked** until a human approves it. |
+| **How TrueForge is used** | TrueForge is the harness, not a dependency bolted on afterwards. It runs the agent loop, discovers RunProof's six tools over MCP, and enforces the human-in-the-loop checkpoint directly from the `destructiveHint`/`readOnlyHint` annotations the tools declare — the five evidence tools run freely, `propose_rollback` pauses the turn until a human sends `allow` or `deny`. TrueForge's sandbox is also what executes the diagnostic script, because RunProof itself has no execution surface at all. |
+| **Demo video** | See [Demo](#demo). |
+| **Try it live** | Console <https://runproof-frontend.sahilsilare.workers.dev> · API <https://runproof-api.sahilsilare.workers.dev/health> |
+| **Run it locally** | `./scripts/dev.sh` — one command, both servers. See [How to run it](#how-to-run-it). |
+| **Qodo review evidence** | All 25 merged PRs went through Qodo review. Representative: [**PR #1 — the non-forgeable approval gate**](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1). Full log in [Qodo Code Review Evidence](#qodo-code-review-evidence). |
+| **Honest scope** | [What is NOT built](#what-is-not-built), including the one thing worth knowing up front: tool discovery and the annotation-driven checkpoint are verified against a running TrueForge, but driving a full live agent turn needs a model-provider key this repo does not ship. |
+
+## Demo
+
+> **Placeholder — the ~3 minute demo video is not linked yet.** Replace this
+> block with the URL before submitting. Nothing else in the README depends on it.
+
+The walkthrough runs the system end to end: TrueForge discovering all six MCP
+tools with `propose_rollback` marked destructive and the evidence tools marked
+read-only; filing an incident against `payment-service` in the console and
+starting a run; the evidence packet assembling from logs, metrics and deploy
+history; the Approval tab showing a **locked** gate and a run response carrying
+no `execution` field, so nothing has run yet; a human approving, which mints the
+single `ApprovalToken` that lets `executeStateChanging` be called at all; and
+the audit log recording who approved what, and when.
+
 ## Why the approval gate is the point
 
 Incident response is exactly the place an autonomous agent is most tempting and
@@ -252,7 +280,7 @@ each stage (tool discovery → a read-only call → the sandboxed diagnostic →
 ### Verification
 
 ```bash
-cd backend && npm test && npm run typecheck   # 491 tests, clean typecheck
+cd backend && npm test && npm run typecheck   # 492 tests, clean typecheck
 cd ../frontend && npm test && npm run lint && npm run typecheck && npm run build
 ```
 
@@ -260,15 +288,29 @@ These are the same commands CI runs on merge (minus the frontend `build`, which
 the deploy job covers via `opennextjs-cloudflare build`) — see
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
 
-`frontend` runs 174 tests of its own; both counts are as of PR #10.
+`frontend` runs 185 tests of its own. Both counts are from a local run at
+PR #25; CI runs the same two suites on every merge to `main`.
 
 ## Qodo Code Review Evidence
 
-All ten merged PRs went through a full Qodo review cycle. This section is meant
-as evidence of a working review loop, not a trophy list — the most interesting
-fact is that **several fixes introduced the next finding**, caught by re-review
-rather than by the original author. The table below is a selection, not the
-full log.
+All 25 merged PRs went through a full Qodo review cycle. Every substantive
+change in this repository landed through a reviewed pull request; nothing was
+pushed straight to `main`.
+
+**Representative merged PR: [#1 — backend foundation and the non-forgeable
+approval gate][pr1].** It is the one to open first, because Qodo's review there
+shaped the project's core safety property: it caught that forged tokens passed
+authorization, since the `unique symbol` brand TypeScript uses is erased at
+runtime and could not stop a hand-built object from type-casting past the
+check. The `WeakSet` identity check the rest of this README keeps pointing at
+exists because of that review.
+
+[pr1]: https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1
+
+This section is meant as evidence of a working review loop, not a trophy list —
+the most interesting fact is that **several fixes introduced the next finding**,
+caught by re-review rather than by the original author. The table below is a
+selection, not the full log.
 
 | PR | Subject | Notable findings Qodo raised and we fixed |
 |---|---|---|
@@ -366,11 +408,26 @@ everything else in the submission:
 
 ## Live deployment
 
-A frontend build has previously been deployed to
-`https://runproof-frontend.sahilsilare.workers.dev` via OpenNext/Wrangler; it
-serves the product UI only and is not wired to a live TrueForge instance or a
-running backend. Judges should follow "How to run it" above to see the actual
-system, not the static deployment.
+Both Workers ship from CI on every merge to `main`
+([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) — the backend
+first, so the console is never live against a schema the API has not migrated
+to yet.
+
+| | URL |
+|---|---|
+| Operator console | <https://runproof-frontend.sahilsilare.workers.dev> |
+| API health | <https://runproof-api.sahilsilare.workers.dev/health> |
+
+The console is wired to that API rather than serving UI in isolation:
+`NEXT_PUBLIC_API_URL` is inlined at build time from a repository variable, and
+the backend's `ALLOWED_FRONTEND_ORIGINS` names the console's own origin, so the
+browser's preflight and credentialed requests from the console are accepted
+instead of refused by CORS.
+
+What the deployment does **not** include is TrueForge. No hosted TrueForge
+instance points at this API, so the MCP and agent half of the system is
+local-only — [How to run it](#how-to-run-it) is the path that exercises it, and
+[`docs/trueforge-setup.md`](docs/trueforge-setup.md) is the judge walkthrough.
 
 ## Further reading
 
@@ -385,3 +442,5 @@ system, not the static deployment.
 - [`docs/cloudflare-deployment.md`](docs/cloudflare-deployment.md) — deployment
   notes for the frontend.
 - [`docs/roadmap.md`](docs/roadmap.md) — remaining work beyond this slice.
+- **Build write-up (blog)** — *placeholder; add the post's URL here before
+  submitting.*

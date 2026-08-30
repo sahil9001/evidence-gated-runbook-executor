@@ -49,6 +49,14 @@ describe("RunbookPreview", () => {
     expect(screen.getByText("Alert received")).toBeInTheDocument();
   });
 
+  it("allows callers to tune the preview container", () => {
+    const { container } = render(<RunbookPreview className="custom-preview" />);
+
+    expect(container.firstElementChild).toHaveClass("custom-preview");
+    expect(container.firstElementChild).toHaveClass("xl:max-w-[1280px]");
+    expect(container.firstElementChild).toHaveClass("2xl:max-w-[1440px]");
+  });
+
   it("disables Approve and Review when gateState is not locked", () => {
     const data = customData({ gateState: "approved" });
 

@@ -18,7 +18,7 @@ body {
 
 body {
   font-family: var(--font-inter), Arial, sans-serif;
-  background: #ededed;
+  background: #ffffff;
   color: #0b0f1a;
 }
 
@@ -95,6 +95,18 @@ a {
   animation-delay: 3120ms;
 }
 
+.rp-flow-packet {
+  animation: rp-flow-packet 4.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.rp-flow-packet-2 {
+  animation-delay: 1.35s;
+}
+
+.rp-flow-packet-3 {
+  animation-delay: 2.7s;
+}
+
 @keyframes rp-rise {
   from {
     opacity: 0;
@@ -156,6 +168,23 @@ a {
   }
 }
 
+@keyframes rp-flow-packet {
+  0% {
+    opacity: 0;
+    transform: translateX(0) scale(0.72);
+  }
+
+  12%,
+  82% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(300px) scale(0.72);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -164,5 +193,44 @@ a {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@layer base {
+  :root {
+    /* Brand-aligned shadcn tokens. `signal` (#0284c7) is the primary and the
+       neutrals are cooled toward the sky palette the landing page already uses,
+       so shadcn primitives read as RunProof rather than default slate. */
+    --background: 0 0% 100%;
+    --foreground: 224 41% 7%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 41% 7%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 41% 7%;
+    --primary: 200 98% 39%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 204 100% 97%;
+    --secondary-foreground: 201 90% 27%;
+    --muted: 204 100% 97%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 204 94% 94%;
+    --accent-foreground: 201 90% 27%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 204 60% 92%;
+    --input: 214 32% 91%;
+    --ring: 200 98% 39%;
+    --chart-1: 200 98% 39%;
+    --chart-2: 160 84% 39%;
+    --chart-3: 43 96% 56%;
+    --chart-4: 0 84% 60%;
+    --chart-5: 262 83% 58%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
   }
 }

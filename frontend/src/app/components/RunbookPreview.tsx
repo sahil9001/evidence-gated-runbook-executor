@@ -72,6 +72,7 @@ recommendation=rollback`,
 };
 
 type RunbookPreviewProps = {
+  className?: string;
   data?: RunbookPreviewData;
 };
 
@@ -91,15 +92,17 @@ function gateIcon(gateState: RunbookPreviewData["gateState"]) {
   return <LockKeyhole className="h-5 w-5 text-neutral-500" strokeWidth={1.8} />;
 }
 
-export function RunbookPreview({ data = DEMO_PREVIEW }: RunbookPreviewProps) {
+export function RunbookPreview({ className = "", data = DEMO_PREVIEW }: RunbookPreviewProps) {
   const isLocked = data.gateState === "locked";
   const approveDisabled = !isLocked || data.isDeciding === true || !data.onApprove;
   const reviewDisabled = !isLocked || data.isDeciding === true || !data.onReject;
 
   return (
-    <div className="mx-auto w-full max-w-[1180px] rounded-t-3xl rounded-b-none bg-panel p-4 pb-0 shadow-soft sm:p-6 sm:pb-0 lg:p-7 lg:pb-0">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 lg:gap-5">
-        <section className="rounded-2xl bg-white p-5">
+    <div
+      className={`mx-auto w-full max-w-[1180px] rounded-t-3xl rounded-b-none border border-b-0 border-sky-100/80 bg-panel/85 p-3 pb-0 sm:p-5 sm:pb-0 lg:p-6 lg:pb-0 xl:max-w-[1280px] xl:p-7 xl:pb-0 2xl:max-w-[1440px] ${className}`}
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 lg:gap-5 xl:gap-6">
+        <section className="rounded-2xl bg-white p-4 sm:p-5 xl:p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-semibold text-signal">Risk score</p>
@@ -126,7 +129,7 @@ export function RunbookPreview({ data = DEMO_PREVIEW }: RunbookPreviewProps) {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-white p-5">
+        <section className="rounded-2xl bg-white p-4 sm:p-5 xl:p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-signal">Evidence trail</p>
@@ -164,7 +167,7 @@ export function RunbookPreview({ data = DEMO_PREVIEW }: RunbookPreviewProps) {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-white p-5 sm:col-span-2 lg:col-span-1">
+        <section className="rounded-2xl bg-white p-4 sm:col-span-2 sm:p-5 lg:col-span-1 xl:p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-signal">Approval gate</p>
@@ -198,7 +201,7 @@ export function RunbookPreview({ data = DEMO_PREVIEW }: RunbookPreviewProps) {
               className="inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
             >
               <CheckCircle2 className="h-4 w-4" strokeWidth={2} />
-              {data.isDeciding ? "Approving…" : "Approve"}
+              {data.isDeciding ? "Approving..." : "Approve"}
             </button>
             <button
               type="button"

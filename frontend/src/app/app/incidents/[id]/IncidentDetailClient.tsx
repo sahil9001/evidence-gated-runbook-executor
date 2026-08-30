@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowRight, Loader2, PlayCircle, Radio } from "lucide-react";
 import { SectionTitle } from "../../components/console/Surface";
+import { DeleteIncidentButton } from "../../components/console/DeleteIncidentButton";
 import { Pill } from "../../components/console/Indicators";
 import { ApiClientError, getIncident, startRun } from "../../../../lib/api";
 import type { IncidentDetailResponse, RunRow } from "../../../../lib/types";
@@ -209,7 +210,17 @@ export function IncidentDetailClient({ incidentId }: IncidentDetailClientProps) 
               {incident.title}
             </h2>
           </div>
-          <Pill tone={incident.status === "resolved" ? "good" : "info"}>{incident.status}</Pill>
+          <div className="flex shrink-0 items-start gap-3">
+            <Pill tone={incident.status === "resolved" ? "good" : "info"}>{incident.status}</Pill>
+            {/* Deleting from here leaves the operator on a page for an
+                incident that no longer exists, so this navigates back to
+                the list rather than refetching into a guaranteed 404. */}
+            <DeleteIncidentButton
+              incidentId={incident.id}
+              incidentTitle={incident.title}
+              onDeleted={() => router.push("/app/incidents")}
+            />
+          </div>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">

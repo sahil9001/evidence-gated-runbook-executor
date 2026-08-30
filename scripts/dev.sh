@@ -3,12 +3,20 @@
 # Runs the whole stack locally: the RunProof backend Worker and the Next.js
 # frontend, together, from one command.
 #
-#   ./scripts/dev.sh
+#   ./scripts/dev.sh              # local D1 (default)
+#   ./scripts/dev.sh --remote-db  # the real Cloudflare D1
 #
 # Installs dependencies if they are missing, applies the local D1 migrations
 # (without which every backend query fails on a missing table), starts both
 # servers, and waits until each actually answers before telling you so.
 # Ctrl+C stops both.
+#
+# --remote-db runs the same local code against the deployed database instead of
+# the SQLite file under backend/.wrangler, for when the local copy has drifted
+# from the real data. It needs `wrangler login`, and every write it makes is a
+# write to production. It also skips the migration step rather than applying
+# migrations to the deployed database as a side effect of starting a dev
+# server: that is `npm run db:migrate:remote` in backend/, run deliberately.
 
 set -euo pipefail
 
@@ -184,9 +192,9 @@ tree_has_stopped_process() {
 # the tool, and the cost is nothing.
 started_pid=""
 start_server() {
-  local dir=$1
+  local dir=$1 script=${2:-dev}
   set -m
-  (cd "$ROOT/$dir" && exec npm run --silent dev) </dev/null &
+  (cd "$ROOT/$dir" && exec npm run --silent "$script") </dev/null &
   started_pid=$!
   set +m
 }
@@ -258,6 +266,20 @@ wait_until_up() {
 }
 
 main() {
+  local remote_db=""
+  while (( $# )); do
+    case $1 in
+      --remote-db) remote_db=yes ;;
+      -h|--help)
+        printf 'usage: %s [--remote-db]\n\n  --remote-db  run against the deployed Cloudflare D1 instead of the\n               local SQLite file under backend/.wrangler\n' "$0"
+        exit 0
+        ;;
+      *) die "unknown option: $1
+      usage: $0 [--remote-db]" ;;
+    esac
+    shift
+  done
+
   command -v node >/dev/null || die "node is not installed. This project needs Node 22 LTS or newer."
   command -v curl >/dev/null || die "curl is not installed; this script uses it to check readiness."
 
@@ -280,7 +302,11 @@ main() {
   else
     log "  ${DIM}1/4${RESET} install dependencies   ${DIM}(already present, skipping)${RESET}"
   fi
-  log "  ${DIM}2/4${RESET} apply D1 migrations    ${DIM}(~5s)${RESET}"
+  if [[ -n "$remote_db" ]]; then
+    log "  ${DIM}2/4${RESET} apply D1 migrations    ${DIM}(skipped — using the remote database)${RESET}"
+  else
+    log "  ${DIM}2/4${RESET} apply D1 migrations    ${DIM}(~5s)${RESET}"
+  fi
   log "  ${DIM}3/4${RESET} start backend          ${DIM}(~5-15s)${RESET}"
   log "  ${DIM}4/4${RESET} start frontend         ${DIM}(~5-20s)${RESET}"
 
@@ -288,15 +314,26 @@ main() {
   install_if_needed frontend
 
   # Must run before the backend serves traffic: the local D1 file starts empty,
-  # and every query would fail on a missing table.
+  # and every query would fail on a missing table. Skipped under --remote-db,
+  # where the target is the deployed database and applying migrations to it is
+  # a deliberate act rather than a side effect of starting a dev server.
   local began=$SECONDS
-  log "applying local D1 migrations..."
-  (cd "$ROOT/backend" && npm run --silent db:migrate)
-  log_done "$began" "migrations applied"
+  if [[ -n "$remote_db" ]]; then
+    log "${DIM}skipping local D1 migrations — the backend will use the remote database${RESET}"
+  else
+    log "applying local D1 migrations..."
+    (cd "$ROOT/backend" && npm run --silent db:migrate)
+    log_done "$began" "migrations applied"
+  fi
 
   began=$SECONDS
-  log "starting backend on ${API_URL} ..."
-  start_server backend
+  if [[ -n "$remote_db" ]]; then
+    log "starting backend on ${API_URL} ${DIM}(against the remote D1)${RESET} ..."
+    start_server backend dev:remote
+  else
+    log "starting backend on ${API_URL} ..."
+    start_server backend
+  fi
   api_pid=$started_pid
   wait_until_up "${API_URL}/health" "backend" "$api_pid"
   log_done "$began" "backend ready"
@@ -333,6 +370,20 @@ main() {
   ${DIM}Ctrl+C stops both.${RESET}
 
 BANNER
+
+  # Said after the banner rather than inside it because it qualifies most of
+  # what the banner just claimed: under --remote-db the accounts and incidents
+  # already exist, so "register first" is wrong, and every action is a write to
+  # the deployed database.
+  if [[ -n "$remote_db" ]]; then
+    cat <<REMOTE_NOTE
+  ${BOLD}${RED}Reading and writing the deployed Cloudflare D1.${RESET} Sign in with an account
+  that already exists there rather than registering a new one, and treat every
+  incident and run you create here as production data — there is no local copy
+  to throw away.
+
+REMOTE_NOTE
+  fi
 
   # Neither server should exit on its own; if one does, fall through and let
   # the EXIT trap stop the other. A poll rather than `wait -n`, which needs

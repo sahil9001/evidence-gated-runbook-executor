@@ -78,7 +78,11 @@ function isFrontendOriginAllowed(origin: string, env: Env): boolean {
 const consoleCors = cors({
   origin: (origin, c) => (isFrontendOriginAllowed(origin, c.env as Env) ? origin : null),
   credentials: true,
-  allowMethods: ["GET", "POST", "OPTIONS"],
+  // DELETE is here for `DELETE /incidents/:id`. It stays behind the
+  // content-type guard below like any other state-changing method — being
+  // listed here only means the browser is allowed to send it, not that it
+  // skips the CSRF barrier.
+  allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
   allowHeaders: ["Content-Type"]
 });
 

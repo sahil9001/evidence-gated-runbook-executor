@@ -30,6 +30,11 @@ function byCreatedAtDesc<T extends { createdAt: string }>(a: T, b: T): number {
 
 type PacketRecord = { packet: EvidencePacket; runId: string };
 type GateRecord = { gate: ApprovalGate; runId: string };
+// Actions carry their run the same way packets and gates do. The `actions`
+// table has had a `run_id` column since 0001_init.sql; this map did not,
+// which made the two stores disagree about what an action belongs to —
+// invisible until `deleteIncidentCascade` needed to find a run's actions.
+type ActionRecord = { action: Action; runId: string };
 
 /**
  * In-memory implementation of Store, backed by plain Maps. Exists to prove
@@ -66,7 +71,7 @@ type GateRecord = { gate: ApprovalGate; runId: string };
 export function createMemoryStore(): Store {
   const runs = new Map<string, RunRow>();
   const packets = new Map<string, PacketRecord>();
-  const actions = new Map<string, Action>();
+  const actions = new Map<string, ActionRecord>();
   const gates = new Map<string, GateRecord>();
   const auditLog = new Map<string, AuditEntry>();
   const incidents = new Map<string, IncidentRow>();
@@ -216,7 +221,7 @@ export function createMemoryStore(): Store {
 
       runs.set(run.id, clone(run));
       packets.set(validatedPacket.id, { packet: clone(validatedPacket), runId: run.id });
-      actions.set(action.id, clone(action));
+      actions.set(action.id, { action: clone(action), runId: run.id });
       gates.set(gate.id, { gate: clone(gate), runId: run.id });
       for (const entry of auditEntries) auditLog.set(entry.id, clone(entry));
     },
@@ -248,9 +253,9 @@ export function createMemoryStore(): Store {
       return evidencePacketSchema.parse(clone(latest.packet));
     },
 
-    async saveAction(action: Action): Promise<void> {
+    async saveAction(action: Action, runId: string): Promise<void> {
       if (actions.has(action.id)) throw new StoreConflictError(`action with id "${action.id}" already exists`);
-      actions.set(action.id, clone(action));
+      actions.set(action.id, { action: clone(action), runId });
     },
 
     async getAction(id: string): Promise<Action | null> {
@@ -258,7 +263,7 @@ export function createMemoryStore(): Store {
       if (found === undefined) return null;
       // createAction re-derives isStateChanging from kind — same defence as
       // the D1 adapter's getAction. See class doc comment.
-      return createAction(clone(found));
+      return createAction(clone(found.action));
     },
 
     async saveGate(gate: ApprovalGate, runId: string): Promise<boolean> {
@@ -373,6 +378,30 @@ export function createMemoryStore(): Store {
 
     async countIncidentsExcludingStatus(status: string): Promise<number> {
       return [...incidents.values()].filter((i) => i.status !== status).length;
+    },
+
+    async deleteIncidentCascade(id: string): Promise<{ deleted: boolean; runCount: number }> {
+      if (!incidents.has(id)) return { deleted: false, runCount: 0 };
+
+      const runIds = new Set([...runs.values()].filter((run) => run.incidentId === id).map((run) => run.id));
+
+      // Every removal is scoped by the run set (or the incident id for
+      // packets, which carry both), so this mirrors the D1 adapter's
+      // WHERE clauses rather than reimplementing the rule. There is no
+      // ordering constraint here the way there is in SQL — the run set is
+      // already materialised, so deleting `runs` first would not strand
+      // anything — but the order matches the batch there so the two read
+      // as the same operation.
+      for (const [entryId, entry] of auditLog) if (runIds.has(entry.runId)) auditLog.delete(entryId);
+      for (const [gateId, record] of gates) if (runIds.has(record.runId)) gates.delete(gateId);
+      for (const [actionId, record] of actions) if (runIds.has(record.runId)) actions.delete(actionId);
+      for (const [packetId, record] of packets) {
+        if (record.packet.incidentId === id || runIds.has(record.runId)) packets.delete(packetId);
+      }
+      for (const runId of runIds) runs.delete(runId);
+      incidents.delete(id);
+
+      return { deleted: true, runCount: runIds.size };
     },
 
     async getIncident(id: string): Promise<IncidentRow | null> {

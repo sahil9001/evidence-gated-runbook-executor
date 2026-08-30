@@ -214,11 +214,33 @@ That is everything needed to click through the console — register an account,
 file an incident, run it, approve the gate. TrueForge is only needed for the
 MCP/agent half, covered in the numbered steps below.
 
+An incident can also be deleted, from either the incident list or its own
+page, which removes its runs, evidence packets, actions, gates, and audit
+entries along with it. That is a genuine destructive delete with no undo and
+no soft-delete tombstone — it exists so accumulated test incidents have a way
+out of the console, and it will take real evidence with it if pointed at
+something real.
+
 > One gotcha the script also prints: a run needs a runbook whose trigger
 > matches. Only one ships, and it triggers on service **`payment-service`**
 > with signals **`timeout`** and **`error_rate`**. An incident against any
 > other service creates fine and then fails at "start run" with
 > `no_matching_runbook` — that is the matcher working, not a bug.
+
+The database behind that is a local SQLite file under `backend/.wrangler`, kept
+between runs, so it accumulates whatever you created while clicking around and
+drifts from the deployed data. To run the same local code against the real
+Cloudflare D1 instead:
+
+```bash
+./scripts/dev.sh --remote-db      # needs `wrangler login`
+```
+
+Only the database moves — both servers still run on your machine. Every write
+lands in production, so sign in with an account that already exists there
+rather than registering a new one. To reset the local database instead of
+reaching for the remote one, delete `backend/.wrangler/state/v3/d1` and start
+the script again; it reapplies the migrations to an empty file.
 
 ### Step by step
 

@@ -56,10 +56,58 @@
 			// before it will run a single test, which needs Cloudflare
 			// credentials — so `npm test` passes on a machine that has run
 			// `wrangler login` and fails everywhere else, CI included.
+			// To develop against the real database anyway, use the `remotedb`
+			// environment at the bottom of this file, which carries the flag
+			// on a copy of this binding that the tests never load.
 			"binding": "DB",
 			"database_name": "runproof-db",
 			"database_id": "17023261-e7bf-47bd-8ef6-74f58ece9c7e",
 			"migrations_dir": "./migrations"
 		}
-	]
+	],
+
+	// Local dev against the REAL Cloudflare D1, for when the local SQLite file
+	// under .wrangler/ has drifted from the deployed data and you need to see
+	// what production actually holds. Used by `npm run dev:remote`; nothing
+	// else references it.
+	//
+	// It is a separate environment rather than a `"remote": true` on the
+	// binding above because that binding is also what the test suite loads —
+	// see the comment there for what marking it remote does to `npm test`.
+	// Environments do not inherit `d1_databases`, so this copy is the only one
+	// carrying the flag and the default config keeps working as before.
+	//
+	// Reads and writes through this go straight to production data. There is
+	// no local copy to undo against.
+	//
+	// Not for deploying. `wrangler deploy --env remotedb` would publish a
+	// second Worker named runproof-api-remotedb whose console origin is wrong;
+	// the deploy path is the default environment, as ../docs/cloudflare-
+	// deployment.md describes.
+	"env": {
+		"remotedb": {
+			// Environments do not inherit `vars` either, and leaving them out
+			// makes wrangler warn on every start. These are the local-dev
+			// values, not the deployed ones: the console runs on
+			// http://localhost:3000, which src/index.ts already allows as a
+			// built-in dev origin without configuration.
+			"vars": {
+				"ALLOWED_MCP_ORIGINS": "http://localhost:8790",
+				"ALLOWED_FRONTEND_ORIGINS": "http://localhost:3000"
+			},
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "runproof-db",
+					"database_id": "17023261-e7bf-47bd-8ef6-74f58ece9c7e",
+					"migrations_dir": "./migrations",
+					// The point of the whole block: the Worker's code still
+					// runs locally, but every `c.env.DB` call is proxied to
+					// the real database instead of the file under
+					// .wrangler/state.
+					"remote": true
+				}
+			]
+		}
+	}
 }

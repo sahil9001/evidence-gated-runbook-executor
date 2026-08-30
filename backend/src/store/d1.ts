@@ -571,6 +571,53 @@ export function createD1Store(db: D1Database): Store {
       return record?.count ?? 0;
     },
 
+    async deleteIncidentCascade(id: string): Promise<{ deleted: boolean; runCount: number }> {
+      // Establish existence and the run count before the batch, because that
+      // is what the route turns into 404-vs-200 and what it reports back.
+      // Reading `meta.changes` off the batch results instead would be one
+      // round trip fewer and race-free, but `changes` is not populated
+      // consistently across D1 implementations (the local miniflare-backed
+      // one omits it), so it cannot carry a behavioural contract the
+      // conformance suite holds both stores to.
+      //
+      // The gap between this read and the batch below is a race only for two
+      // callers deleting the SAME incident at the same time, where both can
+      // report `deleted: true`. The delete itself stays correct — every
+      // statement is unconditional, so the loser removes nothing — and the
+      // route's answer is the same either way, so it is not worth a
+      // conditional write to close.
+      const existing = await db.prepare(`SELECT id FROM incidents WHERE id = ?`).bind(id).first<{ id: string }>();
+      if (existing === null) return { deleted: false, runCount: 0 };
+
+      const { results: runRows } = await db
+        .prepare(`SELECT id FROM runs WHERE incident_id = ?`)
+        .bind(id)
+        .all<{ id: string }>();
+
+      // Children first, then runs, then the incident. The ordering is
+      // load-bearing: the first three statements find their rows through a
+      // subquery over `runs`, so deleting the runs earlier would leave those
+      // subqueries matching nothing and strand every audit, gate and action
+      // row belonging to this incident.
+      //
+      // Packets are matched on either key. `incident_id` alone is what the
+      // current writers produce (createRunWithArtifacts rejects a packet
+      // whose incidentId disagrees with its run's), but savePacket takes the
+      // two independently, so a packet reachable only through this
+      // incident's runs is still this incident's to remove.
+      const runsOfIncident = `SELECT id FROM runs WHERE incident_id = ?`;
+      await db.batch([
+        db.prepare(`DELETE FROM audit_log WHERE run_id IN (${runsOfIncident})`).bind(id),
+        db.prepare(`DELETE FROM gates WHERE run_id IN (${runsOfIncident})`).bind(id),
+        db.prepare(`DELETE FROM actions WHERE run_id IN (${runsOfIncident})`).bind(id),
+        db.prepare(`DELETE FROM packets WHERE incident_id = ? OR run_id IN (${runsOfIncident})`).bind(id, id),
+        db.prepare(`DELETE FROM runs WHERE incident_id = ?`).bind(id),
+        db.prepare(`DELETE FROM incidents WHERE id = ?`).bind(id)
+      ]);
+
+      return { deleted: true, runCount: runRows.length };
+    },
+
     async getIncident(id: string): Promise<IncidentRow | null> {
       const record = await db
         .prepare(`SELECT id, title, service, signals, status, created_by, created_at FROM incidents WHERE id = ?`)

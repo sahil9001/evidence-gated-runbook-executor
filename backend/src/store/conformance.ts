@@ -1088,6 +1088,116 @@ export function runStoreConformance(name: string, makeStore: () => Promise<Store
       });
     });
 
+    describe("deleteIncidentCascade", () => {
+      const makeIncident = (id: string): IncidentRow => ({
+        id,
+        title: "Checkout failures spiking",
+        service: "payment-service",
+        signals: ["timeout", "error_rate"],
+        status: "open",
+        createdBy: "sahil@example.com",
+        createdAt: T0
+      });
+
+      // A whole incident: the row itself, plus a run carrying every artifact
+      // type that hangs off one — packet, action, gate, audit entry. Built
+      // through createRunWithArtifacts so what the cascade has to remove is
+      // exactly what a real run leaves behind, not a hand-assembled
+      // approximation that might omit the row the implementation forgets.
+      const seedIncident = async (suffix: string) => {
+        const incidentId = `inc-del-${suffix}`;
+        const runId = `run-del-${suffix}`;
+        const action = makeAction(`action-del-${suffix}`);
+        const gate = createGate({ id: runId, actionId: action.id, createdAt: T0, ttlMs: 15 * 60 * 1000 });
+        await store.createIncident(makeIncident(incidentId));
+        await store.createRunWithArtifacts({
+          run: makeRun(runId, { incidentId, state: "awaiting_approval" }),
+          packet: makePacket(`packet-del-${suffix}`, incidentId),
+          action,
+          gate,
+          auditEntries: [makeAudit(`audit-del-${suffix}`, runId, "run_created")]
+        });
+        return { incidentId, runId, actionId: action.id, gateId: gate.id };
+      };
+
+      it("removes the incident and every row that hangs off it", async () => {
+        const { incidentId, runId, actionId, gateId } = await seedIncident("full");
+
+        expect(await store.deleteIncidentCascade(incidentId)).toEqual({ deleted: true, runCount: 1 });
+
+        expect(await store.getIncident(incidentId)).toBeNull();
+        expect(await store.getRun(runId)).toBeNull();
+        expect(await store.getPacketByRun(runId)).toBeNull();
+        expect(await store.getPacketByIncident(incidentId)).toBeNull();
+        expect(await store.getAction(actionId)).toBeNull();
+        expect(await store.getGate(gateId)).toBeNull();
+        expect(await store.listAudit(runId)).toEqual([]);
+      });
+
+      it("removes every run on the incident, not just one, and reports how many", async () => {
+        const incidentId = "inc-del-multi";
+        await store.createIncident(makeIncident(incidentId));
+        for (const suffix of ["a", "b"]) {
+          const action = makeAction(`action-del-multi-${suffix}`);
+          await store.createRunWithArtifacts({
+            run: makeRun(`run-del-multi-${suffix}`, { incidentId, state: "awaiting_approval" }),
+            packet: makePacket(`packet-del-multi-${suffix}`, incidentId),
+            action,
+            gate: createGate({
+              id: `run-del-multi-${suffix}`,
+              actionId: action.id,
+              createdAt: T0,
+              ttlMs: 15 * 60 * 1000
+            }),
+            auditEntries: [makeAudit(`audit-del-multi-${suffix}`, `run-del-multi-${suffix}`, "run_created")]
+          });
+        }
+
+        expect(await store.deleteIncidentCascade(incidentId)).toEqual({ deleted: true, runCount: 2 });
+
+        expect(await store.getRun("run-del-multi-a")).toBeNull();
+        expect(await store.getRun("run-del-multi-b")).toBeNull();
+        expect(await store.listRunsByIncident(incidentId)).toEqual([]);
+      });
+
+      // The route distinguishes 404 from 200 on this boolean, so a missing
+      // incident must report itself rather than looking like a successful
+      // delete of nothing.
+      it("reports deleted:false for an unknown incident, having removed nothing", async () => {
+        const { incidentId, runId } = await seedIncident("survives-a-miss");
+
+        expect(await store.deleteIncidentCascade("no-such-incident")).toEqual({ deleted: false, runCount: 0 });
+
+        expect(await store.getIncident(incidentId)).not.toBeNull();
+        expect(await store.getRun(runId)).not.toBeNull();
+      });
+
+      // The cascade is written as a set of `WHERE incident_id = ?` /
+      // `WHERE run_id IN (...)` deletes, so an unscoped or mis-scoped
+      // statement would take the whole table with it. This is the test that
+      // would catch that.
+      it("leaves another incident's rows completely alone", async () => {
+        const target = await seedIncident("target");
+        const keep = await seedIncident("keep");
+
+        await store.deleteIncidentCascade(target.incidentId);
+
+        expect(await store.getIncident(keep.incidentId)).not.toBeNull();
+        expect(await store.getRun(keep.runId)).not.toBeNull();
+        expect(await store.getPacketByRun(keep.runId)).not.toBeNull();
+        expect(await store.getAction(keep.actionId)).not.toBeNull();
+        expect(await store.getGate(keep.gateId)).not.toBeNull();
+        expect((await store.listAudit(keep.runId)).map((e) => e.id)).toEqual(["audit-del-keep"]);
+      });
+
+      it("is idempotent: deleting the same incident twice reports the second as a miss", async () => {
+        const { incidentId } = await seedIncident("twice");
+
+        expect(await store.deleteIncidentCascade(incidentId)).toEqual({ deleted: true, runCount: 1 });
+        expect(await store.deleteIncidentCascade(incidentId)).toEqual({ deleted: false, runCount: 0 });
+      });
+    });
+
     describe("users", () => {
       const makeUser = (id: string, email: string): UserRow => ({
         id,

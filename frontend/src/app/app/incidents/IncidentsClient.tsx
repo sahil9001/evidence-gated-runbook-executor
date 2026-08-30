@@ -17,6 +17,7 @@ import { listIncidents, type ApiClientError } from "@/lib/api";
 import type { IncidentRow } from "@/lib/types";
 import { useAbortableResource } from "@/hooks/useAbortableResource";
 import { Band, EmptyState, Rows } from "@/app/app/components/console/Surface";
+import { DeleteIncidentButton } from "@/app/app/components/console/DeleteIncidentButton";
 import { Figure, Pill, type Tone } from "@/app/app/components/console/Indicators";
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
@@ -130,14 +131,22 @@ function SummaryStrip({ incidents, statusFilter }: SummaryStripProps) {
 
 interface IncidentRowItemProps {
   readonly incident: IncidentRow;
+  readonly onDeleted: () => void;
 }
 
-function IncidentRowItem({ incident }: IncidentRowItemProps) {
+/**
+ * The delete control is a SIBLING of the row's link, not a child of it: a
+ * `<button>` inside an `<a>` is invalid HTML, and the click would navigate
+ * to the incident as well as arming the delete. That is why the row is a
+ * flex container with the link taking the remaining width rather than the
+ * link being the whole row.
+ */
+function IncidentRowItem({ incident, onDeleted }: IncidentRowItemProps) {
   return (
-    <li>
+    <li className="flex items-center gap-1 pr-2">
       <Link
         href={`/app/incidents/${encodeURIComponent(incident.id)}`}
-        className="group flex flex-col gap-3 px-2 py-5 transition-colors hover:bg-sky-50/60 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal sm:flex-row sm:items-center sm:gap-8"
+        className="group flex min-w-0 flex-1 flex-col gap-3 px-2 py-5 transition-colors hover:bg-sky-50/60 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal sm:flex-row sm:items-center sm:gap-8"
       >
         <div className="min-w-0 flex-1">
           <p className="truncate text-[15px] font-semibold leading-6 text-ink">{incident.title}</p>
@@ -185,6 +194,12 @@ function IncidentRowItem({ incident }: IncidentRowItemProps) {
           </span>
         </div>
       </Link>
+
+      <DeleteIncidentButton
+        incidentId={incident.id}
+        incidentTitle={incident.title}
+        onDeleted={onDeleted}
+      />
     </li>
   );
 }
@@ -298,7 +313,12 @@ export function IncidentsClient() {
             <SummaryStrip incidents={state.data} statusFilter={statusFilter} />
             <Rows className="mt-8">
               {state.data.map((incident) => (
-                <IncidentRowItem key={incident.id} incident={incident} />
+                // `retry` refetches the list, which is what makes a deleted
+                // row disappear. Refetching rather than dropping the row
+                // locally keeps the summary figures above (in view, open,
+                // services) consistent with the rows underneath, and picks
+                // up anything else that changed meanwhile.
+                <IncidentRowItem key={incident.id} incident={incident} onDeleted={retry} />
               ))}
             </Rows>
           </>

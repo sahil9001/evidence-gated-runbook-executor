@@ -210,6 +210,21 @@ export async function getIncident(id: string): Promise<IncidentDetailResponse> {
   return request<IncidentDetailResponse>(`/incidents/${encodeURIComponent(id)}`, { method: "GET" });
 }
 
+/**
+ * Deletes an incident along with its runs, evidence packets, actions, gates,
+ * and audit entries, resolving to how many runs went with it. Rejects with an
+ * `ApiClientError` whose code is `not_found` when the incident is already
+ * gone — which is what a second click on a stale list produces.
+ *
+ * No body, but `request` still sends `Content-Type: application/json`, which
+ * the backend requires on every state-changing method as its CSRF barrier.
+ */
+export async function deleteIncident(id: string): Promise<{ id: string; deletedRuns: number }> {
+  return request<{ id: string; deletedRuns: number }>(`/incidents/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+}
+
 /** Backs the create-incident screen's runbook-match preview and the Runbooks screen. */
 export async function listRunbooks(): Promise<Runbook[]> {
   return request<Runbook[]>("/runbooks", { method: "GET" });

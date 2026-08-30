@@ -214,6 +214,13 @@ That is everything needed to click through the console — register an account,
 file an incident, run it, approve the gate. TrueForge is only needed for the
 MCP/agent half, covered in the numbered steps below.
 
+An incident can also be deleted, from either the incident list or its own
+page, which removes its runs, evidence packets, actions, gates, and audit
+entries along with it. That is a genuine destructive delete with no undo and
+no soft-delete tombstone — it exists so accumulated test incidents have a way
+out of the console, and it will take real evidence with it if pointed at
+something real.
+
 > One gotcha the script also prints: a run needs a runbook whose trigger
 > matches. Only one ships, and it triggers on service **`payment-service`**
 > with signals **`timeout`** and **`error_rate`**. An incident against any

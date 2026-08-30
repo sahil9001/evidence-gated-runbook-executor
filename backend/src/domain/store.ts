@@ -266,6 +266,36 @@ export interface Store {
    */
   countIncidentsExcludingStatus(status: string): Promise<number>;
 
+  /**
+   * Removes an incident and everything that hangs off it — its runs, and for
+   * each run the packet, action, gate, and audit entries — as one atomic
+   * write, reporting whether the incident existed and how many runs went
+   * with it.
+   *
+   * The cascade is explicit here rather than delegated to the database
+   * because the schema declares no `ON DELETE CASCADE` (only
+   * `sessions.user_id REFERENCES users`), so nothing would remove the child
+   * rows on its own. Leaving them is not a cosmetic problem: `audit_log`,
+   * `gates`, and `actions` are keyed by `run_id`, so orphans stay visible to
+   * `listRecentAudit` and `getGate` — the recent-activity feed would render
+   * entries for a run that no longer exists, and an orphaned locked gate
+   * remains addressable by `/approvals/:id`.
+   *
+   * Atomicity matters for the same reason it does on
+   * `createRunWithArtifacts`, in reverse: a partial delete can strip a run's
+   * evidence packet while leaving the run and its gate, which is a run that
+   * can never be approved (the evidence check refuses a packet-less run) and
+   * can never be cleaned up by retrying, since the incident row it was
+   * reached through may already be gone. All rows go, or none do.
+   *
+   * Deleting is unconditional by design: a run in `collecting` or
+   * `awaiting_approval` is removed like any other. Runs only advance through
+   * HTTP requests, so there is no in-flight execution to interrupt, and
+   * refusing would leave a stuck run undeletable without first resolving its
+   * gate.
+   */
+  deleteIncidentCascade(id: string): Promise<{ deleted: boolean; runCount: number }>;
+
   createUser(row: UserRow): Promise<void>;
   getUserByEmail(email: string): Promise<UserRow | null>;
   getUserById(id: string): Promise<UserRow | null>;

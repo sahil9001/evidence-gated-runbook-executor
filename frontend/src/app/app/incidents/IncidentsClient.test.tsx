@@ -13,11 +13,13 @@ vi.mock("next/navigation", () => ({
 }));
 
 const listIncidents = vi.fn();
+const deleteIncident = vi.fn();
 vi.mock("../../../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../../../lib/api")>("../../../lib/api");
   return {
     ...actual,
-    listIncidents: (...args: unknown[]) => listIncidents(...args)
+    listIncidents: (...args: unknown[]) => listIncidents(...args),
+    deleteIncident: (...args: unknown[]) => deleteIncident(...args)
   };
 });
 
@@ -49,6 +51,7 @@ describe("IncidentsClient", () => {
   beforeEach(() => {
     push.mockClear();
     listIncidents.mockReset();
+    deleteIncident.mockReset();
     searchParamsValue = new URLSearchParams();
   });
 
@@ -165,6 +168,45 @@ describe("IncidentsClient", () => {
 
     expect(await screen.findByText(/no incidents match this filter/i)).toBeInTheDocument();
     expect(screen.getByText(/start a new incident/i)).toBeInTheDocument();
+  });
+
+  describe("deleting from the list", () => {
+    it("refetches the list so the deleted row disappears", async () => {
+      const doomed = makeIncident({ id: "inc-doomed", title: "Doomed incident" });
+      const survivor = makeIncident({ id: "inc-keep", title: "Surviving incident" });
+      listIncidents.mockResolvedValueOnce([doomed, survivor]);
+      deleteIncident.mockResolvedValueOnce({ id: "inc-doomed", deletedRuns: 0 });
+      const user = userEvent.setup();
+      render(<IncidentsClient />);
+      await screen.findByText("Doomed incident");
+
+      // The second listing is what the post-delete refetch receives.
+      listIncidents.mockResolvedValueOnce([survivor]);
+      await user.click(screen.getByRole("button", { name: /delete doomed incident/i }));
+      await user.click(screen.getByRole("button", { name: /confirm/i }));
+
+      expect(deleteIncident).toHaveBeenCalledWith("inc-doomed");
+      expect(await screen.findByText("Surviving incident")).toBeInTheDocument();
+      expect(screen.queryByText("Doomed incident")).toBeNull();
+    });
+
+    // Each row carries its own control, so arming one must not arm the
+    // others — otherwise a list of ten shows ten confirm buttons at once
+    // and the operator can commit the wrong one.
+    it("arms only the row whose delete was clicked", async () => {
+      listIncidents.mockResolvedValueOnce([
+        makeIncident({ id: "inc-a", title: "First incident" }),
+        makeIncident({ id: "inc-b", title: "Second incident" })
+      ]);
+      const user = userEvent.setup();
+      render(<IncidentsClient />);
+      await screen.findByText("First incident");
+
+      await user.click(screen.getByRole("button", { name: /delete first incident/i }));
+
+      expect(screen.getAllByRole("button", { name: /confirm/i })).toHaveLength(1);
+      expect(screen.getByRole("button", { name: /delete second incident/i })).toBeInTheDocument();
+    });
   });
 
   describe("stale filter-change races", () => {

@@ -6,12 +6,14 @@ import type { IncidentDetailResponse, RunResponse } from "../../../../lib/types"
 
 const getIncident = vi.fn();
 const startRun = vi.fn();
+const deleteIncident = vi.fn();
 vi.mock("../../../../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../../../../lib/api")>("../../../../lib/api");
   return {
     ...actual,
     getIncident: (...args: unknown[]) => getIncident(...args),
-    startRun: (...args: unknown[]) => startRun(...args)
+    startRun: (...args: unknown[]) => startRun(...args),
+    deleteIncident: (...args: unknown[]) => deleteIncident(...args)
   };
 });
 
@@ -71,6 +73,7 @@ describe("IncidentDetailClient", () => {
   beforeEach(() => {
     getIncident.mockReset();
     startRun.mockReset();
+    deleteIncident.mockReset();
     push.mockClear();
   });
 
@@ -158,5 +161,38 @@ describe("IncidentDetailClient", () => {
     await user.click(screen.getByRole("button", { name: /retry/i }));
 
     expect(await screen.findByText("Checkout errors spiking")).toBeInTheDocument();
+  });
+
+  describe("deleting the incident", () => {
+    it("returns to the incident list once the delete succeeds", async () => {
+      getIncident.mockResolvedValueOnce(makeDetail());
+      deleteIncident.mockResolvedValueOnce({ id: "inc-1", deletedRuns: 1 });
+      const user = userEvent.setup();
+      render(<IncidentDetailClient incidentId="inc-1" />);
+      await screen.findByText("Checkout errors spiking");
+
+      await user.click(screen.getByRole("button", { name: /delete checkout errors spiking/i }));
+      await user.click(screen.getByRole("button", { name: /confirm/i }));
+
+      expect(deleteIncident).toHaveBeenCalledWith("inc-1");
+      expect(push).toHaveBeenCalledWith("/app/incidents");
+    });
+
+    // Staying put on a failure matters here specifically: navigating away
+    // on an error would leave the operator believing the incident was
+    // removed when it is still there.
+    it("stays on the page when the delete fails", async () => {
+      getIncident.mockResolvedValueOnce(makeDetail());
+      deleteIncident.mockRejectedValueOnce(new Error("boom"));
+      const user = userEvent.setup();
+      render(<IncidentDetailClient incidentId="inc-1" />);
+      await screen.findByText("Checkout errors spiking");
+
+      await user.click(screen.getByRole("button", { name: /delete checkout errors spiking/i }));
+      await user.click(screen.getByRole("button", { name: /confirm/i }));
+
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      expect(push).not.toHaveBeenCalled();
+    });
   });
 });

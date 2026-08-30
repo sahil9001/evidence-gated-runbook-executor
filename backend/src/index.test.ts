@@ -67,6 +67,30 @@ describe("CORS", () => {
     expect(response.headers.get("Access-Control-Allow-Credentials")).toBe("true");
   });
 
+  // A method missing from `allowMethods` fails only in a real browser: the
+  // preflight comes back without it and the browser refuses to send the
+  // request, while every server-side test still passes because it calls the
+  // handler directly. DELETE is what `/incidents/:id` needs; asserting the
+  // whole set here means the next method added to the API has to be
+  // advertised too, rather than being discovered by hand in the console.
+  it("advertises every method the console actually uses on a preflight", async () => {
+    const request = new Request("http://localhost/incidents/some-id", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:3000",
+        "Access-Control-Request-Method": "DELETE"
+      }
+    });
+    const ctx = createExecutionContext();
+    const response = await app.fetch(request, env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    const allowed = (response.headers.get("Access-Control-Allow-Methods") ?? "")
+      .split(",")
+      .map((method) => method.trim().toUpperCase());
+    expect(allowed).toEqual(expect.arrayContaining(["GET", "POST", "DELETE", "OPTIONS"]));
+  });
+
   it("does not echo back a disallowed origin", async () => {
     const request = new Request("http://localhost/incidents", {
       method: "OPTIONS",

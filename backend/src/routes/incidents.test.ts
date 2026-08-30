@@ -228,3 +228,106 @@ describe("GET /incidents/:id", () => {
     expect(body.data.runs.length).toBeLessThan(overflow);
   });
 });
+
+describe("DELETE /incidents/:id", () => {
+  // Runs are seeded through the store rather than the full run-creation
+  // route for test speed, the same way the MAX_RUN_LIMIT test above does.
+  async function seedRun(incidentId: string, suffix: string): Promise<string> {
+    const store = createD1Store(env.DB);
+    const nowIso = new Date().toISOString();
+    const runId = `${incidentId}-run-${suffix}`;
+    await store.createRun({
+      id: runId,
+      incidentId,
+      runbookId: "checkout-failure",
+      service: "payment-service",
+      state: "collecting",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      createdBy: null,
+      evidenceGapCount: 0
+    });
+    return runId;
+  }
+
+  it("401s with no session cookie", async () => {
+    const app = buildApp();
+    const { status } = await request(app, "DELETE", "/incidents/does-not-exist", undefined);
+    expect(status).toBe(401);
+  });
+
+  // An unauthenticated delete must not be able to tell a real incident from
+  // an imaginary one either — the 401 has to come before the lookup.
+  it("401s for an existing incident when unauthenticated, and leaves it in place", async () => {
+    const incident = await seedIncident();
+    const app = buildApp();
+
+    const { status } = await request(app, "DELETE", `/incidents/${incident.id}`, undefined);
+    expect(status).toBe(401);
+    expect(await createD1Store(env.DB).getIncident(incident.id)).not.toBeNull();
+  });
+
+  it("404s for an unknown id", async () => {
+    const { cookie } = await registeredCookie();
+    const app = buildApp();
+    const { status, json } = await request(app, "DELETE", "/incidents/does-not-exist", undefined, cookie);
+    expect(status).toBe(404);
+    expect((json as ApiErr).error.code).toBe("not_found");
+  });
+
+  it("deletes the incident and its runs, reporting how many runs went with it", async () => {
+    const { cookie } = await registeredCookie();
+    const app = buildApp();
+    const incident = await seedIncident();
+    await seedRun(incident.id, "a");
+    await seedRun(incident.id, "b");
+
+    const { status, json } = await request(app, "DELETE", `/incidents/${incident.id}`, undefined, cookie);
+    expect(status).toBe(200);
+    expect((json as ApiOk<{ id: string; deletedRuns: number }>).data).toEqual({
+      id: incident.id,
+      deletedRuns: 2
+    });
+
+    const store = createD1Store(env.DB);
+    expect(await store.getIncident(incident.id)).toBeNull();
+    expect(await store.listRunsByIncident(incident.id)).toEqual([]);
+  });
+
+  it("makes the incident 404 on a subsequent GET", async () => {
+    const { cookie } = await registeredCookie();
+    const app = buildApp();
+    const incident = await seedIncident();
+
+    await request(app, "DELETE", `/incidents/${incident.id}`, undefined, cookie);
+
+    const { status } = await request(app, "GET", `/incidents/${incident.id}`, undefined, cookie);
+    expect(status).toBe(404);
+  });
+
+  // Deleting twice is a 404 the second time rather than a second success,
+  // so a double-clicked button reports honestly instead of pretending it
+  // removed something again.
+  it("404s when the same incident is deleted twice", async () => {
+    const { cookie } = await registeredCookie();
+    const app = buildApp();
+    const incident = await seedIncident();
+
+    expect((await request(app, "DELETE", `/incidents/${incident.id}`, undefined, cookie)).status).toBe(200);
+    expect((await request(app, "DELETE", `/incidents/${incident.id}`, undefined, cookie)).status).toBe(404);
+  });
+
+  it("leaves other incidents untouched", async () => {
+    const { cookie } = await registeredCookie();
+    const app = buildApp();
+    const target = await seedIncident();
+    const keep = await seedIncident();
+    const keptRun = await seedRun(keep.id, "kept");
+
+    await request(app, "DELETE", `/incidents/${target.id}`, undefined, cookie);
+
+    const store = createD1Store(env.DB);
+    expect(await store.getIncident(keep.id)).not.toBeNull();
+    expect((await store.listRunsByIncident(keep.id)).map((r) => r.id)).toEqual([keptRun]);
+  });
+});

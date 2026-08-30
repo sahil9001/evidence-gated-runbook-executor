@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiClientError,
   approve,
+  deleteIncident,
   getOverview,
   getPacket,
   getRun,
@@ -228,6 +229,62 @@ describe("api client", () => {
   // input (IncidentsClient, HistoryClient, AuditClient) — an AbortSignal
   // passed through to `fetch` is what lets those screens cancel a stale
   // in-flight request when the filter changes again before it resolves.
+  describe("deleteIncident", () => {
+    it("sends DELETE to the incident's own path and unwraps the run count", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse({ ok: true, data: { id: "inc-1", deletedRuns: 3 } })
+      );
+
+      const result = await deleteIncident("inc-1");
+
+      expect(result).toEqual({ id: "inc-1", deletedRuns: 3 });
+      const [url, init] = vi.mocked(fetch).mock.calls[0];
+      expect(String(url)).toMatch(/\/incidents\/inc-1$/);
+      expect((init as RequestInit).method).toBe("DELETE");
+    });
+
+    // The backend refuses any state-changing request that is not
+    // `application/json` — that content-type check is the CSRF barrier the
+    // session cookie leans on (backend/src/index.ts). A DELETE has no body,
+    // so it would be easy to send without one and get a 415 only in the
+    // browser.
+    it("still sends a JSON content type despite having no body", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse({ ok: true, data: { id: "inc-1", deletedRuns: 0 } })
+      );
+
+      await deleteIncident("inc-1");
+
+      const headers = vi.mocked(fetch).mock.calls[0][1]?.headers as Record<string, string>;
+      expect(headers["Content-Type"]).toBe("application/json");
+    });
+
+    it("percent-encodes the id so an odd one cannot alter the path", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse({ ok: true, data: { id: "a/b", deletedRuns: 0 } })
+      );
+
+      await deleteIncident("a/b");
+
+      expect(String(vi.mocked(fetch).mock.calls[0][0])).toMatch(/\/incidents\/a%2Fb$/);
+    });
+
+    it("surfaces a 404 as an ApiClientError carrying the backend's code", async () => {
+      // A fresh Response per call: a body can only be read once, so reusing
+      // one object across both assertions fails the second on a consumed
+      // stream rather than on anything this test is about.
+      vi.mocked(fetch).mockImplementation(async () =>
+        jsonResponse({ ok: false, error: { code: "not_found", message: "No incident found" } }, 404)
+      );
+
+      await expect(deleteIncident("gone")).rejects.toBeInstanceOf(ApiClientError);
+      await expect(deleteIncident("gone")).rejects.toMatchObject({
+        code: "not_found",
+        status: 404
+      });
+    });
+  });
+
   describe("AbortSignal passthrough", () => {
     it("forwards an AbortSignal to fetch for listIncidents", async () => {
       vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, data: [] }));

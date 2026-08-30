@@ -90,4 +90,39 @@ incidentRoutes.get("/incidents/:id", async (c) => {
   return c.json({ ok: true, data: { incident, runs } });
 });
 
+/**
+ * Deletes an incident and everything reached through it — its runs, and each
+ * run's evidence packet, action, gate, and audit entries. The cascade itself
+ * is one atomic write; see Store#deleteIncidentCascade for what it removes
+ * and why the child rows cannot simply be left behind.
+ *
+ * Two deliberate non-features. There is no soft delete: the rows go, so a
+ * deleted incident stops counting toward the Overview tiles and stops
+ * appearing in listings without every query having to learn a new filter.
+ * And there is no ownership check — any authenticated user can delete any
+ * incident, matching the rest of this API, where a session is the only
+ * authorization there is (the same user can already start runs and decide
+ * gates on incidents they did not file). If this ever grows real roles, this
+ * route and `/approvals` should learn them together.
+ *
+ * Worth being clear-eyed about: this destroys evidence packets and approval
+ * history, which is the durable artifact the product exists to produce. It
+ * is here because operators accumulate test incidents that otherwise have no
+ * way out of the console.
+ */
+incidentRoutes.delete("/incidents/:id", async (c) => {
+  const id = c.req.param("id");
+  const store = createD1Store(c.env.DB);
+
+  // The store reports existence rather than this route checking first with a
+  // separate getIncident: one round trip fewer, and no window between the
+  // check and the delete in which the answer could change.
+  const { deleted, runCount } = await store.deleteIncidentCascade(id);
+  if (!deleted) {
+    return c.json(apiError("not_found", `No incident found for id "${id}"`), 404);
+  }
+
+  return c.json({ ok: true, data: { id, deletedRuns: runCount } });
+});
+
 export default incidentRoutes;

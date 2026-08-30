@@ -1,18 +1,22 @@
 "use client";
 
 import type { KeyboardEvent } from "react";
+import type { LucideIcon } from "lucide-react";
+import { FlaskConical, Layers, ScrollText, ShieldCheck } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { TabId } from "../shared";
 
 interface TabDef {
   readonly id: TabId;
   readonly label: string;
+  readonly icon: LucideIcon;
 }
 
 const TAB_DEFS: readonly TabDef[] = [
-  { id: "evidence", label: "Evidence" },
-  { id: "diagnostics", label: "Diagnostics" },
-  { id: "approval", label: "Approval" },
-  { id: "audit", label: "Audit" }
+  { id: "evidence", label: "Evidence", icon: Layers },
+  { id: "diagnostics", label: "Diagnostics", icon: FlaskConical },
+  { id: "approval", label: "Approval", icon: ShieldCheck },
+  { id: "audit", label: "Audit", icon: ScrollText }
 ];
 
 interface TabNavProps {
@@ -24,6 +28,11 @@ interface TabNavProps {
  * A real WAI-ARIA tablist, not a row of styled buttons: `role="tablist"` /
  * `role="tab"` / `aria-selected` / `aria-controls`, plus roving tabindex and
  * arrow-key navigation between tabs (Home/End jump to the ends).
+ *
+ * Drawn as an underline rail rather than a pill row: the selected tab is
+ * marked by a rule that continues the page's own hairline, so switching tabs
+ * never looks like moving between floating objects. The icons are decorative
+ * -- each tab's accessible name stays exactly its label.
  */
 export function TabNav({ activeTab, onChange }: TabNavProps) {
   const activeIndex = TAB_DEFS.findIndex((tab) => tab.id === activeTab);
@@ -60,10 +69,11 @@ export function TabNav({ activeTab, onChange }: TabNavProps) {
       role="tablist"
       aria-label="Run detail sections"
       onKeyDown={handleKeyDown}
-      className="flex flex-wrap gap-1 rounded-2xl bg-white p-1.5 shadow-soft"
+      className="flex gap-6 overflow-x-auto border-b border-sky-100 sm:gap-9"
     >
       {TAB_DEFS.map((tab) => {
         const isActive = tab.id === activeTab;
+        const Icon = tab.icon;
         return (
           <button
             key={tab.id}
@@ -74,10 +84,18 @@ export function TabNav({ activeTab, onChange }: TabNavProps) {
             aria-controls={`panel-${tab.id}`}
             tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(tab.id)}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal ${
-              isActive ? "bg-signal text-white shadow-sm" : "text-neutral-600 hover:bg-panel hover:text-ink"
-            }`}
+            className={cn(
+              "-mb-px flex shrink-0 items-center gap-2 border-b-2 pb-3 pt-1 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal",
+              isActive
+                ? "border-signal text-ink"
+                : "border-transparent text-neutral-500 hover:border-sky-200 hover:text-ink"
+            )}
           >
+            <Icon
+              className={cn("h-4 w-4", isActive ? "text-signal" : "text-neutral-400")}
+              strokeWidth={2}
+              aria-hidden="true"
+            />
             {tab.label}
           </button>
         );

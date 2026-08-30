@@ -368,7 +368,7 @@ describe("RunDetailClient", () => {
       render(<RunDetailClient runId="run-1" />);
 
       expect(await screen.findByText(/awaiting approval/i)).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: /review/i }));
+      await user.click(screen.getByRole("button", { name: /^reject$/i }));
       await user.type(screen.getByLabelText(/reason for rejecting/i), "nope");
       await user.click(screen.getByRole("button", { name: /confirm reject/i }));
 
@@ -381,7 +381,7 @@ describe("RunDetailClient", () => {
       const user = userEvent.setup();
       render(<RunDetailClient runId="run-1" />);
 
-      await user.click(await screen.findByRole("button", { name: /review/i }));
+      await user.click(await screen.findByRole("button", { name: /^reject$/i }));
       const submit = screen.getByRole("button", { name: /confirm reject/i });
       expect(submit).toBeDisabled();
 
@@ -400,7 +400,7 @@ describe("RunDetailClient", () => {
       const user = userEvent.setup();
       render(<RunDetailClient runId="run-1" />);
 
-      await user.click(await screen.findByRole("button", { name: /review/i }));
+      await user.click(await screen.findByRole("button", { name: /^reject$/i }));
       await user.type(screen.getByLabelText(/reason for rejecting/i), "not enough evidence");
       await user.click(screen.getByRole("button", { name: /confirm reject/i }));
 

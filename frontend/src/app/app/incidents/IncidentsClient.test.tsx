@@ -37,6 +37,14 @@ function makeIncident(overrides: Partial<IncidentRow> = {}): IncidentRow {
   };
 }
 
+/** A `Figure` renders its label inside a wrapper next to its value, so the
+ * figure itself is the label's grandparent. */
+function figureFor(label: RegExp): HTMLElement {
+  const figure = screen.getByText(label).closest("div")?.parentElement;
+  if (!figure) throw new Error(`No figure found for ${String(label)}`);
+  return figure;
+}
+
 describe("IncidentsClient", () => {
   beforeEach(() => {
     push.mockClear();
@@ -66,8 +74,8 @@ describe("IncidentsClient", () => {
     await screen.findByText("Checkout errors spiking");
     expect(listIncidents).toHaveBeenCalledWith("open", undefined, expect.any(AbortSignal));
 
-    const select = screen.getByLabelText(/status/i) as HTMLSelectElement;
-    expect(select.value).toBe("open");
+    expect(screen.getByRole("radio", { name: "Open" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "All" })).not.toBeChecked();
   });
 
   it("updates the URL when the status filter changes", async () => {
@@ -79,9 +87,38 @@ describe("IncidentsClient", () => {
     listIncidents.mockClear();
     listIncidents.mockResolvedValue([]);
 
-    await user.selectOptions(screen.getByLabelText(/status/i), "resolved");
+    await user.click(screen.getByRole("radio", { name: "Resolved" }));
 
     expect(push).toHaveBeenCalledWith("/app/incidents?status=resolved");
+  });
+
+  it("exposes the status filter as a labelled radio group", async () => {
+    listIncidents.mockResolvedValue([makeIncident()]);
+    render(<IncidentsClient />);
+
+    await screen.findByText("Checkout errors spiking");
+    const group = screen.getByRole("group", { name: /status/i });
+    expect(within(group).getAllByRole("radio")).toHaveLength(3);
+  });
+
+  it("shows the incident's signals and a summary of what is in view", async () => {
+    listIncidents.mockResolvedValue([
+      makeIncident({ id: "inc-1", signals: ["timeout", "error_rate"] }),
+      makeIncident({ id: "inc-2", title: "Latency on auth-service", service: "auth-service", signals: ["latency"] })
+    ]);
+    render(<IncidentsClient />);
+
+    expect(await screen.findByText("timeout")).toBeInTheDocument();
+    expect(screen.getByText("error_rate")).toBeInTheDocument();
+    expect(screen.getByText("latency")).toBeInTheDocument();
+
+    // Two incidents across two distinct services, both open.
+    expect(within(figureFor(/in view/i)).getByText("2")).toBeInTheDocument();
+    expect(within(figureFor(/^services$/i)).getByText("2")).toBeInTheDocument();
+    // "Open" also names a radio and each row's affordance, so this figure is
+    // reached through its caption instead.
+    const openFigure = screen.getByText(/still unresolved/i).parentElement as HTMLElement;
+    expect(within(openFigure).getByText("2")).toBeInTheDocument();
   });
 
   it("each row links to its incident", async () => {
@@ -126,8 +163,8 @@ describe("IncidentsClient", () => {
     listIncidents.mockResolvedValue([]);
     render(<IncidentsClient />);
 
-    const empty = await screen.findByText(/no incidents/i);
-    expect(within(empty.closest("section") ?? empty).getByText(/no incidents/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no incidents match this filter/i)).toBeInTheDocument();
+    expect(screen.getByText(/start a new incident/i)).toBeInTheDocument();
   });
 
   describe("stale filter-change races", () => {

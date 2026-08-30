@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { HistoryClient } from "./HistoryClient";
+import { Accent, ConsoleContainer, PageHeader } from "@/app/app/components/console/Surface";
 
 export const metadata = {
   title: "RunProof - History"
@@ -13,18 +14,19 @@ export const metadata = {
  */
 export default function HistoryPage() {
   return (
-    <div className="mx-auto max-w-[1180px] px-2 pb-10 sm:px-4">
-      <h1 className="text-2xl font-semibold text-ink sm:text-3xl">History</h1>
-      <p className="mt-2 max-w-2xl text-sm text-neutral-600">
-        What has actually happened, newest first. Filter by state, and open any run to see the full evidence and
-        decision trail.
-      </p>
-
-      <div className="mt-6">
-        <Suspense fallback={null}>
-          <HistoryClient />
-        </Suspense>
-      </div>
-    </div>
+    <ConsoleContainer>
+      <PageHeader
+        eyebrow="Record"
+        title={
+          <>
+            What actually <Accent>happened</Accent>
+          </>
+        }
+        lead="Every run the agent has made, newest first. Filter by state, and open any run to see the full evidence and decision trail."
+      />
+      <Suspense fallback={null}>
+        <HistoryClient />
+      </Suspense>
+    </ConsoleContainer>
   );
 }

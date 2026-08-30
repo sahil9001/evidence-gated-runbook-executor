@@ -102,13 +102,13 @@ export function TopBar({ onOpenNav }: TopBarProps) {
   }
 
   return (
-    <header className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 shadow-soft sm:px-5">
+    <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-sky-100 bg-white/90 px-5 py-3 backdrop-blur-sm sm:px-8 lg:px-10">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
           onClick={onOpenNav}
           aria-label="Open navigation"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-neutral-200 text-neutral-700 transition hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal lg:hidden"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-100 text-neutral-700 transition hover:bg-sky-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal lg:hidden"
         >
           <Menu className="h-4 w-4" strokeWidth={2} />
         </button>
@@ -124,7 +124,7 @@ export function TopBar({ onOpenNav }: TopBarProps) {
           type="button"
           onClick={() => void handleLogout()}
           disabled={isLoggingOut}
-          className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-sky-100 px-3 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-sky-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal disabled:cursor-not-allowed disabled:opacity-50"
         >
           <LogOut className="h-4 w-4" strokeWidth={1.8} />
           <span className="hidden sm:inline">{isLoggingOut ? "Signing out…" : "Log out"}</span>

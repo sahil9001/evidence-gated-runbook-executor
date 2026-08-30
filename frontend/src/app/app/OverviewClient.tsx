@@ -2,9 +2,26 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, ClipboardList, ListChecks, Siren } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  CircleAlert,
+  FileSearch,
+  ListChecks,
+  LockKeyhole,
+  type LucideIcon,
+  Play,
+  RotateCcw,
+  Siren,
+  XCircle
+} from "lucide-react";
 import { ApiClientError, getOverview } from "../../lib/api";
+import { computeReadiness } from "../../lib/readiness";
 import type { AuditEntry, OverviewResponse } from "../../lib/types";
+import { Band, ConsoleContainer, EmptyState, SectionTitle } from "./components/console/Surface";
+import { Figure } from "./components/console/Indicators";
+import { PipelineFlow } from "./components/console/PipelineFlow";
+import { ReadinessPanel } from "./components/console/ReadinessPanel";
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   network_error: "Could not reach the RunProof API. Check your connection.",
@@ -30,20 +47,43 @@ type OverviewState =
 
 /**
  * A human on-call engineer should never have to know what `gate_approved`
- * means. Each audit `kind` gets a plain-language label; the backend's own
- * `detail` string (already a full sentence, see routes/{run,approvals}.ts)
- * carries the specifics underneath.
+ * means. Each audit `kind` gets a plain-language label and an icon; the
+ * backend's own `detail` string carries the specifics underneath.
  */
-const ACTIVITY_LABELS: Readonly<Record<string, string>> = {
-  run_created: "Run started",
-  evidence_partial: "Evidence collection had failures",
-  gate_approved: "Approval granted",
-  action_executed: "Action executed",
-  gate_rejected: "Approval rejected"
+const ACTIVITY_PRESENTATION: Readonly<
+  Record<string, { readonly label: string; readonly icon: LucideIcon; readonly className: string }>
+> = {
+  run_created: { label: "Run started", icon: Play, className: "bg-sky-50 text-signal" },
+  evidence_partial: {
+    label: "Evidence incomplete",
+    icon: CircleAlert,
+    className: "bg-amber-50 text-amber-700"
+  },
+  gate_approved: { label: "Approval granted", icon: CheckCircle2, className: "bg-emerald-50 text-emerald-700" },
+  action_executed: { label: "Action executed", icon: ListChecks, className: "bg-emerald-50 text-emerald-700" },
+  gate_rejected: { label: "Approval rejected", icon: XCircle, className: "bg-rose-50 text-rose-700" }
 };
 
-function activityLabel(kind: string): string {
-  return ACTIVITY_LABELS[kind] ?? kind.replace(/_/g, " ");
+function activityPresentation(kind: string) {
+  return (
+    ACTIVITY_PRESENTATION[kind] ?? {
+      label: kind.replace(/_/g, " "),
+      icon: FileSearch,
+      className: "bg-neutral-100 text-neutral-600"
+    }
+  );
+}
+
+/**
+ * Audit details embed full run/gate/incident UUIDs. Rendered verbatim they
+ * push the readable half of every sentence off the row, so ids are shortened
+ * to their first segment — enough to correlate against the run page, which is
+ * one click away, without turning the feed into a wall of hex.
+ */
+const UUID_PATTERN = /\b([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+export function shortenIds(detail: string): string {
+  return detail.replace(UUID_PATTERN, (_match, head: string) => `${head}…`);
 }
 
 function formatTimestamp(iso: string): string {
@@ -57,121 +97,30 @@ function formatTimestamp(iso: string): string {
   });
 }
 
-interface AwaitingApprovalHeroProps {
-  readonly count: number;
-}
+function ActivityRow({ entry }: { entry: AuditEntry }) {
+  const presentation = activityPresentation(entry.kind);
+  const Icon = presentation.icon;
 
-/**
- * The number this whole screen exists for. Largest element on the page by
- * a wide margin, calm and quiet at zero, dark and pulsing at non-zero — an
- * on-call engineer scanning this page half-awake should not have to read
- * anything to know whether they need to act.
- */
-function AwaitingApprovalHero({ count }: AwaitingApprovalHeroProps) {
-  const isCalm = count === 0;
-
-  return (
-    <Link
-      href="/app/incidents"
-      aria-label={
-        isCalm
-          ? "Nothing awaiting approval"
-          : `${count} gate${count === 1 ? "" : "s"} awaiting approval — review now`
-      }
-      className={`group relative flex min-h-[260px] flex-col justify-between overflow-hidden rounded-3xl p-6 shadow-soft transition duration-200 hover:translate-y-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-signal sm:p-8 ${
-        isCalm ? "bg-white" : "bg-ink"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className={`text-sm font-semibold ${isCalm ? "text-signal" : "text-sky-300"}`}>Awaiting approval</p>
-          <p className={`mt-1 text-xs font-medium ${isCalm ? "text-neutral-500" : "text-white/60"}`}>
-            {isCalm ? "Nothing needs you right now." : "Gates locked on a human decision."}
-          </p>
-        </div>
-        {isCalm ? (
-          <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-500" strokeWidth={1.8} aria-hidden="true" />
-        ) : (
-          <span
-            className="mt-1 flex h-3 w-3 shrink-0 rounded-full bg-rose-500 rp-pulse"
-            aria-hidden="true"
-          />
-        )}
-      </div>
-
-      <div>
-        <div className="flex items-baseline gap-3">
-          <span
-            className={`text-7xl font-bold leading-none tracking-tight tabular-nums sm:text-8xl ${
-              isCalm ? "text-ink" : "text-white"
-            }`}
-          >
-            {count}
-          </span>
-          <span className={`text-sm font-medium ${isCalm ? "text-neutral-500" : "text-white/70"}`}>
-            {count === 1 ? "gate" : "gates"}
-          </span>
-        </div>
-
-        <p
-          className={`mt-4 inline-flex items-center gap-1.5 text-sm font-semibold transition ${
-            isCalm ? "text-neutral-400" : "text-sky-300 group-hover:text-white"
-          }`}
-        >
-          {isCalm ? "All clear." : "Review now"}
-          {isCalm ? null : (
-            <ArrowRight
-              className="h-4 w-4 transition group-hover:translate-x-0.5"
-              strokeWidth={2.2}
-              aria-hidden="true"
-            />
-          )}
-        </p>
-      </div>
-    </Link>
-  );
-}
-
-interface SecondaryStatProps {
-  readonly label: string;
-  readonly value: number;
-  readonly icon: typeof Siren;
-}
-
-/** Supporting context for the hero — deliberately smaller, quieter, no motion. */
-function SecondaryStat({ label, value, icon: Icon }: SecondaryStatProps) {
-  return (
-    <div className="flex flex-1 items-center gap-4 rounded-2xl bg-white p-5 shadow-soft">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-panel text-signal">
-        <Icon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
-      </span>
-      <div>
-        <p className="text-2xl font-semibold leading-none tabular-nums text-ink">{value}</p>
-        <p className="mt-1 text-xs font-medium text-neutral-500">{label}</p>
-      </div>
-    </div>
-  );
-}
-
-interface ActivityRowProps {
-  readonly entry: AuditEntry;
-}
-
-function ActivityRow({ entry }: ActivityRowProps) {
   return (
     <li>
       <Link
         href={`/app/runs/${encodeURIComponent(entry.runId)}`}
-        className="group flex items-start gap-3 rounded-xl px-3 py-3 transition hover:bg-panel focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+        className="group flex items-start gap-3 py-3.5 transition hover:bg-sky-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
       >
-        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-signal" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-ink">{activityLabel(entry.kind)}</p>
-          <p className="mt-0.5 truncate text-xs text-neutral-500">{entry.detail}</p>
-        </div>
+        <span
+          className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${presentation.className}`}
+        >
+          <Icon className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-ink">{presentation.label}</span>
+          <span className="mt-0.5 block truncate text-xs text-neutral-500">
+            {shortenIds(entry.detail)}
+          </span>
+        </span>
         <time
           dateTime={entry.at}
-          className="shrink-0 whitespace-nowrap text-xs font-medium text-neutral-400 group-hover:text-neutral-600"
+          className="shrink-0 whitespace-nowrap pt-0.5 text-xs font-medium tabular-nums text-neutral-400 group-hover:text-neutral-600"
         >
           {formatTimestamp(entry.at)}
         </time>
@@ -180,79 +129,49 @@ function ActivityRow({ entry }: ActivityRowProps) {
   );
 }
 
-interface RecentActivityProps {
-  readonly entries: readonly AuditEntry[];
-}
-
-function RecentActivity({ entries }: RecentActivityProps) {
-  return (
-    <section className="rounded-3xl bg-white p-5 shadow-soft sm:p-6">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-signal">Recent activity</h2>
-      </div>
-
-      {entries.length === 0 ? (
-        <p className="mt-6 rounded-2xl bg-panel px-4 py-6 text-center text-sm font-medium text-neutral-500">
-          No activity yet. Runs and decisions will show up here as they happen.
-        </p>
-      ) : (
-        <ul className="mt-3 flex flex-col divide-y divide-neutral-100">
-          {entries.map((entry) => (
-            <ActivityRow key={entry.id} entry={entry} />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
 function OverviewSkeleton() {
   return (
-    <div className="animate-pulse" role="status" aria-label="Loading overview">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.6fr_1fr]">
-        <div className="min-h-[260px] rounded-3xl bg-white p-8 shadow-soft">
-          <div className="h-3 w-32 rounded-full bg-neutral-200" />
-          <div className="mt-8 h-20 w-40 rounded-2xl bg-neutral-200" />
+    <ConsoleContainer>
+      <div className="animate-pulse py-10" role="status" aria-label="Loading overview">
+        <div className="flex gap-8">
+          <div className="h-[136px] w-[136px] shrink-0 rounded-full bg-sky-50" />
+          <div className="flex-1 space-y-5 pt-4">
+            <div className="h-2 w-full rounded-full bg-sky-50" />
+            <div className="h-2 w-4/5 rounded-full bg-sky-50" />
+          </div>
         </div>
-        <div className="flex flex-col gap-4">
-          {[0, 1].map((row) => (
-            <div key={row} className="flex-1 rounded-2xl bg-white p-5 shadow-soft">
-              <div className="h-8 w-16 rounded-full bg-neutral-200" />
-              <div className="mt-3 h-3 w-20 rounded-full bg-neutral-100" />
+        <div className="mt-10 grid gap-px border-y border-sky-100 bg-sky-100 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((cell) => (
+            <div key={cell} className="h-36 bg-white p-5">
+              <div className="h-8 w-8 rounded-lg bg-sky-50" />
+              <div className="mt-4 h-2 w-24 rounded-full bg-sky-50" />
             </div>
           ))}
         </div>
       </div>
-      <div className="mt-4 rounded-3xl bg-white p-6 shadow-soft">
-        <div className="h-3 w-28 rounded-full bg-neutral-200" />
-        <div className="mt-5 space-y-4">
-          {[0, 1, 2].map((row) => (
-            <div key={row} className="h-4 w-full rounded-full bg-neutral-100" />
-          ))}
-        </div>
-      </div>
-    </div>
+    </ConsoleContainer>
   );
 }
 
-interface OverviewErrorProps {
-  readonly error: ApiClientError;
-  readonly onRetry: () => void;
-}
-
-function OverviewError({ error, onRetry }: OverviewErrorProps) {
+function OverviewError({ error, onRetry }: { error: ApiClientError; onRetry: () => void }) {
   return (
-    <div className="rounded-3xl bg-white p-6 shadow-soft sm:p-8">
-      <p className="text-sm font-semibold text-rose-700">Could not load the overview</p>
-      <p className="mt-1 text-sm text-neutral-600">{humanizeErrorCode(error.code)}</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
-      >
-        Retry
-      </button>
-    </div>
+    <ConsoleContainer>
+      <div className="border-y border-rose-100 bg-rose-50/40 px-6 py-10">
+        <p className="flex items-center gap-2 text-sm font-semibold text-rose-700">
+          <CircleAlert className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+          Could not load the overview
+        </p>
+        <p className="mt-1.5 text-sm text-neutral-600">{humanizeErrorCode(error.code)}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+        >
+          <RotateCcw className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+          Retry
+        </button>
+      </div>
+    </ConsoleContainer>
   );
 }
 
@@ -262,9 +181,7 @@ export function OverviewClient() {
   // Note: no synchronous `setState` at the top of this function — only
   // inside the `.then`/`.catch` callbacks below. `useEffect` flags a
   // synchronous `setState` in its body as a cascading-render risk; deferring
-  // the state change to the promise callback (mirroring TopBar's fetch
-  // above) keeps the effect itself free of it. The initial "loading" state
-  // is already the `useState` default, so no separate kickoff is needed.
+  // the state change to the promise callback keeps the effect free of it.
   const fetchOverview = useCallback((): Promise<void> => {
     return getOverview()
       .then((data) => setState({ status: "loaded", data }))
@@ -280,34 +197,95 @@ export function OverviewClient() {
     void fetchOverview();
   }
 
-  if (state.status === "loading") {
-    return <OverviewSkeleton />;
-  }
-
-  if (state.status === "error") {
-    return <OverviewError error={state.error} onRetry={handleRetry} />;
-  }
+  if (state.status === "loading") return <OverviewSkeleton />;
+  if (state.status === "error") return <OverviewError error={state.error} onRetry={handleRetry} />;
 
   const { data } = state;
+  const readiness = computeReadiness(data);
+  const hasNothingYet = data.activeIncidents === 0 && readiness.totalRuns === 0;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.6fr_1fr]">
-        <AwaitingApprovalHero count={data.awaitingApproval} />
-        <div className="flex flex-col gap-4">
-          <SecondaryStat label="Active incidents" value={data.activeIncidents} icon={Siren} />
-          <SecondaryStat label="Runs today" value={data.runsToday} icon={ListChecks} />
-        </div>
-      </div>
+    <>
+      <Band divided={false} className="pt-2">
+        <ConsoleContainer>
+          <ReadinessPanel readiness={readiness} />
+        </ConsoleContainer>
+      </Band>
 
-      <RecentActivity entries={data.recentActivity} />
+      <Band>
+        <ConsoleContainer>
+          <SectionTitle
+            title="How an incident moves"
+            hint="Every incident walks these four stages. The counts are live."
+          />
+        </ConsoleContainer>
+        <PipelineFlow overview={data} />
+      </Band>
 
-      {data.activeIncidents === 0 && data.recentActivity.length === 0 ? (
-        <p className="flex items-center gap-2 px-2 text-xs font-medium text-neutral-400">
-          <ClipboardList className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden="true" />
-          Quiet so far — nothing has happened yet.
-        </p>
-      ) : null}
-    </div>
+      <Band>
+        <ConsoleContainer>
+          <div className="grid gap-8 sm:grid-cols-3">
+            <Figure
+              icon={LockKeyhole}
+              label="Awaiting approval"
+              value={data.awaitingApproval}
+              tone={data.awaitingApproval > 0 ? "warn" : "good"}
+              caption={
+                data.awaitingApproval > 0
+                  ? "Locked on a human decision."
+                  : "Nothing is blocked on you."
+              }
+            />
+            <Figure icon={Siren} label="Active incidents" value={data.activeIncidents} caption="Not yet resolved." />
+            <Figure icon={ListChecks} label="Runs today" value={data.runsToday} caption="Started since midnight UTC." />
+          </div>
+        </ConsoleContainer>
+      </Band>
+
+      <Band>
+        <ConsoleContainer>
+          <SectionTitle
+            title="Recent activity"
+            hint="Newest first, across every run."
+            action={
+              <Link
+                href="/app/audit"
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-signal transition hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+              >
+                Full audit log
+                <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+              </Link>
+            }
+          />
+
+          {data.recentActivity.length === 0 ? (
+            <EmptyState
+              icon={hasNothingYet ? Play : FileSearch}
+              title={hasNothingYet ? "Nothing has run yet" : "No activity yet"}
+              body={
+                hasNothingYet
+                  ? "Open an incident and start a run. The agent gathers evidence, replays it in a sandbox, and stops at the approval gate."
+                  : "Runs and decisions will show up here as they happen."
+              }
+              action={
+                <Link
+                  href="/app/incidents/new"
+                  className="inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+                >
+                  New incident
+                  <ArrowRight className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                </Link>
+              }
+            />
+          ) : (
+            <ul className="divide-y divide-sky-100 border-y border-sky-100">
+              {data.recentActivity.map((entry) => (
+                <ActivityRow key={entry.id} entry={entry} />
+              ))}
+            </ul>
+          )}
+        </ConsoleContainer>
+      </Band>
+    </>
   );
 }

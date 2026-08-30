@@ -3,10 +3,21 @@
 import { useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, PlusCircle, Siren } from "lucide-react";
-import { listIncidents, type ApiClientError } from "../../../lib/api";
-import type { IncidentRow } from "../../../lib/types";
-import { useAbortableResource } from "../../../hooks/useAbortableResource";
+import {
+  ArrowRight,
+  Clock,
+  Plus,
+  Radio,
+  Server,
+  Siren,
+  TriangleAlert,
+  UserRound
+} from "lucide-react";
+import { listIncidents, type ApiClientError } from "@/lib/api";
+import type { IncidentRow } from "@/lib/types";
+import { useAbortableResource } from "@/hooks/useAbortableResource";
+import { Band, EmptyState, Rows } from "@/app/app/components/console/Surface";
+import { Figure, Pill, type Tone } from "@/app/app/components/console/Indicators";
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   network_error: "Could not reach the RunProof API. Check your connection.",
@@ -25,10 +36,16 @@ function humanizeErrorCode(code: string): string {
  * backend's `?status=` query accepts, ready for whenever a status change
  * lands. */
 const STATUS_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string }> = [
-  { value: "", label: "All statuses" },
+  { value: "", label: "All" },
   { value: "open", label: "Open" },
   { value: "resolved", label: "Resolved" }
 ];
+
+function statusTone(status: string): Tone {
+  if (status === "open") return "info";
+  if (status === "resolved") return "good";
+  return "neutral";
+}
 
 function formatTimestamp(iso: string): string {
   const date = new Date(iso);
@@ -41,16 +58,73 @@ function formatTimestamp(iso: string): string {
   });
 }
 
-function StatusBadge({ status }: { readonly status: string }) {
-  const isOpen = status === "open";
+/**
+ * A segmented control rather than a `<select>`: three mutually exclusive
+ * options that all fit on screen are worth one click, not two, and the
+ * chosen one stays readable while the operator scans the list underneath.
+ * Native radios inside a `<fieldset>` keep arrow-key navigation and the
+ * group's accessible name without re-implementing either.
+ */
+interface StatusFilterProps {
+  readonly onChange: (value: string) => void;
+  readonly value: string;
+}
+
+function StatusFilter({ onChange, value }: StatusFilterProps) {
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-        isOpen ? "bg-sky-50 text-sky-700" : "bg-emerald-50 text-emerald-700"
-      }`}
-    >
-      {status}
-    </span>
+    <fieldset className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+      <legend className="sr-only">Filter incidents by status</legend>
+      <span
+        aria-hidden="true"
+        className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400"
+      >
+        Status
+      </span>
+      <div className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-sky-100 p-0.5">
+        {STATUS_OPTIONS.map((option) => (
+          <label key={option.value || "all"} className="cursor-pointer">
+            <input
+              type="radio"
+              name="incident-status"
+              value={option.value}
+              checked={value === option.value}
+              onChange={() => onChange(option.value)}
+              className="peer sr-only"
+            />
+            <span className="inline-flex items-center rounded-md px-3 py-1.5 text-[13px] font-semibold text-neutral-500 transition-colors hover:text-ink peer-checked:bg-sky-50 peer-checked:text-signal peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-signal">
+              {option.label}
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+/** Counts describe what is on screen, not the whole table: the list is
+ * already server-filtered by `?status=`, so a "total incidents" figure here
+ * would contradict the rows underneath it. */
+interface SummaryStripProps {
+  readonly incidents: readonly IncidentRow[];
+  readonly statusFilter: string;
+}
+
+function SummaryStrip({ incidents, statusFilter }: SummaryStripProps) {
+  const open = incidents.filter((incident) => incident.status === "open").length;
+  const services = new Set(incidents.map((incident) => incident.service)).size;
+  const filterLabel = STATUS_OPTIONS.find((option) => option.value === statusFilter)?.label;
+
+  return (
+    <div className="grid grid-cols-2 gap-x-6 gap-y-7 sm:grid-cols-3 sm:gap-x-10">
+      <Figure
+        icon={Siren}
+        label="In view"
+        value={incidents.length}
+        caption={statusFilter === "" ? "Across every status" : `Filtered to ${filterLabel}`}
+      />
+      <Figure icon={Radio} label="Open" tone="info" value={open} caption="Still unresolved" />
+      <Figure icon={Server} label="Services" value={services} caption="Distinct services affected" />
+    </div>
   );
 }
 
@@ -63,35 +137,81 @@ function IncidentRowItem({ incident }: IncidentRowItemProps) {
     <li>
       <Link
         href={`/app/incidents/${encodeURIComponent(incident.id)}`}
-        className="group flex flex-col gap-2 rounded-2xl px-4 py-4 transition hover:bg-panel focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+        className="group flex flex-col gap-3 px-2 py-5 transition-colors hover:bg-sky-50/60 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal sm:flex-row sm:items-center sm:gap-8"
       >
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-ink">{incident.title}</p>
-          <p className="mt-0.5 truncate text-xs font-medium text-neutral-500">{incident.service}</p>
+          <p className="truncate text-[15px] font-semibold leading-6 text-ink">{incident.title}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-neutral-500">
+            <Server className="h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2} aria-hidden="true" />
+            <span className="truncate">{incident.service}</span>
+          </p>
+          {incident.signals.length > 0 ? (
+            <p className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              {incident.signals.map((signal) => (
+                <span
+                  key={signal}
+                  className="rounded bg-sky-50 px-1.5 py-0.5 font-mono text-[11px] font-medium text-sky-700"
+                >
+                  {signal}
+                </span>
+              ))}
+            </p>
+          ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-500 sm:justify-end">
-          <StatusBadge status={incident.status} />
-          <span className="whitespace-nowrap">{incident.createdBy}</span>
-          <time dateTime={incident.createdAt} className="whitespace-nowrap">
+
+        <div className="flex shrink-0 flex-col gap-1 text-xs text-neutral-500 sm:w-52 sm:text-right">
+          <span className="inline-flex items-center gap-1.5 truncate sm:justify-end">
+            <UserRound className="h-3.5 w-3.5 shrink-0 text-neutral-300" strokeWidth={2} aria-hidden="true" />
+            {incident.createdBy}
+          </span>
+          <time
+            dateTime={incident.createdAt}
+            className="inline-flex items-center gap-1.5 tabular-nums sm:justify-end"
+          >
+            <Clock className="h-3.5 w-3.5 shrink-0 text-neutral-300" strokeWidth={2} aria-hidden="true" />
             {formatTimestamp(incident.createdAt)}
           </time>
-          <ArrowRight
-            className="h-4 w-4 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-signal"
-            strokeWidth={2}
-            aria-hidden="true"
-          />
+        </div>
+
+        <div className="flex shrink-0 items-center gap-4">
+          <Pill tone={statusTone(incident.status)}>{incident.status}</Pill>
+          <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-neutral-400 transition-colors group-hover:text-signal">
+            Open
+            <ArrowRight
+              className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+              strokeWidth={2.2}
+              aria-hidden="true"
+            />
+          </span>
         </div>
       </Link>
     </li>
   );
 }
 
+/** Flat by construction: the skeleton has to promise the same page the data
+ * arrives into, and that page has no cards to stand in for. */
 function IncidentsSkeleton() {
   return (
-    <div className="animate-pulse rounded-3xl bg-white p-6 shadow-soft" role="status" aria-label="Loading incidents">
-      <div className="space-y-4">
+    <div className="animate-pulse" role="status" aria-label="Loading incidents">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-7 sm:grid-cols-3 sm:gap-x-10">
+        {[0, 1, 2].map((figure) => (
+          <div key={figure}>
+            <div className="h-2.5 w-20 rounded-full bg-sky-100" />
+            <div className="mt-3 h-7 w-12 rounded bg-neutral-100" />
+          </div>
+        ))}
+      </div>
+      <div className="mt-8 divide-y divide-sky-100 border-y border-sky-100">
         {[0, 1, 2, 3].map((row) => (
-          <div key={row} className="h-12 w-full rounded-xl bg-neutral-100" />
+          <div key={row} className="flex items-center gap-8 px-2 py-5">
+            <div className="min-w-0 flex-1">
+              <div className="h-3.5 w-2/5 rounded bg-neutral-100" />
+              <div className="mt-2.5 h-2.5 w-24 rounded-full bg-sky-50" />
+            </div>
+            <div className="h-2.5 w-28 rounded-full bg-neutral-100" />
+            <div className="h-5 w-16 rounded bg-sky-50" />
+          </div>
         ))}
       </div>
     </div>
@@ -105,31 +225,20 @@ interface IncidentsErrorProps {
 
 function IncidentsError({ error, onRetry }: IncidentsErrorProps) {
   return (
-    <div className="rounded-3xl bg-white p-6 shadow-soft sm:p-8">
-      <p className="text-sm font-semibold text-rose-700">Could not load incidents</p>
-      <p className="mt-1 text-sm text-neutral-600">{humanizeErrorCode(error.code)}</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
-      >
-        Retry
-      </button>
+    <div className="flex items-start gap-3 border-y border-sky-100 px-2 py-12">
+      <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" strokeWidth={2} aria-hidden="true" />
+      <div>
+        <p className="text-sm font-semibold text-ink">Could not load incidents</p>
+        <p className="mt-1 text-sm leading-6 text-neutral-600">{humanizeErrorCode(error.code)}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 inline-flex items-center rounded-md bg-signal px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+        >
+          Retry
+        </button>
+      </div>
     </div>
-  );
-}
-
-function EmptyIncidents() {
-  return (
-    <section className="flex flex-col items-center gap-3 rounded-3xl bg-white px-6 py-16 text-center shadow-soft">
-      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-panel text-signal">
-        <Siren className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
-      </span>
-      <p className="text-sm font-semibold text-ink">No incidents match this filter.</p>
-      <p className="max-w-sm text-xs text-neutral-500">
-        Nothing needs attention right now. Start a new incident when something needs the agent&apos;s eyes.
-      </p>
-    </section>
   );
 }
 
@@ -162,45 +271,39 @@ export function IncidentsClient() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <label htmlFor="incident-status-filter" className="text-sm font-semibold text-ink">
-            Status
-          </label>
-          <select
-            id="incident-status-filter"
-            value={statusFilter}
-            onChange={(event) => handleStatusChange(event.target.value)}
-            className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-ink outline-none transition focus:border-signal focus:ring-2 focus:ring-signal/30"
-          >
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
+    <>
+      <Band className="flex flex-wrap items-center justify-between gap-4 py-5 sm:py-6">
+        <StatusFilter value={statusFilter} onChange={handleStatusChange} />
         <Link
           href="/app/incidents/new"
-          className="inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-white shadow-soft transition hover:translate-y-[-1px] active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+          className="inline-flex items-center gap-2 rounded-md bg-signal px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
         >
-          <PlusCircle className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+          <Plus className="h-4 w-4" strokeWidth={2.4} aria-hidden="true" />
           New incident
         </Link>
-      </div>
+      </Band>
 
-      {state.status === "loading" ? <IncidentsSkeleton /> : null}
-      {state.status === "error" ? <IncidentsError error={state.error} onRetry={retry} /> : null}
-      {state.status === "loaded" && state.data.length === 0 ? <EmptyIncidents /> : null}
-      {state.status === "loaded" && state.data.length > 0 ? (
-        <ul className="flex flex-col divide-y divide-neutral-100 rounded-3xl bg-white p-2 shadow-soft">
-          {state.data.map((incident) => (
-            <IncidentRowItem key={incident.id} incident={incident} />
-          ))}
-        </ul>
-      ) : null}
-    </div>
+      <Band divided={false} className="pt-2">
+        {state.status === "loading" ? <IncidentsSkeleton /> : null}
+        {state.status === "error" ? <IncidentsError error={state.error} onRetry={retry} /> : null}
+        {state.status === "loaded" && state.data.length === 0 ? (
+          <EmptyState
+            icon={Siren}
+            title="No incidents match this filter."
+            body="Nothing needs attention right now. Start a new incident when something needs the agent's eyes."
+          />
+        ) : null}
+        {state.status === "loaded" && state.data.length > 0 ? (
+          <>
+            <SummaryStrip incidents={state.data} statusFilter={statusFilter} />
+            <Rows className="mt-8">
+              {state.data.map((incident) => (
+                <IncidentRowItem key={incident.id} incident={incident} />
+              ))}
+            </Rows>
+          </>
+        ) : null}
+      </Band>
+    </>
   );
 }

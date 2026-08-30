@@ -1,7 +1,18 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  LockKeyhole,
+  ShieldAlert,
+  Undo2,
+  XCircle
+} from "lucide-react";
+import { Eyebrow, SectionTitle } from "@/app/app/components/console/Surface";
+import { Meter, Pill } from "@/app/app/components/console/Indicators";
+import { cn } from "@/lib/utils";
 import { approve, reject } from "../../../../../lib/api";
 import type {
   Action,
@@ -11,94 +22,67 @@ import type {
   ExecutionResult,
   RunRow
 } from "../../../../../lib/types";
-import { RunbookPreview, type RunbookPreviewData, type TimelineEntry } from "../../../../components/RunbookPreview";
-import { humanizeErrorCode, toApiClientError } from "../shared";
+import { CONFIDENCE_PERCENT, CONFIDENCE_TONE, formatTimestamp, humanizeErrorCode, toApiClientError } from "../shared";
 
 type DecisionState = { status: "idle" } | { status: "deciding" } | { status: "error"; message: string };
 
-/**
- * RunProof computes no server-side risk model — GET /runs/:id has no such
- * field, and none of the domain modules produce one. RunbookPreview still
- * expects a riskScore/riskLabel pair (it's a reused panel, not something
- * this screen owns), so this maps the one real signal available —
- * evidence confidence — onto that shape with a fixed, disclosed formula:
- * less confidence in the evidence is treated as more reason to look twice
- * before approving. It is a display heuristic, not a computed risk score.
- */
-function confidenceToRisk(confidence: Confidence | null): { score: number; label: RunbookPreviewData["riskLabel"] } {
-  if (confidence === "high") return { score: 20, label: "Low" };
-  if (confidence === "medium") return { score: 50, label: "Medium" };
-  if (confidence === "low") return { score: 75, label: "High" };
-  return { score: 90, label: "High" };
-}
-
-function buildTimeline(params: {
-  serviceName: string;
-  packet: EvidencePacket | null;
-  gate: ApprovalGate;
-}): TimelineEntry[] {
-  const cardCount = params.packet?.cards.length ?? 0;
-  const isLocked = params.gate.state === "locked";
-
-  return [
-    {
-      label: "Run started",
-      detail: `Evidence collection began for ${params.serviceName}.`,
-      state: "done"
-    },
-    {
-      label: "Evidence gathered",
-      detail: cardCount > 0 ? (params.packet?.summary ?? "") : "No evidence cards were collected.",
-      state: cardCount > 0 ? "done" : "pending"
-    },
-    {
-      label: "Diagnostics reviewed",
-      detail: "Fixture sandbox output reviewed — no live sandbox runs in this build.",
-      state: "done"
-    },
-    {
-      label: "Approval required",
-      detail: isLocked
-        ? "The proposed action stays locked until an engineer approves it."
-        : `Decision recorded: ${params.gate.state}.`,
-      state: isLocked ? "pending" : "done"
-    }
-  ];
-}
-
-function buildSandboxOutput(params: {
-  gate: ApprovalGate;
+/** The recorded outcome, in the same shape the executor reported it — never a
+ * prose paraphrase of what the system claims to have done. */
+function outcomeText(params: {
   execution: ExecutionResult | undefined;
-  packet: EvidencePacket | null;
+  gate: ApprovalGate;
 }): string {
-  if (params.gate.state === "approved") {
-    if (params.execution !== undefined) {
-      return [
-        `executed=${params.execution.executed}`,
-        `dry_run=${params.execution.dryRun}`,
-        `output=${params.execution.output}`
-      ].join("\n");
-    }
-    return "Approved and executed — see the Audit tab for the recorded output.";
+  if (params.gate.state === "rejected") return params.gate.reason ?? "No reason was recorded.";
+  if (params.execution !== undefined) {
+    return [
+      `executed=${params.execution.executed}`,
+      `dry_run=${params.execution.dryRun}`,
+      `output=${params.execution.output}`
+    ].join("\n");
   }
-  if (params.gate.state === "rejected") {
-    return params.gate.reason ?? "No reason was recorded.";
-  }
-  const sandboxCard = params.packet?.cards.find((card) => card.source === "sandbox");
-  return sandboxCard === undefined
-    ? "No diagnostic fixture recorded for this run."
-    : `[fixture] ${sandboxCard.claim}`;
+  return "Approved and executed — see the Audit tab for the recorded output.";
+}
+
+function gateSummary(gate: ApprovalGate): string {
+  const by = gate.decidedBy === undefined ? "" : ` by ${gate.decidedBy}`;
+  if (gate.state === "approved") return `Gate approved${by}`;
+  if (gate.state === "rejected") return `Gate rejected${by}`;
+  return "Locked — this action cannot run until a human decides.";
+}
+
+interface ConsequenceProps {
+  readonly body: string;
+  readonly detail?: string;
+  readonly title: string;
+  readonly tone: "go" | "stop";
+}
+
+/** Both halves of the decision, stated as outcomes rather than button labels:
+ * an operator should never have to infer what pressing a button will do. */
+function Consequence({ body, detail, title, tone }: ConsequenceProps) {
+  const Icon = tone === "go" ? CheckCircle2 : XCircle;
+  return (
+    <div className={cn("border-l-2 pl-4", tone === "go" ? "border-emerald-400" : "border-rose-400")}>
+      <div className="flex items-center gap-2">
+        <Icon
+          className={cn("h-4 w-4 shrink-0", tone === "go" ? "text-emerald-600" : "text-rose-600")}
+          strokeWidth={2.2}
+          aria-hidden="true"
+        />
+        <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-neutral-700">{body}</p>
+      {detail === undefined ? null : <p className="mt-1.5 text-xs leading-5 text-neutral-500">{detail}</p>}
+    </div>
+  );
 }
 
 interface ApprovalTabProps {
-  readonly incidentTitle: string;
-  readonly runbookId: string;
-  readonly serviceName: string;
-  readonly packet: EvidencePacket | null;
   readonly action: Action | null;
-  readonly gate: ApprovalGate | null;
   readonly confidence: Confidence | null;
+  readonly gate: ApprovalGate | null;
   readonly lastExecution: ExecutionResult | undefined;
+  readonly packet: EvidencePacket | null;
   // `runState` is the run's real resulting state (backend/src/routes/approvals.ts) —
   // distinct from `gate.state`, which alone would give the wrong answer for
   // approve (gate ends "approved" but the run ends "executed").
@@ -106,14 +90,11 @@ interface ApprovalTabProps {
 }
 
 export function ApprovalTab({
-  incidentTitle,
-  runbookId,
-  serviceName,
-  packet,
   action,
-  gate,
   confidence,
+  gate,
   lastExecution,
+  packet,
   onDecided
 }: ApprovalTabProps) {
   const [decisionState, setDecisionState] = useState<DecisionState>({ status: "idle" });
@@ -122,7 +103,7 @@ export function ApprovalTab({
 
   if (action === null || gate === null) {
     return (
-      <div className="rounded-2xl bg-white p-6">
+      <div className="border-l-2 border-sky-200 pl-4">
         <p className="text-sm font-semibold text-ink">No action or approval gate recorded for this run.</p>
         <p className="mt-1 text-sm text-neutral-500">Evidence collection may still be in progress.</p>
       </div>
@@ -138,6 +119,7 @@ export function ApprovalTab({
   const isLocked = currentGate.state === "locked";
   const cardCount = packet?.cards.length ?? 0;
   const isDeciding = decisionState.status === "deciding";
+  const hasEvidence = cardCount > 0;
 
   async function handleApprove(): Promise<void> {
     setDecisionState({ status: "deciding" });
@@ -169,65 +151,151 @@ export function ApprovalTab({
     }
   }
 
-  const { score, label } = confidenceToRisk(confidence);
-
-  const previewData: RunbookPreviewData = {
-    riskScore: score,
-    riskLabel: label,
-    incidentTitle,
-    runbookId,
-    timeline: buildTimeline({ serviceName, packet, gate: currentGate }),
-    sandboxOutput: buildSandboxOutput({ gate: currentGate, execution: lastExecution, packet }),
-    actionDescription: currentAction.description,
-    gateState: currentGate.state,
-    // RunbookPreview disables Approve whenever `onApprove` is absent — so a
-    // zero-card packet is enforced here by simply not wiring the callback,
-    // without needing to touch RunbookPreview itself.
-    onApprove: isLocked && cardCount > 0 && !isDeciding ? () => void handleApprove() : undefined,
-    // RunbookPreview's "Review" button takes no arguments — it can't collect
-    // a rejection reason on its own, so it opens the reason form below
-    // instead of calling the API directly.
-    onReject: isLocked && !isDeciding ? () => setRejectOpen(true) : undefined,
-    isDeciding
-  };
+  const StateIcon = isLocked ? LockKeyhole : currentGate.state === "approved" ? CheckCircle2 : XCircle;
+  const stateIconClass = isLocked
+    ? "text-neutral-500"
+    : currentGate.state === "approved"
+      ? "text-emerald-600"
+      : "text-rose-600";
 
   return (
-    <div className="flex flex-col gap-4">
-      <RunbookPreview data={previewData} />
+    <div className="flex flex-col gap-8">
+      <div>
+        <SectionTitle
+          title="Approval gate"
+          hint={
+            isLocked
+              ? "One decision, recorded against your name, with the evidence attached."
+              : "This gate has been decided — the record below is final."
+          }
+        />
+        <div className="flex items-start gap-3 border-y border-sky-100 py-4">
+          <StateIcon className={cn("mt-0.5 h-5 w-5 shrink-0", stateIconClass)} strokeWidth={1.9} aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-medium leading-6 text-ink">{gateSummary(currentGate)}</p>
+            <p className="mt-1 text-xs text-neutral-500">
+              {isLocked
+                ? `Expires ${formatTimestamp(currentGate.expiresAt)}`
+                : currentGate.decidedAt === undefined
+                  ? "Decision recorded."
+                  : `Decided ${formatTimestamp(currentGate.decidedAt)}`}
+            </p>
+          </div>
+          <div className="hidden shrink-0 flex-wrap justify-end gap-2 sm:flex">
+            <Pill tone={currentAction.isStateChanging ? "warn" : "info"} icon={ShieldAlert}>
+              {currentAction.isStateChanging ? "Changes production" : "Read only"}
+            </Pill>
+            <Pill tone="neutral" icon={Undo2}>
+              {currentAction.reversible ? "Reversible" : "Irreversible"}
+            </Pill>
+          </div>
+        </div>
+      </div>
+
+      {isLocked ? (
+        <div className="grid gap-6 sm:grid-cols-2 sm:gap-10">
+          <Consequence
+            tone="go"
+            title="If you approve"
+            body={`RunProof runs it immediately: ${currentAction.description}.`}
+            detail={
+              currentAction.reversible
+                ? "This action is reversible, and the execution output is written to the audit trail."
+                : "This action cannot be undone once it runs."
+            }
+          />
+          <Consequence
+            tone="stop"
+            title="If you reject"
+            body="Nothing runs. The gate closes with your reason attached and the run is filed as a rejection."
+            detail="The incident stays open, so a different runbook or a manual fix can still follow."
+          />
+        </div>
+      ) : (
+        <div>
+          <Eyebrow>{currentGate.state === "approved" ? "Execution output" : "Rejection reason"}</Eyebrow>
+          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-sky-50/70 p-3 text-[11px] leading-relaxed text-neutral-700">
+            {outcomeText({ execution: lastExecution, gate: currentGate })}
+          </pre>
+        </div>
+      )}
+
+      <div className="grid gap-6 border-t border-sky-100 pt-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-10">
+        <div>
+          <Eyebrow>What this decision rests on</Eyebrow>
+          <p className="mt-2 text-sm leading-6 text-neutral-700">
+            {hasEvidence
+              ? `${cardCount} evidence ${cardCount === 1 ? "card" : "cards"} were collected for this run.`
+              : "No evidence cards were collected for this run."}
+          </p>
+        </div>
+        <div className="sm:pt-1">
+          <Meter
+            label={<Eyebrow>Evidence confidence</Eyebrow>}
+            trailing={<span className="text-sm font-semibold text-ink">{confidence ?? "not available"}</span>}
+            percent={confidence === null ? null : CONFIDENCE_PERCENT[confidence]}
+            tone={confidence === null ? "neutral" : CONFIDENCE_TONE[confidence]}
+          />
+        </div>
+      </div>
 
       {decisionState.status === "error" ? (
-        <p className="flex items-center gap-2 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-          <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden="true" />
+        <p className="flex items-center gap-2 border-l-2 border-rose-500 bg-rose-50/70 py-3 pl-4 text-sm font-semibold text-rose-700">
+          <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.2} aria-hidden="true" />
           {decisionState.message}
         </p>
       ) : null}
 
-      {isLocked && cardCount === 0 ? (
-        <p className="rounded-2xl bg-panel px-4 py-3 text-xs font-medium text-neutral-600">
-          Approve is disabled: this run has no evidence cards yet.
-        </p>
-      ) : null}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleApprove()}
+            disabled={!isLocked || isDeciding || !hasEvidence}
+            className="inline-flex items-center gap-2 rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+          >
+            <CheckCircle2 className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+            {isDeciding ? "Approving…" : "Approve"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setRejectOpen(true)}
+            disabled={!isLocked || isDeciding}
+            className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:text-neutral-400 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
+          >
+            <XCircle className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+            Reject
+          </button>
+        </div>
+
+        {isLocked && !hasEvidence ? (
+          <p className="flex items-center gap-2 text-xs font-medium text-neutral-600">
+            <Info className="h-3.5 w-3.5 shrink-0 text-neutral-400" strokeWidth={2.2} aria-hidden="true" />
+            Approve is disabled: this run has no evidence cards yet.
+          </p>
+        ) : null}
+      </div>
 
       {rejectOpen ? (
-        <form
-          onSubmit={(event) => void handleRejectSubmit(event)}
-          className="flex flex-col gap-3 rounded-2xl bg-white p-5"
-        >
+        <form onSubmit={(event) => void handleRejectSubmit(event)} className="border-t border-sky-100 pt-6">
           <label htmlFor="reject-reason" className="text-sm font-semibold text-ink">
             Reason for rejecting
           </label>
+          <p className="mt-1 text-xs text-neutral-500">
+            Recorded in the audit trail alongside your name — write what the next responder needs to know.
+          </p>
           <textarea
             id="reject-reason"
             value={rejectReason}
             onChange={(event) => setRejectReason(event.target.value)}
             rows={3}
-            className="rounded-xl border border-neutral-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-signal focus:ring-2 focus:ring-signal/30"
+            className="mt-3 w-full rounded-lg border border-sky-100 px-3 py-2 text-sm text-ink outline-none transition placeholder:text-neutral-400 focus:border-signal focus:ring-2 focus:ring-signal/25"
           />
-          <div className="flex items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-3">
             <button
               type="submit"
               disabled={rejectReason.trim().length === 0 || isDeciding}
-              className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+              className="rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
             >
               Confirm reject
             </button>
@@ -237,7 +305,7 @@ export function ApprovalTab({
                 setRejectOpen(false);
                 setRejectReason("");
               }}
-              className="rounded-lg border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+              className="text-sm font-semibold text-neutral-600 transition hover:text-ink"
             >
               Cancel
             </button>

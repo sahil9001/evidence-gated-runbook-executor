@@ -167,6 +167,12 @@ export interface OverviewResponse {
   readonly activeIncidents: number;
   readonly runsToday: number;
   readonly recentActivity: readonly AuditEntry[];
+  // Every run state with a count, including states holding zero runs, so the
+  // readiness score can read `runsByState.approved` without a null check.
+  readonly runsByState: Readonly<Record<RunRow["state"], number>>;
+  // Runs whose evidence packet is missing at least one source its runbook
+  // allows. Counted per run, not per missing source.
+  readonly partialEvidenceRuns: number;
 }
 
 // mirrors backend/src/domain/store.ts IncidentRow

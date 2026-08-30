@@ -39,16 +39,35 @@ const CAPTION_CLASS: Readonly<Record<StageStatus, string>> = {
 };
 
 interface RunStagesProps {
+  /** null when the run predates the evidence-gap measurement. */
+  readonly evidenceGapCount: number | null;
   readonly failures: readonly RunFailure[];
   readonly gate: ApprovalGate | null;
   readonly packet: EvidencePacket | null;
   readonly runState: RunRow["state"];
 }
 
-function evidenceStage(packet: EvidencePacket | null, failures: readonly RunFailure[]): Stage {
+function evidenceStage(
+  packet: EvidencePacket | null,
+  failures: readonly RunFailure[],
+  isHistorical: boolean
+): Stage {
   const cards = packet?.cards.length ?? 0;
   const gaps = failures.length;
   const sourceGaps = `${gaps} source ${gaps === 1 ? "gap" : "gaps"}`;
+
+  // A run recorded before the collector that would have filled these gaps is
+  // settled history, not a fault. The Evidence tab already says so; this strip
+  // sat directly above that banner still colouring the same gap as a problem,
+  // so the two contradicted each other on the same screen.
+  if (isHistorical && gaps > 0) {
+    return {
+      label: "Evidence",
+      icon: Layers,
+      caption: cards === 0 ? "Archived — none collected" : `${cards} ${cards === 1 ? "card" : "cards"}, archived`,
+      status: "done"
+    };
+  }
 
   // Gaps are checked before the empty case. A run where every allowed
   // collector came back empty has zero cards AND a full set of failures, and
@@ -109,11 +128,11 @@ function actionStage(runState: RunRow["state"]): Stage {
  * can the action run. Drawn as four rules rather than four boxes so the
  * strip reads as one continuous progress track across the page.
  */
-export function RunStages({ failures, gate, packet, runState }: RunStagesProps) {
+export function RunStages({ evidenceGapCount, failures, gate, packet, runState }: RunStagesProps) {
   const sandboxCards = (packet?.cards ?? []).filter((card) => card.source === "sandbox").length;
 
   const stages: readonly Stage[] = [
-    evidenceStage(packet, failures),
+    evidenceStage(packet, failures, evidenceGapCount === null),
     {
       label: "Sandbox",
       icon: FlaskConical,

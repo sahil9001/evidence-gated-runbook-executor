@@ -20,7 +20,7 @@ export function FinalCtaSection() {
             className="object-cover"
             style={{ imageRendering: "pixelated" }}
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-white via-white/95 to-white/30 sm:via-white/88 sm:to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r from-white via-white/95 to-white/30 sm:via-white/90 sm:to-transparent" />
 
           <div className="relative grid gap-8 px-6 py-12 sm:px-10 sm:py-16 lg:grid-cols-[1.1fr_0.9fr] lg:px-14 lg:py-20">
             <div>

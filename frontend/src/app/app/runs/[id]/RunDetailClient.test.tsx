@@ -97,7 +97,8 @@ function makeDetail(overrides: Partial<RunDetailResponse> = {}): RunDetailRespon
       state: "awaiting_approval",
       createdAt: "2026-08-26T09:00:00.000Z",
       updatedAt: "2026-08-26T09:05:00.000Z",
-      createdBy: "oncall@runproof.dev"
+      createdBy: "oncall@runproof.dev",
+      evidenceGapCount: 0
     },
     incident: {
       id: "inc-1",
@@ -215,7 +216,7 @@ describe("RunDetailClient", () => {
 
     await screen.findByRole("tablist");
     expect(screen.getByRole("tab", { name: "Diagnostics" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText(/no sandbox runs in this build/i)).toBeInTheDocument();
+    expect(screen.getByText(/recorded output, not a live sandbox run/i)).toBeInTheDocument();
   });
 
   it("clicking a tab writes the new tab to the URL", async () => {
@@ -284,7 +285,7 @@ describe("RunDetailClient", () => {
   });
 
   describe("Diagnostics tab", () => {
-    it("labels the sandbox output as a fixture, not live output", async () => {
+    it("labels the sandbox output as recorded, not live", async () => {
       searchParamsValue = new URLSearchParams("tab=diagnostics");
       getRun.mockResolvedValue(
         makeDetail({
@@ -295,7 +296,7 @@ describe("RunDetailClient", () => {
       );
       render(<RunDetailClient runId="run-1" />);
 
-      expect(await screen.findByText(/no sandbox runs in this build/i)).toBeInTheDocument();
+      expect(await screen.findByText(/recorded output, not a live sandbox run/i)).toBeInTheDocument();
       expect(screen.getByText(/timeout reproduced in isolation/i)).toBeInTheDocument();
     });
   });
@@ -462,6 +463,56 @@ describe("RunDetailClient", () => {
       render(<RunDetailClient runId="run-1" />);
 
       expect(await screen.findByText(/1 card, 1 source gap/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("archived runs", () => {
+    const gapFailures = [{ source: "sandbox" as const, message: 'No evidence collected from source "sandbox"' }];
+
+    it("does not present a pre-measurement gap as an active failure", async () => {
+      searchParamsValue = new URLSearchParams("tab=evidence");
+      // `evidenceGapCount: null` means the run ran before the collector that
+      // would have filled this gap existed. Nothing is wrong and nothing can be
+      // done, so alarming about it would train operators to ignore the banner
+      // that does mean something.
+      getRun.mockResolvedValue(
+        makeDetail({
+          run: { ...makeDetail().run, evidenceGapCount: null },
+          failures: gapFailures
+        })
+      );
+      render(<RunDetailClient runId="run-1" />);
+
+      expect(await screen.findByText(/predates? the current collectors/i)).toBeInTheDocument();
+      expect(screen.queryByText(/never arrived/i)).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("still alarms when a measured run genuinely has a gap", async () => {
+      searchParamsValue = new URLSearchParams("tab=evidence");
+      getRun.mockResolvedValue(
+        makeDetail({
+          run: { ...makeDetail().run, evidenceGapCount: 1 },
+          failures: gapFailures
+        })
+      );
+      render(<RunDetailClient runId="run-1" />);
+
+      expect(await screen.findByText(/this packet is incomplete/i)).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+
+    it("explains an empty Diagnostics tab on an archived run", async () => {
+      searchParamsValue = new URLSearchParams("tab=diagnostics");
+      getRun.mockResolvedValue(
+        makeDetail({
+          run: { ...makeDetail().run, evidenceGapCount: null },
+          packet: makePacket({ cards: [] })
+        })
+      );
+      render(<RunDetailClient runId="run-1" />);
+
+      expect(await screen.findByText(/recorded before diagnostics were collected/i)).toBeInTheDocument();
     });
   });
 });

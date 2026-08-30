@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, Inbox } from "lucide-react";
+import { AlertTriangle, ChevronDown, History, Inbox } from "lucide-react";
 import { EmptyState, Eyebrow } from "@/app/app/components/console/Surface";
 import { Meter } from "@/app/app/components/console/Indicators";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,8 @@ import {
 } from "../shared";
 
 interface FailuresBannerProps {
+  /** null when the run predates the evidence-gap measurement. */
+  readonly evidenceGapCount: number | null;
   readonly failures: readonly RunFailure[];
 }
 
@@ -26,16 +28,50 @@ interface FailuresBannerProps {
  * only signal that tells an operator the evidence in front of them is
  * partial rather than complete. It leads the tab as a full-bleed rule, not a
  * dismissible-looking box.
+ *
+ * Two different situations reach here and must not look the same:
+ *
+ * A run whose gap was measured (`evidenceGapCount` is a number) has a real,
+ * current problem — a source the runbook authorises came back with nothing,
+ * and that is worth alarming about.
+ *
+ * A run predating the measurement (`null`) has a gap only because it ran
+ * before the collector that would have filled it existed. Nothing is wrong,
+ * nothing can be done, and the gap is permanent. Showing settled history as
+ * an active failure trains operators to ignore the banner — which costs the
+ * real signal its meaning.
  */
-function FailuresBanner({ failures }: FailuresBannerProps) {
+function FailuresBanner({ evidenceGapCount, failures }: FailuresBannerProps) {
   if (failures.length === 0) return null;
+
+  const isHistorical = evidenceGapCount === null;
+  const sourceWord = failures.length === 1 ? "source" : "sources";
+
+  if (isHistorical) {
+    return (
+      <div className="flex items-start gap-3 border-l-2 border-neutral-300 bg-neutral-50 py-4 pl-4 pr-5">
+        <History className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" strokeWidth={2} aria-hidden="true" />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-ink">
+            Archived packet — {failures.length} {sourceWord} predate{failures.length === 1 ? "s" : ""} the
+            current collectors.
+          </p>
+          <p className="mt-1 text-xs leading-5 text-neutral-600">
+            This run was recorded before {failures.map((failure) => failure.source).join(", ")} could be
+            collected. The gap is permanent and expected; newer runs collect{" "}
+            {failures.length === 1 ? "it" : "them"}.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div role="alert" className="flex items-start gap-3 border-l-2 border-rose-500 bg-rose-50/70 py-4 pl-4 pr-5">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" strokeWidth={2.2} aria-hidden="true" />
       <div className="min-w-0">
         <p className="text-sm font-semibold text-rose-800">
-          This packet is incomplete — {failures.length} evidence {failures.length === 1 ? "source" : "sources"} never
-          arrived.
+          This packet is incomplete — {failures.length} evidence {sourceWord} never arrived.
         </p>
         <ul className="mt-2 space-y-1 text-xs leading-5 text-rose-700">
           {failures.map((failure) => (
@@ -119,20 +155,24 @@ interface SourceGroupProps {
   readonly cards: readonly EvidenceCard[];
   readonly failure: RunFailure | undefined;
   readonly source: EvidenceSourceKind;
+  /** The run predates the evidence-gap measurement. */
+  readonly isHistorical: boolean;
 }
 
 /** A source the runbook allowed but that returned nothing still gets a group:
  * an absent heading would quietly hide the hole in the packet. */
-function SourceGroup({ cards, failure, source }: SourceGroupProps) {
+function SourceGroup({ cards, failure, isHistorical, source }: SourceGroupProps) {
   if (cards.length === 0 && failure === undefined) return null;
   const Icon = SOURCE_ICONS[source];
   const isEmpty = cards.length === 0;
+  // An archived gap is not a fault, so it does not get the fault colour.
+  const emptyTone = isHistorical ? "text-neutral-400" : "text-rose-500";
 
   return (
     <section>
       <div className="flex items-center gap-2 border-b border-sky-100 pb-2">
         <Icon
-          className={cn("h-4 w-4 shrink-0", isEmpty ? "text-rose-500" : "text-signal")}
+          className={cn("h-4 w-4 shrink-0", isEmpty ? emptyTone : "text-signal")}
           strokeWidth={2}
           aria-hidden="true"
         />
@@ -140,14 +180,18 @@ function SourceGroup({ cards, failure, source }: SourceGroupProps) {
         <span
           className={cn(
             "text-xs font-semibold tabular-nums",
-            isEmpty ? "text-rose-600" : "text-neutral-400"
+            isEmpty && !isHistorical ? "text-rose-600" : "text-neutral-400"
           )}
         >
           {cards.length}
         </span>
       </div>
       {isEmpty ? (
-        <p className="py-4 text-sm text-rose-700">Nothing arrived from this source — the packet is incomplete here.</p>
+        <p className={`py-4 text-sm ${isHistorical ? "text-neutral-500" : "text-rose-700"}`}>
+          {isHistorical
+            ? "Not collected for this run — this packet predates the collector for this source."
+            : "Nothing arrived from this source — the packet is incomplete here."}
+        </p>
       ) : (
         <ul>
           {cards.map((card) => (
@@ -161,17 +205,21 @@ function SourceGroup({ cards, failure, source }: SourceGroupProps) {
 
 interface EvidenceTabProps {
   readonly confidence: Confidence | null;
+  readonly evidenceGapCount: number | null;
   readonly failures: readonly RunFailure[];
   readonly packet: EvidencePacket | null;
 }
 
-export function EvidenceTab({ confidence, failures, packet }: EvidenceTabProps) {
+export function EvidenceTab({ confidence, evidenceGapCount, failures, packet }: EvidenceTabProps) {
+  // A run recorded before the gap measurement existed: its missing sources are
+  // settled history, not a fault to act on.
+  const isHistorical = evidenceGapCount === null;
   const cards = packet?.cards ?? [];
   const reportingSources = new Set(cards.map((card) => card.source));
 
   return (
     <div className="flex flex-col gap-8">
-      <FailuresBanner failures={failures} />
+      <FailuresBanner evidenceGapCount={evidenceGapCount} failures={failures} />
 
       <section className="grid gap-6 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] sm:gap-10">
         <div>
@@ -206,7 +254,7 @@ export function EvidenceTab({ confidence, failures, packet }: EvidenceTabProps) 
       ) : (
         <div className="flex flex-col gap-8">
           {SOURCE_ORDER.map((source) => (
-            <SourceGroup
+            <SourceGroup isHistorical={isHistorical}
               key={source}
               source={source}
               cards={cards.filter((card) => card.source === source)}

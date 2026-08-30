@@ -215,9 +215,16 @@ export function RunDetailClient({ runId }: RunDetailClientProps) {
             className="pt-7 focus-visible:outline-none"
           >
             {activeTab === "evidence" ? (
-              <EvidenceTab packet={data.packet} failures={data.failures} confidence={data.confidence} />
+              <EvidenceTab
+                packet={data.packet}
+                failures={data.failures}
+                confidence={data.confidence}
+                evidenceGapCount={data.run.evidenceGapCount}
+              />
             ) : null}
-            {activeTab === "diagnostics" ? <DiagnosticsTab packet={data.packet} /> : null}
+            {activeTab === "diagnostics" ? (
+              <DiagnosticsTab packet={data.packet} evidenceGapCount={data.run.evidenceGapCount} />
+            ) : null}
             {activeTab === "approval" ? (
               <ApprovalTab
                 packet={data.packet}

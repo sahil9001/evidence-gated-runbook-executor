@@ -49,7 +49,8 @@ function makeRunResponse(): RunResponse {
       state: "awaiting_approval",
       createdAt: "t",
       updatedAt: "t",
-      createdBy: "oncall@runproof.dev"
+      createdBy: "oncall@runproof.dev",
+      evidenceGapCount: 0
     },
     packet: { id: "pk-1", incidentId: "inc-1", runbookId: "rb-1", cards: [], summary: "s", builtAt: "t" },
     action: {
@@ -95,7 +96,8 @@ describe("IncidentDetailClient", () => {
             state: "awaiting_approval",
             createdAt: "2026-08-26T09:00:00.000Z",
             updatedAt: "2026-08-26T09:00:00.000Z",
-            createdBy: "oncall@runproof.dev"
+            createdBy: "oncall@runproof.dev",
+            evidenceGapCount: 0
           }
         ]
       })

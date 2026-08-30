@@ -22,6 +22,9 @@ readonly WEB_URL="http://localhost:${WEB_PORT}"
 readonly READY_TIMEOUT_SECONDS=90
 # How often to say "still working" while waiting on a server.
 readonly HEARTBEAT_SECONDS=5
+# Ceiling on a single readiness probe. Clamped down further near the deadline
+# so no one attempt can carry the total wait past READY_TIMEOUT_SECONDS.
+readonly CURL_TIMEOUT_SECONDS=2
 
 readonly BOLD=$'\033[1m' DIM=$'\033[2m' RED=$'\033[31m' GREEN=$'\033[32m' RESET=$'\033[0m'
 
@@ -202,8 +205,18 @@ wait_until_up() {
   # fifteen seconds in — and would stretch the timeout itself well past the 90s
   # it claims. Both would mislead precisely when startup is slow, which is the
   # only time anyone reads this.
-  local began=$SECONDS elapsed=0 next_heartbeat=$HEARTBEAT_SECONDS
-  while (( elapsed < READY_TIMEOUT_SECONDS )); do
+  local began=$SECONDS elapsed=0 remaining=0 next_heartbeat=$HEARTBEAT_SECONDS
+  # The deadline is a real bound, not an approximate one. Two things are needed
+  # for that, and only having the first is why an earlier version still
+  # overran: read the clock at the top of each pass so the guard tests the
+  # current time rather than the previous pass's, AND size the work inside the
+  # pass to the budget that is actually left. A pass admitted at 89s that is
+  # then free to spend two seconds in curl and one sleeping finishes at 92s,
+  # which is not a 90s timeout however the guard is written.
+  while :; do
+    elapsed=$(( SECONDS - began ))
+    remaining=$(( READY_TIMEOUT_SECONDS - elapsed ))
+    (( remaining > 0 )) || break
     if ! kill -0 "$pid" 2>/dev/null; then
       die "the $what exited before it came up. Its output is above."
     fi
@@ -217,9 +230,18 @@ wait_until_up() {
       Please report this, and as a workaround run it directly instead:
         cd $( [[ $what == backend ]] && echo backend || echo frontend ) && npm run dev"
     fi
-    if curl -sS -o /dev/null --max-time 2 "$url" 2>/dev/null; then
+    # Never let one attempt outlive the budget. `--max-time` is clamped to
+    # whatever is left, so the final attempt ends exactly at the deadline
+    # instead of two seconds past it.
+    local attempt_timeout=$(( remaining < CURL_TIMEOUT_SECONDS ? remaining : CURL_TIMEOUT_SECONDS ))
+    if curl -sS -o /dev/null --max-time "$attempt_timeout" "$url" 2>/dev/null; then
       return 0
     fi
+    # Same reasoning for the pause between attempts: if the attempt consumed
+    # the rest of the budget there is nothing left to sleep through, and
+    # sleeping anyway is how a 90s timeout becomes 91.
+    elapsed=$(( SECONDS - began ))
+    (( elapsed < READY_TIMEOUT_SECONDS )) || break
     sleep 1
     elapsed=$(( SECONDS - began ))
     # A threshold rather than a modulo: a slow pass can skip over the exact

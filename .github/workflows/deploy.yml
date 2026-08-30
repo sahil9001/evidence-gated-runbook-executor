@@ -15,6 +15,14 @@ name: Deploy
 on:
   push:
     branches: [main]
+  # Every pull request runs `verify` before it can be merged. Without this the
+  # workflow only fired after a merge, so each PR was reviewed and landed with
+  # no automated evidence that its tests, types, or lint actually passed — and
+  # a broken lockfile reached main exactly that way once already. Both deploy
+  # jobs below are guarded on `refs/heads/main`, so a pull request run can only
+  # ever reach `verify`; nothing here can deploy from a fork or a branch.
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 # One production deploy at a time, and never cancel one that is already
@@ -61,6 +69,14 @@ jobs:
       - name: Backend tests
         working-directory: backend
         run: npm test
+
+      # Runs the suite a second time under istanbul, which is the only way the
+      # 80% domain-layer threshold in vitest.config.ts can fail a pull request.
+      # Without this the threshold was documentation rather than a gate, and it
+      # had already silently slipped below its own floor.
+      - name: Backend coverage thresholds
+        working-directory: backend
+        run: npm run test:coverage
 
       # `pretypecheck` runs `wrangler types` first, which only reads
       # wrangler.jsonc — no Cloudflare credentials are needed for this job.
@@ -144,8 +160,26 @@ jobs:
         run: |
           set -euo pipefail
           placeholder='"database_id": "local-dev-placeholder"'
+          current=$(grep -oE '"database_id": "[^"]*"' wrangler.jsonc | head -1)
+
+          # An explicitly configured D1_DATABASE_ID wins over whatever is
+          # committed, including a real-looking id. The previous order checked
+          # for the placeholder first and exited early on any other value, so
+          # once a real id was committed the variable was silently ignored —
+          # a fork deploying to its own Cloudflare account would migrate and
+          # deploy against the repository owner's database instead of its own.
+          if [ -n "${D1_DATABASE_ID:-}" ]; then
+            sed "s|$current|\"database_id\": \"$D1_DATABASE_ID\"|" wrangler.jsonc > wrangler.jsonc.tmp
+            mv wrangler.jsonc.tmp wrangler.jsonc
+            grep -qF "$D1_DATABASE_ID" wrangler.jsonc
+            echo "Pointed the D1 binding at the configured D1_DATABASE_ID."
+            exit 0
+          fi
+
           if ! grep -qF "$placeholder" wrangler.jsonc; then
-            echo "wrangler.jsonc already carries a real database_id; leaving it as is."
+            echo "No D1_DATABASE_ID variable set; using the database_id committed in wrangler.jsonc."
+            echo "That is correct only when deploying to the account that owns it — set the"
+            echo "D1_DATABASE_ID repository variable to deploy this fork to your own account."
             exit 0
           fi
           if [ -z "${D1_DATABASE_ID:-}" ]; then

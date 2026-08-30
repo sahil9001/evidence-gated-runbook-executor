@@ -281,16 +281,35 @@ each stage (tool discovery → a read-only call → the sandboxed diagnostic →
 ### Verification
 
 ```bash
-cd backend && npm test && npm run typecheck   # 492 tests, clean typecheck
-cd ../frontend && npm test && npm run lint && npm run typecheck && npm run build
+cd backend
+npm test && npm run typecheck && npm run test:coverage   # 528 tests, thresholds enforced
+
+cd ../frontend
+npm test && npm run lint && npm run typecheck && npm run build   # 230 tests
 ```
 
-These are the same commands CI runs on merge (minus the frontend `build`, which
-the deploy job covers via `opennextjs-cloudflare build`) — see
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
+These are the same commands CI runs — see
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which runs
+`verify` on every pull request and again on every merge to `main` (minus the
+frontend `build`, which the deploy job covers via `opennextjs-cloudflare
+build`).
 
-`frontend` runs 185 tests of its own. Both counts are from a local run at
-PR #25; CI runs the same two suites on every merge to `main`.
+**758 tests total** — 528 backend, 230 frontend — from a local run at PR #32.
+
+**Coverage.** `npm run test:coverage` enforces an 80% threshold and currently
+reports, over the domain layer:
+
+| Statements | Branches | Functions | Lines |
+|---|---|---|---|
+| 97.98% | 91.34% | 100% | 100% |
+
+Two things worth being straight about. The threshold is scoped to
+`src/domain/**` — the pure decision logic where a wrong answer is a safety
+problem — not to routes, adapters, or the MCP transport, which are covered by
+integration tests that assert behaviour through real HTTP and a real D1 rather
+than by line count. And the frontend has no coverage threshold at all; its 230
+tests are behavioural (approve calls the API, rejection requires a reason, an
+archived gap is not an alert) and were not written to a percentage.
 
 ## Qodo Code Review Evidence
 
@@ -334,6 +353,16 @@ selection, not the full log.
   part of what surfaced the loose `runbookSchema` gap re-review flagged.
 - PR #3's SSE eviction bug was introduced by adding the session idle-TTL that
   the *previous* finding ("sessions never expired") required.
+
+**Two High findings answered late, in [#32][pr32]:** PR #17's readiness loop
+tested the *previous* pass's elapsed time, so `./scripts/dev.sh` could wait
+past the timeout it advertises; PR #22's deploy step checked for the
+placeholder `database_id` before reading `D1_DATABASE_ID`, so once a real id
+was committed the variable was silently ignored and a fork would deploy
+against this repository's database rather than its own. Both are fixed; the
+delay is recorded here rather than tidied away.
+
+[pr32]: https://github.com/sahil9001/evidence-gated-runbook-executor/pull/32
 
 **Two findings we did not fix, and why:**
 - **PR #1 — "Serializer breaks strict typecheck."** Disputed: `npm run

@@ -41,7 +41,7 @@ export function DiagnosticsTab({ packet }: DiagnosticsTabProps) {
         <ul className="flex flex-col gap-6">
           {sandboxCards.map((card) => (
             <li key={card.id} className="border-t border-sky-100 pt-5 first:border-t-0 first:pt-0">
-              <Eyebrow>Reproduction</Eyebrow>
+              <Eyebrow>Sandbox output</Eyebrow>
               <p className="mt-2 text-[15px] font-medium leading-6 text-ink">{card.claim}</p>
               <p className="mt-1 text-xs text-neutral-500">Collected {formatTimestamp(card.collectedAt)}</p>
               <pre className="mt-3 overflow-x-auto rounded-lg bg-sky-50/70 p-3 text-[11px] leading-relaxed text-neutral-700">

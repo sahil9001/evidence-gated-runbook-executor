@@ -5,6 +5,9 @@ import { createLogSource, type LogFixture } from "./logs";
 import { createMetricSource, type MetricFixture } from "./metrics";
 import { createDeploySource, type DeployFixture } from "./deploys";
 import { ALL_SOURCES } from "./index";
+import { createSandboxSource, parseDiagnosticOutput, type SandboxFixture } from "./sandbox";
+import { loadRunbook } from "../domain/runbook";
+import checkoutFailureRaw from "../../../testing/runbooks/checkout-failure.json";
 
 const FIXED_NOW = "2026-08-25T02:00:00.000Z";
 
@@ -218,8 +221,21 @@ describe("createDeploySource", () => {
 });
 
 describe("ALL_SOURCES", () => {
-  it("contains exactly one source per kind: logs, metrics, deploys", () => {
-    expect(ALL_SOURCES.map((s) => s.kind).sort()).toEqual(["deploys", "logs", "metrics"]);
+  it("contains exactly one source per kind: logs, metrics, deploys, sandbox", () => {
+    expect(ALL_SOURCES.map((s) => s.kind).sort()).toEqual(["deploys", "logs", "metrics", "sandbox"]);
+  });
+
+  it("covers every source the shipped runbook authorises", async () => {
+    // The gap this collector closed: `checkout-failure` has always listed
+    // `sandbox` in allowedSources with nothing to collect it, so every packet
+    // was permanently missing a promised source. A runbook that authorises a
+    // source no collector provides is a contract the system cannot keep.
+    const runbook = loadRunbook(checkoutFailureRaw);
+    const collectable = new Set(ALL_SOURCES.map((source) => source.kind));
+
+    for (const allowed of runbook.allowedSources) {
+      expect(collectable.has(allowed)).toBe(true);
+    }
   });
 
   it("every source's default collect() run passes evidenceCardSchema", async () => {
@@ -227,5 +243,111 @@ describe("ALL_SOURCES", () => {
       const cards = await source.collect(ctx);
       for (const card of cards) expect(() => evidenceCardSchema.parse(card)).not.toThrow();
     }
+  });
+});
+
+const validSandbox = (over: Partial<SandboxFixture> = {}): SandboxFixture => ({
+  id: "sb-x",
+  service: "payment-service",
+  runbookId: "checkout-failure",
+  recordedAt: "2026-08-25T02:04:00.000Z",
+  exitCode: 0,
+  stdout: "timeout_ms=3000\nfailed_requests=47\nlikely_commit=8f31c2b\nrecommendation=rollback\n",
+  ...over
+});
+
+describe("createSandboxSource", () => {
+  it("emits a reproduction card and a separate recommendation card", async () => {
+    const cards = await createSandboxSource([validSandbox()]).collect(ctx);
+
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.claim).toMatch(/reproduced the payment-service timeout/i);
+    expect(cards[0]?.claim).toMatch(/47 failed requests against a 3000ms threshold/i);
+    // Split on purpose: a reviewer can accept the measurement and still
+    // disagree with what it implies.
+    expect(cards[1]?.claim).toMatch(/points at 8f31c2b and recommends rollback/i);
+    for (const card of cards) expect(() => evidenceCardSchema.parse(card)).not.toThrow();
+  });
+
+  it("never presents a recommendation as authorisation", async () => {
+    const cards = await createSandboxSource([validSandbox()]).collect(ctx);
+
+    expect(cards[1]?.claim).toMatch(/still gated on approval/i);
+    expect((cards[1]?.raw as { requiresApproval: boolean }).requiresApproval).toBe(true);
+  });
+
+  it("reports 'no candidate' honestly rather than inventing one", async () => {
+    const cards = await createSandboxSource([
+      validSandbox({
+        stdout: "timeout_ms=3000\nfailed_requests=47\nlikely_commit=unknown\nrecommendation=none\n"
+      })
+    ]).collect(ctx);
+
+    expect(cards[1]?.claim).toMatch(/found no rollback candidate/i);
+    expect(cards[1]?.confidence).toBe("low");
+  });
+
+  it("scopes recordings to the incident's service", async () => {
+    const cards = await createSandboxSource([validSandbox({ service: "billing-service" })]).collect(ctx);
+
+    expect(cards).toEqual([]);
+  });
+
+  it("refuses to trust output from a diagnostic that did not exit cleanly", async () => {
+    await expect(createSandboxSource([validSandbox({ exitCode: 2 })]).collect(ctx)).rejects.toThrow(
+      /exited 2/i
+    );
+  });
+
+  it("rejects a malformed recording rather than attaching an unreadable card", async () => {
+    await expect(createSandboxSource([{ id: "sb-bad" }]).collect(ctx)).rejects.toThrow(
+      CollectorError
+    );
+  });
+});
+
+describe("parseDiagnosticOutput", () => {
+  it("parses the four key=value lines the runbook promises", () => {
+    expect(
+      parseDiagnosticOutput(
+        "timeout_ms=3000\nfailed_requests=47\nlikely_commit=8f31c2b\nrecommendation=rollback\n",
+        "sb-x"
+      )
+    ).toEqual({
+      timeout_ms: 3000,
+      failed_requests: 47,
+      likely_commit: "8f31c2b",
+      recommendation: "rollback"
+    });
+  });
+
+  it("names every missing key rather than failing on the first", () => {
+    expect(() => parseDiagnosticOutput("timeout_ms=3000\n", "sb-x")).toThrow(
+      /failed_requests, likely_commit, recommendation/
+    );
+  });
+
+  it("rejects a line that is not key=value", () => {
+    expect(() => parseDiagnosticOutput("Traceback (most recent call last):", "sb-x")).toThrow(
+      /not key=value/i
+    );
+  });
+
+  it("rejects a recommendation outside the contract's enum", () => {
+    expect(() =>
+      parseDiagnosticOutput(
+        "timeout_ms=3000\nfailed_requests=47\nlikely_commit=8f31c2b\nrecommendation=just_do_it\n",
+        "sb-x"
+      )
+    ).toThrow(/does not match the runbook/i);
+  });
+
+  it("ignores blank lines and surrounding whitespace", () => {
+    expect(
+      parseDiagnosticOutput(
+        "\n  timeout_ms = 3000  \n\nfailed_requests=47\nlikely_commit=8f31c2b\nrecommendation=rollback\n\n",
+        "sb-x"
+      ).timeout_ms
+    ).toBe(3000);
   });
 });

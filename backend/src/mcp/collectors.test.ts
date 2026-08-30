@@ -14,6 +14,7 @@ const FIXED_NOW = "2026-08-25T02:00:00.000Z";
 const ctx: CollectContext = {
   incidentId: "inc-checkout-1",
   service: "payment-service",
+  runbookId: "checkout-failure",
   now: () => FIXED_NOW
 };
 
@@ -293,6 +294,17 @@ describe("createSandboxSource", () => {
     expect(cards).toEqual([]);
   });
 
+  it("scopes recordings to the runbook that produced them, not just the service", async () => {
+    // Same service, different runbook. The packet is labelled with the matched
+    // runbook's id, so attaching another runbook's diagnostic output here would
+    // present unrelated evidence as this runbook's.
+    const cards = await createSandboxSource([
+      validSandbox({ service: "payment-service", runbookId: "some-other-runbook" })
+    ]).collect(ctx);
+
+    expect(cards).toEqual([]);
+  });
+
   it("refuses to trust output from a diagnostic that did not exit cleanly", async () => {
     await expect(createSandboxSource([validSandbox({ exitCode: 2 })]).collect(ctx)).rejects.toThrow(
       /exited 2/i
@@ -340,6 +352,64 @@ describe("parseDiagnosticOutput", () => {
         "sb-x"
       )
     ).toThrow(/does not match the runbook/i);
+  });
+
+  it("refuses a blank numeric value rather than coercing it to zero", () => {
+    // `Number("")` is 0, so a coercing schema would have turned missing output
+    // into a real-looking measurement of zero and attached it as
+    // high-confidence evidence.
+    expect(() =>
+      parseDiagnosticOutput(
+        "timeout_ms=\nfailed_requests=47\nlikely_commit=8f31c2b\nrecommendation=rollback\n",
+        "sb-x"
+      )
+    ).toThrow(/non-negative integer/i);
+  });
+
+  it("refuses non-integer numeric values", () => {
+    for (const bad of ["3.5", "-1", "3000ms", "NaN"]) {
+      expect(() =>
+        parseDiagnosticOutput(
+          `timeout_ms=${bad}\nfailed_requests=47\nlikely_commit=8f31c2b\nrecommendation=rollback\n`,
+          "sb-x"
+        )
+      ).toThrow(/non-negative integer/i);
+    }
+  });
+
+  it("rejects a recording that contradicts itself", () => {
+    // The runbook ties the two together: `rollback` exactly when a commit was
+    // found. Validating them independently let this through, and the card
+    // builder then resolved it silently in one direction.
+    expect(() =>
+      parseDiagnosticOutput(
+        "timeout_ms=3000\nfailed_requests=47\nlikely_commit=8f31c2b\nrecommendation=none\n",
+        "sb-x"
+      )
+    ).toThrow(/contradict/i);
+
+    expect(() =>
+      parseDiagnosticOutput(
+        "timeout_ms=3000\nfailed_requests=47\nlikely_commit=unknown\nrecommendation=rollback\n",
+        "sb-x"
+      )
+    ).toThrow(/contradict/i);
+  });
+
+  it("accepts both self-consistent combinations", () => {
+    expect(
+      parseDiagnosticOutput(
+        "timeout_ms=3000\nfailed_requests=47\nlikely_commit=8f31c2b\nrecommendation=rollback\n",
+        "sb-x"
+      ).recommendation
+    ).toBe("rollback");
+
+    expect(
+      parseDiagnosticOutput(
+        "timeout_ms=3000\nfailed_requests=0\nlikely_commit=unknown\nrecommendation=none\n",
+        "sb-x"
+      ).recommendation
+    ).toBe("none");
   });
 
   it("ignores blank lines and surrounding whitespace", () => {

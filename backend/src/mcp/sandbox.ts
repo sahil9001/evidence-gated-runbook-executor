@@ -33,12 +33,43 @@ export type SandboxFixture = z.infer<typeof sandboxFixtureSchema>;
  */
 const EXPECTED_KEYS = ["timeout_ms", "failed_requests", "likely_commit", "recommendation"] as const;
 
-const diagnosticOutputSchema = z.object({
-  timeout_ms: z.coerce.number().int().nonnegative(),
-  failed_requests: z.coerce.number().int().nonnegative(),
-  likely_commit: z.string().min(1),
-  recommendation: z.enum(["rollback", "none"])
-});
+/**
+ * A non-negative integer as the script prints it.
+ *
+ * Deliberately NOT `z.coerce.number()`: JavaScript coerces `""` to `0`, so a
+ * blank `timeout_ms=` would have parsed as a real measurement of zero and
+ * been attached to the packet as high-confidence evidence. Fabricating a
+ * number out of missing output is precisely what this collector exists to
+ * prevent, so the raw text has to be digits before anything converts it.
+ */
+const integerOutput = z
+  .string()
+  .regex(/^\d+$/, "must be a non-negative integer with no blank, sign, or decimal part")
+  .transform(Number);
+
+const diagnosticOutputSchema = z
+  .object({
+    timeout_ms: integerOutput,
+    failed_requests: integerOutput,
+    likely_commit: z.string().min(1),
+    recommendation: z.enum(["rollback", "none"])
+  })
+  // The runbook does not describe these as independent fields: `recommendation`
+  // is `rollback` if a likely_commit was found, else `none`. Validating them
+  // separately let contradictory output through -- `likely_commit=8f31c2b`
+  // with `recommendation=none`, or `unknown` with `rollback` -- which the card
+  // builder below then silently resolved in one direction, reporting "no
+  // rollback candidate" over raw output that said otherwise. A recording that
+  // contradicts itself is a broken recording, not evidence.
+  .superRefine((output, ctx) => {
+    if ((output.likely_commit === "unknown") === (output.recommendation === "none")) return;
+    ctx.addIssue({
+      code: "custom",
+      message:
+        `likely_commit "${output.likely_commit}" and recommendation "${output.recommendation}" contradict ` +
+        `each other; the runbook requires "rollback" exactly when a commit was found and "none" otherwise`
+    });
+  });
 export type DiagnosticOutput = z.infer<typeof diagnosticOutputSchema>;
 
 /**
@@ -129,7 +160,9 @@ function toRecommendationCard(
   output: DiagnosticOutput,
   ctx: CollectContext
 ): EvidenceCard {
-  const hasCandidate = output.likely_commit !== "unknown" && output.recommendation === "rollback";
+  // Safe to read either field: the schema's cross-field refine has already
+  // rejected any recording where the two disagree.
+  const hasCandidate = output.likely_commit !== "unknown";
 
   return {
     id: `${ctx.incidentId}-sandbox-${fixture.id}-recommendation`,
@@ -165,9 +198,16 @@ export function createSandboxSource(fixtures: readonly unknown[] = defaultSandbo
     kind: SOURCE_KIND,
     async collect(ctx: CollectContext): Promise<EvidenceCard[]> {
       const parsed = parseFixtures(fixtures);
-      // Scoped by service like every other collector: a recording made
-      // against one service is not evidence about another.
-      const scoped = parsed.filter((fixture) => fixture.service === ctx.service);
+      // Scoped by service like every other collector -- a recording made
+      // against one service is not evidence about another -- and by runbook
+      // too, which the others have no equivalent of. Each recording names the
+      // runbook diagnostic that produced it, and the packet is labelled with
+      // the matched runbook's id, so matching on service alone would let a
+      // recording from a different runbook targeting the same service be
+      // presented as this one's output.
+      const scoped = parsed.filter(
+        (fixture) => fixture.service === ctx.service && fixture.runbookId === ctx.runbookId
+      );
 
       return scoped.flatMap((fixture) => {
         // A non-zero exit means the diagnostic did not complete, so there is

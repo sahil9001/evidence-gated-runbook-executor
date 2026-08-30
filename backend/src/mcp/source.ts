@@ -8,6 +8,14 @@ import type { EvidenceCard, EvidenceSourceKind } from "../domain/evidence";
 export type CollectContext = {
   incidentId: string;
   service: string;
+  /**
+   * The runbook this collection is running under. Collectors whose records
+   * declare which runbook produced them (the sandbox recordings do) must
+   * match on it as well as on service: the packet is labelled with this
+   * runbook's id, so attaching a record made under a different one would
+   * present unrelated output as this runbook's evidence.
+   */
+  runbookId: string;
   now: () => string;
 };
 

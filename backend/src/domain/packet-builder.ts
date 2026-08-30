@@ -106,7 +106,12 @@ export async function collectEvidence(input: {
 }): Promise<{ packet: EvidencePacket; failures: CollectorError[] }> {
   assertInScope(input.sources, input.runbook.allowedSources);
 
-  const ctx: CollectContext = { incidentId: input.incidentId, service: input.service, now: input.now };
+  const ctx: CollectContext = {
+    incidentId: input.incidentId,
+    service: input.service,
+    runbookId: input.runbook.id,
+    now: input.now
+  };
 
   const settled = await Promise.allSettled(
     input.sources.map(async (source) => {

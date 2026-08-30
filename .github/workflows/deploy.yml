@@ -70,6 +70,14 @@ jobs:
         working-directory: backend
         run: npm test
 
+      # Runs the suite a second time under istanbul, which is the only way the
+      # 80% domain-layer threshold in vitest.config.ts can fail a pull request.
+      # Without this the threshold was documentation rather than a gate, and it
+      # had already silently slipped below its own floor.
+      - name: Backend coverage thresholds
+        working-directory: backend
+        run: npm run test:coverage
+
       # `pretypecheck` runs `wrangler types` first, which only reads
       # wrangler.jsonc — no Cloudflare credentials are needed for this job.
       - name: Backend typecheck

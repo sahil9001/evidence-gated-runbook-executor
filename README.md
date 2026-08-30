@@ -281,9 +281,11 @@ each stage (tool discovery → a read-only call → the sandboxed diagnostic →
 ### Verification
 
 ```bash
-cd backend && npm test && npm run typecheck        # 528 tests, clean typecheck
-cd backend && npm run test:coverage                # domain-layer coverage, thresholds enforced
-cd ../frontend && npm test && npm run lint && npm run typecheck && npm run build   # 230 tests
+cd backend
+npm test && npm run typecheck && npm run test:coverage   # 528 tests, thresholds enforced
+
+cd ../frontend
+npm test && npm run lint && npm run typecheck && npm run build   # 230 tests
 ```
 
 These are the same commands CI runs — see

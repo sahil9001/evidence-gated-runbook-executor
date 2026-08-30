@@ -36,6 +36,7 @@ function makeRun(overrides: Partial<RunRow> = {}): RunRow {
     createdAt: "2026-08-26T09:00:00.000Z",
     updatedAt: "2026-08-26T09:05:00.000Z",
     createdBy: "oncall@runproof.dev",
+    evidenceGapCount: 0,
     ...overrides
   };
 }

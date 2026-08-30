@@ -82,6 +82,16 @@ export interface RunRow {
   readonly updatedAt: string;
   // null when there is no attributable session for the run.
   readonly createdBy: string | null;
+  /**
+   * How many runbook-allowed sources this run's packet collected nothing
+   * from — 0 for a complete packet.
+   *
+   * `null` means the run predates the measurement, and is the only signal
+   * that separates "this packet has a gap we should worry about" from "this
+   * packet is older than the collector that would have filled it". The UI
+   * uses it to avoid presenting settled history as an active failure.
+   */
+  readonly evidenceGapCount: number | null;
 }
 
 // mirrors backend/src/domain/executor.ts ExecutionResult

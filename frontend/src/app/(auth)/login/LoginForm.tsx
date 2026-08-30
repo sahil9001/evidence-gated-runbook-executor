@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { Lock, Mail } from "lucide-react";
 import { ApiClientError } from "../../../lib/api";
 import { login } from "../../../lib/auth";
 import { resolveNextPath, withNextParam } from "../../../lib/next-redirect";
+import { AuthFormError, AuthSubmitButton, AuthSwitchPrompt } from "../components/AuthFormParts";
 import { FormField } from "../components/FormField";
 
 interface FieldErrors {
@@ -84,16 +84,14 @@ export function LoginForm() {
 
   return (
     <form noValidate onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-5">
-      {formError !== null ? (
-        <div role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-          {formError}
-        </div>
-      ) : null}
+      {formError !== null ? <AuthFormError message={formError} /> : null}
 
       <FormField
         id="email"
         label="Email"
         type="email"
+        icon={Mail}
+        placeholder="you@company.com"
         autoComplete="email"
         value={email}
         onChange={(event) => setEmail(event.target.value)}
@@ -104,31 +102,22 @@ export function LoginForm() {
         id="password"
         label="Password"
         type="password"
+        icon={Lock}
+        revealable
+        placeholder="Your password"
         autoComplete="current-password"
         value={password}
         onChange={(event) => setPassword(event.target.value)}
         error={fieldErrors.password}
       />
 
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className="mt-1 inline-flex items-center justify-center gap-2 rounded-xl bg-signal px-4 py-2.5 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
-      >
-        {isSubmitting ? (
-          <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
-        ) : (
-          <ArrowRight className="h-4 w-4" strokeWidth={2} />
-        )}
-        {isSubmitting ? "Signing in..." : "Sign in"}
-      </button>
+      <AuthSubmitButton pending={isSubmitting} idleLabel="Sign in" pendingLabel="Signing in..." />
 
-      <p className="text-center text-sm text-neutral-600">
-        Don&apos;t have an account?{" "}
-        <Link href={withNextParam("/register", nextParam)} className="font-semibold text-signal transition hover:text-ink">
-          Create one
-        </Link>
-      </p>
+      <AuthSwitchPrompt
+        prompt={<>Don&apos;t have an account?</>}
+        href={withNextParam("/register", nextParam)}
+        linkLabel="Create one"
+      />
     </form>
   );
 }

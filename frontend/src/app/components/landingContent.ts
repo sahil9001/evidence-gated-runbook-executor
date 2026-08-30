@@ -92,13 +92,37 @@ export const teamCards = [
 ];
 
 export const integrations = [
-  ["GitHub", "deploy diffs"],
-  ["Datadog", "metrics"],
-  ["Sentry", "exceptions"],
-  ["PagerDuty", "alerts"],
-  ["Slack", "approvals"],
-  ["Cloudflare", "runtime logs"]
-] as const;
+  {
+    detail: "deploy diffs",
+    logo: "/integrations/github.svg",
+    name: "GitHub"
+  },
+  {
+    detail: "metrics",
+    logo: "/integrations/datadog.svg",
+    name: "Datadog"
+  },
+  {
+    detail: "exceptions",
+    logo: "/integrations/sentry.svg",
+    name: "Sentry"
+  },
+  {
+    detail: "alerts",
+    logo: "/integrations/pagerduty.svg",
+    name: "PagerDuty"
+  },
+  {
+    detail: "approvals",
+    logo: "/integrations/slack.svg",
+    name: "Slack"
+  },
+  {
+    detail: "runtime logs",
+    logo: "/integrations/cloudflare.svg",
+    name: "Cloudflare"
+  }
+];
 
 export const assuranceItems = [
   "No production action runs without approval",
@@ -113,6 +137,7 @@ export const footerGroups = [
     links: [
       { label: "Workflow", href: "#workflow" },
       { label: "Runbooks", href: "#runbooks" },
+      { label: "Integrations", href: "#integrations" },
       { label: "Demo console", href: "/app" }
     ]
   },

@@ -95,6 +95,18 @@ a {
   animation-delay: 3120ms;
 }
 
+.rp-flow-packet {
+  animation: rp-flow-packet 4.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.rp-flow-packet-2 {
+  animation-delay: 1.35s;
+}
+
+.rp-flow-packet-3 {
+  animation-delay: 2.7s;
+}
+
 @keyframes rp-rise {
   from {
     opacity: 0;
@@ -153,6 +165,23 @@ a {
 
   to {
     width: 100%;
+  }
+}
+
+@keyframes rp-flow-packet {
+  0% {
+    opacity: 0;
+    transform: translateX(0) scale(0.72);
+  }
+
+  12%,
+  82% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(300px) scale(0.72);
   }
 }
 

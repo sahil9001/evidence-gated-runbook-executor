@@ -8,19 +8,18 @@ import {
   Play,
   Radio,
   ShieldCheck,
-  Slack,
   Terminal
 } from "lucide-react";
 import {
   assuranceItems,
   footerGroups,
-  integrations,
   outcomes,
   platformCards,
   proofSteps,
   teamCards,
   workflowRows
 } from "./landingContent";
+import { IntegrationFlow } from "./IntegrationFlow";
 
 function SectionShell({
   children,
@@ -593,37 +592,8 @@ function TeamsSection() {
 
 function IntegrationSection() {
   return (
-    <SectionShell className="bg-white">
-      <div className="px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
-        <div className="grid gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
-          <div>
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-signal">
-              <Slack className="h-5 w-5" strokeWidth={1.8} />
-            </div>
-            <h2 className="mt-6 max-w-xl text-3xl font-semibold leading-tight text-ink sm:text-4xl">
-              Designed for the stack that already wakes you up.
-            </h2>
-            <p className="mt-4 max-w-xl text-base leading-7 text-neutral-600">
-              Connect the systems that create incident context, then keep the approval decision in one product surface.
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {integrations.map(([name, detail]) => (
-              <div
-                key={name}
-                className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm"
-              >
-                <div>
-                  <p className="font-semibold text-ink">{name}</p>
-                  <p className="mt-1 text-sm text-neutral-500">{detail}</p>
-                </div>
-                <ArrowRight className="h-4 w-4 text-signal" strokeWidth={2} />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+    <SectionShell id="integrations" className="bg-white">
+      <IntegrationFlow />
     </SectionShell>
   );
 }

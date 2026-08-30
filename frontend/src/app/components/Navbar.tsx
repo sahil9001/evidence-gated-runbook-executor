@@ -17,7 +17,7 @@ const navItems = [
   { label: "Workflow", href: "#workflow" },
   { label: "Platform", href: "#platform" },
   { label: "Runbooks", href: "#runbooks" },
-  { label: "Security", href: "#security" }
+  { label: "Integrations", href: "#integrations" }
 ];
 
 export function Navbar() {

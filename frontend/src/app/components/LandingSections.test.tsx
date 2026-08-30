@@ -44,10 +44,27 @@ describe("LandingSections", () => {
       image.getAttribute("src")
     );
     expect(imageSources).toContain("/landing/daytime-forest-stream.png");
+    expect(imageSources).toContain("/integrations/github.svg");
+    expect(imageSources).toContain("/integrations/datadog.svg");
+    expect(imageSources).toContain("/integrations/sentry.svg");
+    expect(imageSources).toContain("/integrations/pagerduty.svg");
+    expect(imageSources).toContain("/integrations/slack.svg");
+    expect(imageSources).toContain("/integrations/cloudflare.svg");
     expect(imageSources).not.toContain("/landing/evidence-command-room.png");
     expect(imageSources).not.toContain("/landing/approval-control-room.png");
 
+    expect(screen.getByRole("img", { name: "GitHub logo" })).toHaveAttribute(
+      "src",
+      "/integrations/github.svg"
+    );
+    expect(screen.getAllByText("Evidence packet").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Sandbox replay").length).toBeGreaterThan(0);
+    expect(screen.getByText("Approval request")).toBeInTheDocument();
     expect(screen.getByRole("contentinfo")).toHaveClass("bg-ink");
+    expect(screen.getByRole("link", { name: "Integrations" })).toHaveAttribute(
+      "href",
+      "#integrations"
+    );
     expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
     expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
     expect(screen.getByRole("link", { name: "Security" })).toHaveAttribute("href", "/security");

@@ -30,8 +30,8 @@ describe("Navbar", () => {
     expect(screen.getAllByRole("link", { name: "Platform" })[0].getAttribute("href")).toBe(
       "#platform"
     );
-    expect(screen.getAllByRole("link", { name: "Security" })[0].getAttribute("href")).toBe(
-      "#security"
+    expect(screen.getAllByRole("link", { name: "Integrations" })[0].getAttribute("href")).toBe(
+      "#integrations"
     );
     expect(screen.queryByRole("button", { name: /Sign out/ })).toBeNull();
   });

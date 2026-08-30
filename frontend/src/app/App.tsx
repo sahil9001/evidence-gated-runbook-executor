@@ -6,8 +6,8 @@ import { ShieldCheck } from "lucide-react";
 
 export default function App() {
   return (
-    <main className="min-h-[100dvh] w-full bg-paper p-3 font-sans sm:p-4">
-      <section className="relative min-h-[760px] w-full overflow-hidden rounded-2xl bg-[#d9d9d9] sm:min-h-[calc(100dvh-32px)] sm:rounded-3xl">
+    <main className="min-h-[100dvh] w-full bg-white font-sans">
+      <section className="relative min-h-[760px] w-full overflow-hidden bg-[#d9d9d9] sm:min-h-[100dvh]">
         <Image
           src="/landing/daytime-meadow-lake.png"
           alt=""
@@ -48,7 +48,7 @@ export default function App() {
 
             <a
               href="#workflow"
-              className="mt-5 inline-flex items-center gap-3 rounded-full bg-ink py-2 pl-6 pr-2 text-sm font-semibold text-white shadow-sm transition hover:translate-y-[-1px] active:translate-y-0 sm:mt-6 sm:py-2.5 sm:pl-7"
+              className="mt-5 inline-flex items-center gap-3 rounded-full bg-ink py-2 pl-6 pr-2 text-sm font-semibold text-white transition hover:translate-y-[-1px] active:translate-y-0 sm:mt-6 sm:py-2.5 sm:pl-7"
             >
               View workflow
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/15 sm:h-7 sm:w-7">

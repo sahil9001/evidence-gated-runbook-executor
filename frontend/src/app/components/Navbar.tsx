@@ -48,7 +48,7 @@ export function Navbar() {
 
   return (
     <nav className="flex justify-center px-3 pt-4 sm:px-4 sm:pt-6">
-      <div className="relative grid w-full max-w-[980px] grid-cols-[1fr_auto] items-center rounded-full border border-neutral-200 bg-white py-2 pl-2 pr-2 shadow-sm md:grid-cols-[1fr_auto_1fr]">
+      <div className="relative grid w-full max-w-[980px] grid-cols-[1fr_auto] items-center rounded-full border border-neutral-200 bg-white py-2 pl-2 pr-2 md:grid-cols-[1fr_auto_1fr]">
         <a
           href="#"
           aria-label="RunProof home"
@@ -120,7 +120,7 @@ export function Navbar() {
         </div>
 
         {open ? (
-          <div className="absolute left-2 right-2 top-full z-20 mt-2 rounded-2xl border border-neutral-200 bg-white p-3 text-left text-sm font-medium text-neutral-700 shadow-lg md:hidden">
+          <div className="absolute left-2 right-2 top-full z-20 mt-2 rounded-2xl border border-neutral-200 bg-white p-3 text-left text-sm font-medium text-neutral-700 md:hidden">
             {navItems.map((item) => (
               <a
                 key={item.label}

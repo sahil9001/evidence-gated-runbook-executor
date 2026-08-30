@@ -99,7 +99,7 @@ export function RunbookPreview({ className = "", data = DEMO_PREVIEW }: RunbookP
 
   return (
     <div
-      className={`mx-auto w-full max-w-[1180px] rounded-t-3xl rounded-b-none bg-panel p-3 pb-0 shadow-soft sm:p-5 sm:pb-0 lg:p-6 lg:pb-0 xl:max-w-[1280px] xl:p-7 xl:pb-0 2xl:max-w-[1440px] ${className}`}
+      className={`mx-auto w-full max-w-[1180px] rounded-t-3xl rounded-b-none border border-b-0 border-sky-100/80 bg-panel/85 p-3 pb-0 sm:p-5 sm:pb-0 lg:p-6 lg:pb-0 xl:max-w-[1280px] xl:p-7 xl:pb-0 2xl:max-w-[1440px] ${className}`}
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 lg:gap-5 xl:gap-6">
         <section className="rounded-2xl bg-white p-4 sm:p-5 xl:p-6">

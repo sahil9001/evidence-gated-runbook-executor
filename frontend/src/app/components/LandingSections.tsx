@@ -31,7 +31,7 @@ function SectionShell({
   return (
     <section
       id={id}
-      className={`overflow-hidden rounded-2xl shadow-sm sm:rounded-3xl ${sectionClassName}`}
+      className={`relative overflow-hidden border-t border-sky-100/70 ${sectionClassName}`}
     >
       {children}
     </section>
@@ -95,7 +95,7 @@ function TiltedAgentCard({
   tone: "green" | "yellow" | "red";
 }) {
   return (
-    <div className={`absolute h-fit w-full rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-2xl ${className}`}>
+    <div className={`absolute h-fit w-full rounded-2xl border border-sky-100 bg-white/95 p-3 ${className}`}>
       <div className="flex items-center gap-3">
         <CheckCircle2 className="h-4 w-4 shrink-0 text-signal" strokeWidth={1.8} />
         <p className="text-sm font-semibold text-ink">{title}</p>
@@ -161,7 +161,7 @@ function EvidenceCardStack() {
       <div className="absolute inset-x-0 bottom-0 z-20 h-28 bg-gradient-to-b from-transparent to-white" />
       <div className="rp-rise h-full w-full">
         <div
-          className="group mx-auto flex h-full w-full max-w-[86%] flex-col rounded-2xl border border-sky-100 bg-white p-3 shadow-2xl"
+          className="group mx-auto flex h-full w-full max-w-[86%] flex-col rounded-2xl border border-sky-100 bg-white p-3"
           style={{
             transform: "translateX(40px) rotateY(20deg) rotateX(20deg) rotateZ(-20deg)",
             transformStyle: "preserve-3d"
@@ -243,7 +243,7 @@ function ReplayPreview() {
 
   return (
     <div className="relative h-[330px] overflow-hidden bg-[#f7fbff] px-4 pt-5">
-      <div className="rp-rise relative rounded-2xl border-2 border-sky-100 bg-white py-2 shadow-2xl">
+      <div className="rp-rise relative rounded-2xl border-2 border-sky-100 bg-white py-2">
         {replayFindings.map((finding, index) => {
           const Icon = finding.icon;
 
@@ -272,7 +272,7 @@ function ReplayPreview() {
         <div className="pointer-events-none absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-white via-white to-transparent lg:w-44" />
         <div className="pointer-events-none absolute -right-2 -top-4 z-20 h-[110%] w-20 bg-gradient-to-l from-[#f7fbff] to-transparent md:w-32" />
       </div>
-      <div className="rp-float absolute bottom-10 right-8 z-30 rounded-2xl border border-sky-100 bg-white p-3 shadow-xl">
+      <div className="rp-float absolute bottom-10 right-8 z-30 rounded-2xl border border-sky-100 bg-white p-3">
         <div className="flex items-center gap-2">
           <Play className="h-4 w-4 fill-current text-signal" strokeWidth={1.8} />
           <p className="text-xs font-semibold text-ink">Replay complete</p>
@@ -287,18 +287,18 @@ function DeployGuardVisual() {
     <div className="relative h-[330px] overflow-hidden bg-[#f7fbff]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(14,165,233,0.22),transparent_32%),repeating-linear-gradient(90deg,rgba(14,165,233,0.12)_0,rgba(14,165,233,0.12)_1px,transparent_1px,transparent_22px)] [mask-image:radial-gradient(circle_at_center,black_0%,transparent_72%)]" />
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative flex h-36 w-36 items-center justify-center rounded-full border border-sky-100 bg-white shadow-2xl md:h-44 md:w-44">
+        <div className="relative flex h-36 w-36 items-center justify-center rounded-full border border-sky-100 bg-white md:h-44 md:w-44">
           <div className="absolute inset-4 rounded-full border border-dashed border-sky-200" />
-          <div className="rp-float relative z-10 flex h-20 w-20 items-center justify-center rounded-full bg-signal text-white shadow-[0_22px_70px_rgba(2,132,199,0.35)] md:h-24 md:w-24">
+          <div className="rp-float relative z-10 flex h-20 w-20 items-center justify-center rounded-full bg-signal text-white md:h-24 md:w-24">
             <ShieldCheck className="h-10 w-10" strokeWidth={1.8} />
           </div>
         </div>
       </div>
-      <div className="absolute left-6 top-8 rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-xl">
+      <div className="absolute left-6 top-8 rounded-2xl border border-sky-100 bg-white/95 p-3">
         <p className="text-xs font-semibold text-sky-700">Approval</p>
         <p className="mt-2 text-sm font-semibold text-ink">required</p>
       </div>
-      <div className="absolute bottom-10 right-6 rounded-2xl border border-sky-100 bg-white/95 p-3 shadow-xl">
+      <div className="absolute bottom-10 right-6 rounded-2xl border border-sky-100 bg-white/95 p-3">
         <p className="text-xs font-semibold text-sky-700">Audit</p>
         <p className="mt-2 text-sm font-semibold text-ink">recorded</p>
       </div>
@@ -351,7 +351,7 @@ function WorkflowSection() {
 function PlatformSection() {
   return (
     <SectionShell id="platform" className="bg-white">
-      <div className="px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
+      <div className="mx-auto max-w-[1180px] px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
         <div className="max-w-2xl">
           <h2 className="text-3xl font-semibold leading-tight text-ink sm:text-4xl lg:text-5xl">
             A control layer for AI-assisted operations.
@@ -369,7 +369,7 @@ function PlatformSection() {
               return (
                 <article
                   key={card.title}
-                  className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  className="rounded-2xl border border-neutral-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-sky-200"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-signal">
                     <Icon className="h-5 w-5" strokeWidth={1.8} />
@@ -397,7 +397,7 @@ function PlatformSection() {
                 ].map((item) => (
                   <div
                     key={item}
-                    className="flex items-center justify-between rounded-xl bg-white/88 px-4 py-3 shadow-sm"
+                    className="flex items-center justify-between rounded-xl bg-white/88 px-4 py-3"
                   >
                     <span className="text-sm font-semibold text-neutral-700">{item}</span>
                     <CheckCircle2 className="h-4 w-4 text-signal" strokeWidth={2} />
@@ -415,7 +415,7 @@ function PlatformSection() {
 function FeatureGridSection() {
   return (
     <SectionShell id="runbooks">
-      <div className="relative z-20 mx-auto max-w-5xl py-10 lg:py-20">
+      <div className="relative z-20 mx-auto max-w-[1180px] py-10 lg:py-20">
         <div className="px-6">
           <h2 className="mx-auto max-w-5xl text-center text-3xl font-semibold text-ink sm:text-4xl lg:text-5xl lg:leading-tight">
             Packed with proof-first <span className="font-serif italic font-normal leading-[1.1]">features</span>
@@ -467,8 +467,8 @@ function FeatureGridSection() {
 
 function FinalCtaSection() {
   return (
-    <section className="overflow-hidden rounded-2xl border border-sky-100 bg-white shadow-sm sm:rounded-3xl">
-      <div className="grid items-center gap-0 lg:grid-cols-[1fr_0.78fr]">
+    <section className="border-t border-sky-100/70 bg-white">
+      <div className="mx-auto grid max-w-[1180px] items-center gap-0 lg:grid-cols-[1fr_0.78fr]">
         <div className="px-6 py-10 sm:px-10 lg:px-12 lg:py-14">
           <h2 className="max-w-2xl text-3xl font-semibold leading-tight text-ink sm:text-4xl">
             Ready to review the incident loop?
@@ -551,7 +551,7 @@ function Footer() {
 
 export function LandingSections() {
   return (
-    <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 pt-4 sm:gap-5 sm:pt-5">
+    <div className="flex w-full flex-col bg-white">
       <WorkflowSection />
       <PlatformSection />
       <FeatureGridSection />

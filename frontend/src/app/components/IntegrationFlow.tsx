@@ -22,7 +22,7 @@ const outputNodes = [
 
 export function IntegrationFlow() {
   return (
-    <div className="px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
+    <div className="mx-auto max-w-[1180px] px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
       <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-signal">
@@ -42,7 +42,7 @@ export function IntegrationFlow() {
         </div>
       </div>
 
-      <div className="mt-9 overflow-hidden rounded-2xl border border-sky-100 bg-[#f7fbff] shadow-sm">
+      <div className="mt-9 overflow-hidden border-y border-sky-100 bg-[#f7fbff]">
         <div className="relative p-4 sm:p-6 lg:p-8">
           <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(2,132,199,0.08)_1px,transparent_1px),linear-gradient(0deg,rgba(2,132,199,0.08)_1px,transparent_1px)] bg-[length:42px_42px]" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_48%_50%,rgba(14,165,233,0.2),transparent_34%)]" />
@@ -56,7 +56,7 @@ export function IntegrationFlow() {
                 {integrations.map((integration, index) => (
                   <div
                     key={integration.name}
-                    className={`rp-rise flex items-center gap-3 rounded-2xl border border-white bg-white/92 p-3 shadow-sm ${
+                    className={`rp-rise flex items-center gap-3 rounded-2xl border border-sky-100/80 bg-white/92 p-3 ${
                       index % 2 === 0 ? "mr-7" : "ml-7"
                     }`}
                   >
@@ -80,23 +80,23 @@ export function IntegrationFlow() {
 
               <div className="relative flex h-[430px] items-center justify-center overflow-hidden">
                 <div className="absolute left-6 right-6 top-1/2 h-px bg-gradient-to-r from-sky-200 via-signal to-sky-200" />
-                <div className="absolute left-8 top-[212px] h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_20px_rgba(2,132,199,0.55)] rp-flow-packet" />
-                <div className="absolute left-8 top-[212px] h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.45)] rp-flow-packet rp-flow-packet-2" />
-                <div className="absolute left-8 top-[212px] h-1.5 w-1.5 rounded-full bg-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.45)] rp-flow-packet rp-flow-packet-3" />
+                <div className="absolute left-8 top-[212px] h-1.5 w-1.5 rounded-full bg-signal rp-flow-packet" />
+                <div className="absolute left-8 top-[212px] h-1.5 w-1.5 rounded-full bg-emerald-500 rp-flow-packet rp-flow-packet-2" />
+                <div className="absolute left-8 top-[212px] h-1.5 w-1.5 rounded-full bg-amber-500 rp-flow-packet rp-flow-packet-3" />
 
-                <div className="absolute left-3 top-12 rounded-2xl border border-sky-100 bg-white/90 p-3 shadow-sm">
+                <div className="absolute left-3 top-12 rounded-2xl border border-sky-100 bg-white/90 p-3">
                   <p className="text-xs font-bold uppercase tracking-[0.12em] text-neutral-400">Collect</p>
                   <p className="mt-1 text-sm font-semibold text-ink">signals</p>
                 </div>
 
-                <div className="absolute bottom-12 right-3 rounded-2xl border border-emerald-100 bg-white/90 p-3 shadow-sm">
+                <div className="absolute bottom-12 right-3 rounded-2xl border border-emerald-100 bg-white/90 p-3">
                   <p className="text-xs font-bold uppercase tracking-[0.12em] text-neutral-400">Gate</p>
                   <p className="mt-1 text-sm font-semibold text-ink">action</p>
                 </div>
 
-                <div className="relative z-10 flex h-52 w-52 flex-col items-center justify-center rounded-full border border-sky-100 bg-white text-center shadow-2xl">
+                <div className="relative z-10 flex h-52 w-52 flex-col items-center justify-center rounded-full border border-sky-100 bg-white text-center">
                   <div className="absolute inset-4 rounded-full border border-dashed border-sky-200" />
-                  <div className="rp-float relative z-10 flex h-20 w-20 items-center justify-center rounded-2xl bg-signal text-white shadow-[0_24px_60px_rgba(2,132,199,0.32)]">
+                  <div className="rp-float relative z-10 flex h-20 w-20 items-center justify-center rounded-2xl bg-signal text-white">
                     <ShieldCheck className="h-9 w-9" strokeWidth={1.8} />
                   </div>
                   <p className="relative z-10 mt-4 text-xl font-semibold text-ink">RunProof</p>
@@ -116,7 +116,7 @@ export function IntegrationFlow() {
                   return (
                     <div
                       key={node.label}
-                      className="group relative overflow-hidden rounded-2xl border border-white bg-white/94 p-4 shadow-sm"
+                      className="group relative overflow-hidden rounded-2xl border border-sky-100/80 bg-white/94 p-4"
                     >
                       <div className="absolute inset-y-0 left-0 w-1 bg-signal transition group-hover:w-1.5" />
                       <div className="flex items-start gap-3">

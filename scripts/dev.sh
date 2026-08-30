@@ -203,7 +203,15 @@ wait_until_up() {
   # it claims. Both would mislead precisely when startup is slow, which is the
   # only time anyone reads this.
   local began=$SECONDS elapsed=0 next_heartbeat=$HEARTBEAT_SECONDS
-  while (( elapsed < READY_TIMEOUT_SECONDS )); do
+  # Re-read the clock at the top of every pass, before deciding whether to make
+  # another attempt. Updating `elapsed` at the bottom meant the loop guard was
+  # testing the *previous* pass's value, so a pass admitted just under the
+  # deadline could still spend two seconds in curl and one sleeping — pushing
+  # the real wait past the timeout this function advertises, in exactly the
+  # slow-startup case anyone is actually watching it.
+  while :; do
+    elapsed=$(( SECONDS - began ))
+    (( elapsed < READY_TIMEOUT_SECONDS )) || break
     if ! kill -0 "$pid" 2>/dev/null; then
       die "the $what exited before it came up. Its output is above."
     fi

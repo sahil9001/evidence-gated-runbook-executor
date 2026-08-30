@@ -335,6 +335,16 @@ selection, not the full log.
 - PR #3's SSE eviction bug was introduced by adding the session idle-TTL that
   the *previous* finding ("sessions never expired") required.
 
+**Two High findings answered late, in [#32][pr32]:** PR #17's readiness loop
+tested the *previous* pass's elapsed time, so `./scripts/dev.sh` could wait
+past the timeout it advertises; PR #22's deploy step checked for the
+placeholder `database_id` before reading `D1_DATABASE_ID`, so once a real id
+was committed the variable was silently ignored and a fork would deploy
+against this repository's database rather than its own. Both are fixed; the
+delay is recorded here rather than tidied away.
+
+[pr32]: https://github.com/sahil9001/evidence-gated-runbook-executor/pull/32
+
 **Two findings we did not fix, and why:**
 - **PR #1 — "Serializer breaks strict typecheck."** Disputed: `npm run
   typecheck` exits 0 against `tsc --noEmit`, so there was nothing to fix at the

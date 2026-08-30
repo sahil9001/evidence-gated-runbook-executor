@@ -1,13 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import {
-  Database,
-  FileSearch,
-  GitBranch,
-  LockKeyhole,
-  Radio,
-  ShieldCheck,
-  Terminal
-} from "lucide-react";
+import { FileSearch, GitBranch, LockKeyhole, Terminal } from "lucide-react";
 
 type IconCard = {
   body: string;
@@ -22,29 +14,6 @@ export const workflowRows = [
   ["Writing proof packet", "40s", "complete"],
   ["Waiting for approval", "50s", "pending"]
 ] as const;
-
-export const proofSteps: IconCard[] = [
-  {
-    icon: Radio,
-    title: "Read the signal",
-    body: "Start from the alert, related deploys, and known runbook rules instead of a blank chat prompt."
-  },
-  {
-    icon: Database,
-    title: "Collect evidence",
-    body: "Pull logs, traces, metrics, and deployment context into one packet that reviewers can inspect."
-  },
-  {
-    icon: Terminal,
-    title: "Replay safely",
-    body: "Run diagnostics in a sandbox before recommending anything that could touch production."
-  },
-  {
-    icon: ShieldCheck,
-    title: "Gate the action",
-    body: "Require a human approval decision before the executor can run the production step."
-  }
-];
 
 export const outcomes = [
   "Incident packet ready before the first production step",
@@ -73,21 +42,6 @@ export const platformCards: IconCard[] = [
     icon: GitBranch,
     title: "Audit trail",
     body: "Record the recommendation, reviewer decision, and action state for incident review."
-  }
-];
-
-export const teamCards = [
-  {
-    title: "On-call engineers",
-    body: "See the likely cause, supporting proof, and locked action without chasing five tabs during an incident."
-  },
-  {
-    title: "Platform teams",
-    body: "Standardize remediation paths while keeping the approval boundary clear for every production change."
-  },
-  {
-    title: "Engineering leaders",
-    body: "Review what the agent saw, what it suggested, and where human judgment entered the workflow."
   }
 ];
 

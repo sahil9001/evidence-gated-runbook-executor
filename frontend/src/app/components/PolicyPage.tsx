@@ -41,7 +41,7 @@ export function PolicyPage({ badge, children, description, sections, title }: Po
             <div className="absolute inset-0 bg-gradient-to-t from-ink/20 via-transparent to-white/20" />
             <Link
               href="/"
-              className="absolute left-5 top-5 inline-flex items-center gap-2 rounded-full bg-white/88 px-4 py-2 text-sm font-semibold text-ink shadow-sm backdrop-blur transition hover:bg-white"
+              className="absolute left-5 top-5 inline-flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 text-sm font-semibold text-ink shadow-sm backdrop-blur transition hover:bg-white"
             >
               <ArrowLeft className="h-4 w-4" strokeWidth={2} />
               Home

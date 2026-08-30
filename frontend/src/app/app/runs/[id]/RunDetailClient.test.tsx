@@ -502,6 +502,37 @@ describe("RunDetailClient", () => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
 
+    it("does not contradict the archived banner in the stage strip", async () => {
+      searchParamsValue = new URLSearchParams("tab=evidence");
+      getRun.mockResolvedValue(
+        makeDetail({
+          run: { ...makeDetail().run, evidenceGapCount: null },
+          failures: gapFailures
+        })
+      );
+      render(<RunDetailClient runId="run-1" />);
+
+      // The strip sits directly above the "archived packet" banner. Colouring
+      // the same gap as an active fault there made one screen say two things.
+      // Both the stage caption and the banner below it now read as archived,
+      // which is the point: they used to disagree.
+      expect((await screen.findAllByText(/archived/i)).length).toBeGreaterThanOrEqual(2);
+      expect(screen.queryByText(/1 source gap/i)).toBeNull();
+    });
+
+    it("still shows the gap on the strip for a measured run", async () => {
+      searchParamsValue = new URLSearchParams("tab=evidence");
+      getRun.mockResolvedValue(
+        makeDetail({
+          run: { ...makeDetail().run, evidenceGapCount: 1 },
+          failures: gapFailures
+        })
+      );
+      render(<RunDetailClient runId="run-1" />);
+
+      expect(await screen.findByText(/1 source gap/i)).toBeInTheDocument();
+    });
+
     it("explains an empty Diagnostics tab on an archived run", async () => {
       searchParamsValue = new URLSearchParams("tab=diagnostics");
       getRun.mockResolvedValue(

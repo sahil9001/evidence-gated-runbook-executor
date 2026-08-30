@@ -21,7 +21,12 @@ const sections = [
   },
   {
     title: "Access controls",
-    body: "Access is scoped to the authenticated workspace experience. Teams should grant accounts only to people who need to review incidents or manage runbooks."
+    // Says what the system actually enforces. Authentication gates the console,
+    // but incident and audit reads are not filtered per account, so any signed-in
+    // user can list every incident and every audit entry. Claiming workspace
+    // scoping we do not implement would be exactly the kind of unearned
+    // assurance this product exists to argue against.
+    body: "Every console route requires an authenticated session. Access is not partitioned per user or per workspace: any signed-in account can read all incidents, runs, and audit entries in the deployment. Grant accounts only to people who should see all of it."
   },
   {
     title: "Data requests",

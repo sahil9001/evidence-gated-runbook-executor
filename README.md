@@ -21,7 +21,8 @@ For a judge with five minutes:
 | **Demo video** | See [Demo](#demo). |
 | **Try it live** | Console <https://runproof-frontend.sahilsilare.workers.dev> · API <https://runproof-api.sahilsilare.workers.dev/health> |
 | **Run it locally** | `./scripts/dev.sh` — one command, both servers. See [How to run it](#how-to-run-it). |
-| **Qodo review evidence** | All 25 merged PRs went through Qodo review. Representative: [**PR #1 — the non-forgeable approval gate**](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1). Full log in [Qodo Code Review Evidence](#qodo-code-review-evidence). |
+| **Qodo review evidence** | All 31 merged PRs went through Qodo review. Representative: [**PR #1 — the non-forgeable approval gate**](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1). Full log in [Qodo Code Review Evidence](#qodo-code-review-evidence). |
+| **License / AI use** | [MIT](LICENSE) · Claude Code was used throughout — see [AI assistance disclosure](#ai-assistance-disclosure). |
 | **Honest scope** | [What is NOT built](#what-is-not-built), including the one thing worth knowing up front: tool discovery and the annotation-driven checkpoint are verified against a running TrueForge, but driving a full live agent turn needs a model-provider key this repo does not ship. |
 
 ## Demo
@@ -293,7 +294,7 @@ PR #25; CI runs the same two suites on every merge to `main`.
 
 ## Qodo Code Review Evidence
 
-All 25 merged PRs went through a full Qodo review cycle, and every substantive
+All 31 merged PRs went through a full Qodo review cycle, and every substantive
 change landed through one of them. One honest exception, since it takes a
 single `git log --first-parent` to find: the first day's nine commits —
 Next.js scaffolding and landing-page work, 2026-08-24 — were pushed straight
@@ -349,7 +350,7 @@ selection, not the full log.
 
 ### Every merged pull request
 
-[![Qodo review: 25 of 25 merged PRs](https://img.shields.io/badge/Qodo%20review-25%20of%2025%20merged%20PRs-6f42c1?style=for-the-badge)](https://github.com/sahil9001/evidence-gated-runbook-executor/pulls?q=is%3Apr+is%3Amerged)
+[![Qodo review: 31 of 31 merged PRs](https://img.shields.io/badge/Qodo%20review-31%20of%2031%20merged%20PRs-6f42c1?style=for-the-badge)](https://github.com/sahil9001/evidence-gated-runbook-executor/pulls?q=is%3Apr+is%3Amerged)
 
 The button opens the merged-PR list on GitHub; every row below links to one of
 them. The **Qodo** column counts everything Qodo posted on that PR — its
@@ -384,6 +385,12 @@ commits, or both.
 | [#23](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/23) | 2026-08-29 | fix: make frontend/package-lock.json installable with npm 10 | 2 |
 | [#24](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/24) | 2026-08-29 | fix: bring PBKDF2 iterations under the limit the Workers runtime enforces | 3 |
 | [#25](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/25) | 2026-08-29 | Redesign auth pages with full-bleed split layout | 2 |
+| [#26](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/26) | 2026-08-30 | docs: bring the README up to submission requirements | 2 |
+| [#27](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/27) | 2026-08-30 | Polish product landing page | 3 |
+| [#28](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/28) | 2026-08-30 | fix: restore vitest's optional esbuild peer to the frontend lockfile | 2 |
+| [#29](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/29) | 2026-08-30 | feat: revamp the operator console | 3 |
+| [#30](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/30) | 2026-08-30 | feat: collect sandbox evidence so packets can satisfy their runbook | 3 |
+| [#31](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/31) | 2026-08-30 | fix: stop presenting archived evidence gaps as active failures | 3 |
 
 Every one of them carries Qodo review activity; none was merged unreviewed.
 
@@ -472,6 +479,33 @@ What the deployment does **not** include is TrueForge. No hosted TrueForge
 instance points at this API, so the MCP and agent half of the system is
 local-only — [How to run it](#how-to-run-it) is the path that exercises it, and
 [`docs/trueforge-setup.md`](docs/trueforge-setup.md) is the judge walkthrough.
+
+## AI assistance disclosure
+
+The hackathon rules permit AI coding assistants when their use is disclosed, so:
+**Claude Code was used extensively throughout this project** — writing
+implementation and tests, responding to Qodo review findings, and drafting
+documentation including parts of this README.
+
+What that did and did not mean in practice:
+
+- Every change still went through a Qodo-reviewed pull request, and the review
+  findings were read, judged, and either fixed or disputed on the merits. Two
+  were disputed rather than fixed; both are documented above with reasoning.
+- Architectural and safety decisions were directed, not delegated: the
+  non-forgeable gate, the two-independent-approvals design, keeping the model
+  outside the evidence and gate paths, and the choice to leave unmeasurable
+  history unmeasured rather than backfill a convenient default.
+- The limitations in [What is NOT built](#what-is-not-built) are stated because
+  they are true, including the ones that make the demo less impressive.
+
+The submission is a product of that loop rather than of unattended generation,
+and the architecture and trade-offs here can be explained on request.
+
+## License
+
+[MIT](LICENSE). You are free to use, modify, and distribute this, with
+attribution and without warranty.
 
 ## Further reading
 

@@ -196,6 +196,7 @@ export function RunDetailClient({ runId }: RunDetailClientProps) {
         {/* The stage strip answers "where is this run stuck" before the
             operator has to read a single tab. */}
         <RunStages
+          evidenceGapCount={data.run.evidenceGapCount}
           failures={data.failures}
           gate={data.gate}
           packet={data.packet}

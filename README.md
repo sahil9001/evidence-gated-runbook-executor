@@ -10,6 +10,34 @@ approves it.
 
 > Looking is free. Touching needs a signature.
 
+## Submission at a glance
+
+For a judge with five minutes:
+
+| | |
+|---|---|
+| **What the agent does** | An alert fires. The agent follows the runbook the team already wrote — pulls logs, metrics and deploy history, runs a diagnostic in a sandbox, assembles an evidence packet, and proposes a rollback. The rollback stays **locked** until a human approves it. |
+| **How TrueForge is used** | TrueForge is the harness, not a dependency bolted on afterwards. It runs the agent loop, discovers RunProof's six tools over MCP, and enforces the human-in-the-loop checkpoint directly from the `destructiveHint`/`readOnlyHint` annotations the tools declare — the five evidence tools run freely, `propose_rollback` pauses the turn until a human sends `allow` or `deny`. TrueForge's sandbox is also what executes the diagnostic script, because RunProof itself has no execution surface at all. |
+| **Demo video** | See [Demo](#demo). |
+| **Try it live** | Console <https://runproof-frontend.sahilsilare.workers.dev> · API <https://runproof-api.sahilsilare.workers.dev/health> |
+| **Run it locally** | `./scripts/dev.sh` — one command, both servers. See [How to run it](#how-to-run-it). |
+| **Qodo review evidence** | All 25 merged PRs went through Qodo review. Representative: [**PR #1 — the non-forgeable approval gate**](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1). Full log in [Qodo Code Review Evidence](#qodo-code-review-evidence). |
+| **Honest scope** | [What is NOT built](#what-is-not-built), including the one thing worth knowing up front: tool discovery and the annotation-driven checkpoint are verified against a running TrueForge, but driving a full live agent turn needs a model-provider key this repo does not ship. |
+
+## Demo
+
+> **Placeholder — the ~3 minute demo video is not linked yet.** Replace this
+> block with the URL before submitting. Nothing else in the README depends on it.
+
+The walkthrough runs the system end to end: TrueForge discovering all six MCP
+tools with `propose_rollback` marked destructive and the evidence tools marked
+read-only; filing an incident against `payment-service` in the console and
+starting a run; the evidence packet assembling from logs, metrics and deploy
+history; the Approval tab showing a **locked** gate and a run response carrying
+no `execution` field, so nothing has run yet; a human approving, which mints the
+single `ApprovalToken` that lets `executeStateChanging` be called at all; and
+the audit log recording who approved what, and when.
+
 ## Why the approval gate is the point
 
 Incident response is exactly the place an autonomous agent is most tempting and
@@ -252,7 +280,7 @@ each stage (tool discovery → a read-only call → the sandboxed diagnostic →
 ### Verification
 
 ```bash
-cd backend && npm test && npm run typecheck   # 491 tests, clean typecheck
+cd backend && npm test && npm run typecheck   # 492 tests, clean typecheck
 cd ../frontend && npm test && npm run lint && npm run typecheck && npm run build
 ```
 
@@ -260,15 +288,33 @@ These are the same commands CI runs on merge (minus the frontend `build`, which
 the deploy job covers via `opennextjs-cloudflare build`) — see
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
 
-`frontend` runs 174 tests of its own; both counts are as of PR #10.
+`frontend` runs 185 tests of its own. Both counts are from a local run at
+PR #25; CI runs the same two suites on every merge to `main`.
 
 ## Qodo Code Review Evidence
 
-All ten merged PRs went through a full Qodo review cycle. This section is meant
-as evidence of a working review loop, not a trophy list — the most interesting
-fact is that **several fixes introduced the next finding**, caught by re-review
-rather than by the original author. The table below is a selection, not the
-full log.
+All 25 merged PRs went through a full Qodo review cycle, and every substantive
+change landed through one of them. One honest exception, since it takes a
+single `git log --first-parent` to find: the first day's nine commits —
+Next.js scaffolding and landing-page work, 2026-08-24 — were pushed straight
+to `main` before PR #1 opened. Everything after that point, which is the
+backend, the MCP server, the approval gate and the console in their entirety,
+went through a reviewed pull request.
+
+**Representative merged PR: [#1 — backend foundation and the non-forgeable
+approval gate][pr1].** It is the one to open first, because Qodo's review there
+shaped the project's core safety property: it caught that forged tokens passed
+authorization, since the `unique symbol` brand TypeScript uses is erased at
+runtime and could not stop a hand-built object from type-casting past the
+check. The `WeakSet` identity check the rest of this README keeps pointing at
+exists because of that review.
+
+[pr1]: https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1
+
+This section is meant as evidence of a working review loop, not a trophy list —
+the most interesting fact is that **several fixes introduced the next finding**,
+caught by re-review rather than by the original author. The table below is a
+selection, not the full log.
 
 | PR | Subject | Notable findings Qodo raised and we fixed |
 |---|---|---|
@@ -300,6 +346,46 @@ full log.
   deployment. We chose an honest, documented limitation over a rushed migration
   this close to the deadline — see "Known limitations" in
   [`docs/trueforge-setup.md`](docs/trueforge-setup.md#known-limitations-local-dev-scope).
+
+### Every merged pull request
+
+[![Qodo review: 25 of 25 merged PRs](https://img.shields.io/badge/Qodo%20review-25%20of%2025%20merged%20PRs-6f42c1?style=for-the-badge)](https://github.com/sahil9001/evidence-gated-runbook-executor/pulls?q=is%3Apr+is%3Amerged)
+
+The button opens the merged-PR list on GitHub; every row below links to one of
+them. The **Qodo** column counts everything Qodo posted on that PR — its
+summary comment, its code review, and any inline review threads. Two is a
+single clean pass; anything higher means findings, a re-review after new
+commits, or both.
+
+| PR | Merged | Title | Qodo |
+|---|---|---|---|
+| [#1](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/1) | 2026-08-26 | feat: backend foundation and the non-forgeable approval gate | 6 |
+| [#2](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/2) | 2026-08-26 | feat: runbook schema, matcher, and fixture-backed evidence collectors | 4 |
+| [#3](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/3) | 2026-08-26 | RunProof as a TrueForge MCP server | 7 |
+| [#4](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/4) | 2026-08-26 | Sandboxed diagnostic step: get_diagnostic_script MCP tool | 4 |
+| [#5](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/5) | 2026-08-26 | docs: hackathon submission write-up + Qodo review evidence | 6 |
+| [#6](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/6) | 2026-08-27 | feat: pluggable D1/memory persistence layer | 6 |
+| [#7](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/7) | 2026-08-27 | feat: session auth for provable approver identity | 6 |
+| [#8](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/8) | 2026-08-27 | feat: token-gated executor and evidence-gated approval API | 8 |
+| [#9](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/9) | 2026-08-28 | feat: listing APIs for the operator console | 8 |
+| [#10](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/10) | 2026-08-28 | feat: operator console frontend | 9 |
+| [#11](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/11) | 2026-08-28 | docs: correct the auth claims that PRs #7-#10 made false | 3 |
+| [#12](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/12) | 2026-08-28 | docs: bring the roadmap's "what exists today" back to reality | 2 |
+| [#13](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/13) | 2026-08-28 | feat: one command to run the whole stack locally | 2 |
+| [#14](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/14) | 2026-08-28 | feat: make dev.sh say what it is doing and how long it took | 3 |
+| [#15](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/15) | 2026-08-28 | fix: stop the risk gauge failing hydration on the landing page | 2 |
+| [#16](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/16) | 2026-08-28 | fix: stop wrangler suspending itself before it ever listens | 2 |
+| [#17](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/17) | 2026-08-28 | fix: report real elapsed time while waiting, not loop iterations | 3 |
+| [#18](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/18) | 2026-08-29 | feat: make the landing page nav aware of the session | 3 |
+| [#19](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/19) | 2026-08-29 | fix: stop Ctrl+C leaving both dev servers running | 2 |
+| [#20](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/20) | 2026-08-29 | docs: add an architecture doc with Mermaid diagrams | 2 |
+| [#21](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/21) | 2026-08-29 | ci: deploy the backend and the console on merge to main | 5 |
+| [#22](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/22) | 2026-08-29 | fix: stop the D1 binding forcing a remote proxy session in tests | 3 |
+| [#23](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/23) | 2026-08-29 | fix: make frontend/package-lock.json installable with npm 10 | 2 |
+| [#24](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/24) | 2026-08-29 | fix: bring PBKDF2 iterations under the limit the Workers runtime enforces | 3 |
+| [#25](https://github.com/sahil9001/evidence-gated-runbook-executor/pull/25) | 2026-08-29 | Redesign auth pages with full-bleed split layout | 2 |
+
+Every one of them carries Qodo review activity; none was merged unreviewed.
 
 ## What is NOT built
 
@@ -366,11 +452,26 @@ everything else in the submission:
 
 ## Live deployment
 
-A frontend build has previously been deployed to
-`https://runproof-frontend.sahilsilare.workers.dev` via OpenNext/Wrangler; it
-serves the product UI only and is not wired to a live TrueForge instance or a
-running backend. Judges should follow "How to run it" above to see the actual
-system, not the static deployment.
+Both Workers ship from CI on every merge to `main`
+([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) — the backend
+first, so the console is never live against a schema the API has not migrated
+to yet.
+
+| | URL |
+|---|---|
+| Operator console | <https://runproof-frontend.sahilsilare.workers.dev> |
+| API health | <https://runproof-api.sahilsilare.workers.dev/health> |
+
+The console is wired to that API rather than serving UI in isolation:
+`NEXT_PUBLIC_API_URL` is inlined at build time from a repository variable, and
+the backend's `ALLOWED_FRONTEND_ORIGINS` names the console's own origin, so the
+browser's preflight and credentialed requests from the console are accepted
+instead of refused by CORS.
+
+What the deployment does **not** include is TrueForge. No hosted TrueForge
+instance points at this API, so the MCP and agent half of the system is
+local-only — [How to run it](#how-to-run-it) is the path that exercises it, and
+[`docs/trueforge-setup.md`](docs/trueforge-setup.md) is the judge walkthrough.
 
 ## Further reading
 
@@ -385,3 +486,5 @@ system, not the static deployment.
 - [`docs/cloudflare-deployment.md`](docs/cloudflare-deployment.md) — deployment
   notes for the frontend.
 - [`docs/roadmap.md`](docs/roadmap.md) — remaining work beyond this slice.
+- **Build write-up (blog)** — *placeholder; add the post's URL here before
+  submitting.*
